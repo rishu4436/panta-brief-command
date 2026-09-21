@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { maybeOpenAIBrief } from "@/lib/brief";
 import type {
+  BriefTone,
   CatalogTradeRow,
   MarketCatalogItem,
   MarketTradesResponse,
@@ -25,16 +26,24 @@ async function pantaGet<T>(path: string): Promise<T> {
   return JSON.parse(text) as T;
 }
 
+function parseTone(raw: unknown): BriefTone {
+  const t = String(raw || "neutral").toLowerCase();
+  if (t === "bull" || t === "bear" || t === "neutral") return t;
+  return "neutral";
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = (await req.json()) as {
       marketId?: string;
       market?: MarketCatalogItem;
       tape?: CatalogTradeRow[];
+      tone?: string;
     };
 
     let market = body.market;
     let tape = body.tape;
+    const tone = parseTone(body.tone);
 
     if (!market && body.marketId) {
       market = await pantaGet<MarketCatalogItem>(
@@ -59,12 +68,13 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const { narrative, source } = await maybeOpenAIBrief(market, tape);
+    const { narrative, source } = await maybeOpenAIBrief(market, tape, tone);
     return NextResponse.json({
       market,
       tape,
       narrative,
       source,
+      tone,
       generatedAt: new Date().toISOString(),
     });
   } catch (err) {

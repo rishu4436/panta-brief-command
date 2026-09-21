@@ -1,5 +1,7 @@
-import type { CatalogTradeRow, MarketCatalogItem } from "./types";
+import type { BriefTone, CatalogTradeRow, MarketCatalogItem } from "./types";
 import { formatOddsPct, formatVolumeUsdc, impliedSide } from "./format";
+
+export type { BriefTone };
 
 function tapeSummary(tape: CatalogTradeRow[]): {
   count: number;
@@ -26,9 +28,39 @@ function tapeSummary(tape: CatalogTradeRow[]): {
   return { count: tape.length, yesBuys, noBuys, lastSide };
 }
 
+function toneHeader(tone: BriefTone): string {
+  if (tone === "bull") return "Tone preset: **Bull** — emphasize YES catalysts and upside flow.";
+  if (tone === "bear") return "Tone preset: **Bear** — emphasize NO catalysts, fade risk, and downside flow.";
+  return "Tone preset: **Neutral** — balanced desk read without directional spin.";
+}
+
+function toneDeskNote(
+  lean: string,
+  tone: BriefTone,
+): string {
+  if (tone === "bull") {
+    return lean === "NO"
+      ? "Bull preset vs NO-priced curve: thesis is contrarian — size only if resolution criteria clearly favor YES and quote avgPrice still works."
+      : "Bull preset: prefer primary YES when quote fee/slippage stay inside risk limits; do not chase expired quotes.";
+  }
+  if (tone === "bear") {
+    return lean === "YES"
+      ? "Bear preset vs YES-priced curve: look for NO entries on weak tape / wide fee; confirm endTime and oracle before fading."
+      : "Bear preset: lean NO or stay flat unless tape prints clear YES exhaustion and quote remains fresh.";
+  }
+  return lean === "YES"
+    ? "Curve prices YES as the favorite. Size primary buys carefully — bonding-curve avgPrice from quote is the binding fill, not the spot label."
+    : lean === "NO"
+      ? "Curve prices NO ahead. Contrarian YES requires conviction on resolution criteria; check endTime and oracle source before size."
+      : lean === "EVEN"
+        ? "Market is balanced. Edge comes from information timing and fee/slippage discipline on primary fills."
+        : "List endpoints return null prices — open detail (this page) for live odds before trading.";
+}
+
 export function buildTemplateBrief(
   market: MarketCatalogItem,
   tape: CatalogTradeRow[],
+  tone: BriefTone = "neutral",
 ): string {
   const { yes, no } = impliedSide(market);
   const yesPct = formatOddsPct(yes);
@@ -69,6 +101,8 @@ export function buildTemplateBrief(
   return [
     `## Desk brief — ${headline}`,
     "",
+    toneHeader(tone),
+    "",
     `**Thesis lean:** ${lean}  ·  **Phase:** ${phase}  ·  **Status:** ${status}`,
     `**Implied odds:** YES ${yesPct} / NO ${noPct}  ·  **Catalog volume:** ${vol}`,
     `**Category:** ${market.category || "—"}  ·  **Region:** ${market.region || "—"}  ·  **Window end:** ${end}`,
@@ -82,35 +116,41 @@ export function buildTemplateBrief(
     flowNote,
     "",
     "### Desk notes",
-    lean === "YES"
-      ? "Curve prices YES as the favorite. Size primary buys carefully — bonding-curve avgPrice from quote is the binding fill, not the spot label."
-      : lean === "NO"
-        ? "Curve prices NO ahead. Contrarian YES requires conviction on resolution criteria; check endTime and oracle source before size."
-        : lean === "EVEN"
-          ? "Market is balanced. Edge comes from information timing and fee/slippage discipline on primary fills."
-          : "List endpoints return null prices — open detail (this page) for live odds before trading.",
+    toneDeskNote(lean, tone),
     "",
     "### Risks",
     "- Primary-only flow in this desk; secondary AMM routing is out of scope for v1.",
     "- Quote sessions expire quickly — sign/broadcast promptly after build.",
     "- Resolution disputes and oracle lag can reprice outcomes after the window.",
     "",
-    `_Generated ${new Date().toISOString()} · Powered by Panta_`,
+    `_Generated ${new Date().toISOString()} · tone=${tone} · Powered by Panta_`,
   ].join("\n");
+}
+
+function toneSystemHint(tone: BriefTone): string {
+  if (tone === "bull") {
+    return "Adopt a constructive/bull tone toward YES without fabricating prices. Highlight catalysts that could lift YES.";
+  }
+  if (tone === "bear") {
+    return "Adopt a cautious/bear tone favoring NO or flat. Stress fade risk, fee drag, and why YES may be overextended.";
+  }
+  return "Stay balanced and desk-neutral. No cheerleading either side.";
 }
 
 export async function maybeOpenAIBrief(
   market: MarketCatalogItem,
   tape: CatalogTradeRow[],
+  tone: BriefTone = "neutral",
 ): Promise<{ narrative: string; source: "openai" | "template" }> {
   const apiKey = process.env.OPENAI_API_KEY?.trim();
   if (!apiKey) {
-    return { narrative: buildTemplateBrief(market, tape), source: "template" };
+    return { narrative: buildTemplateBrief(market, tape, tone), source: "template" };
   }
 
   const model = process.env.OPENAI_MODEL?.trim() || "gpt-4o-mini";
   const { yes, no } = impliedSide(market);
   const prompt = {
+    tone,
     title: (market.title || "").trim() || (market.description || "").trim(),
     description: market.description,
     category: market.category,
@@ -144,7 +184,7 @@ export async function maybeOpenAIBrief(
           {
             role: "system",
             content:
-              "You are a prediction-market desk analyst. Write a concise markdown brief (Situation, Tape read, Desk notes, Risks) from the JSON. No investment advice disclaimer spam. Be concrete about YES/NO odds and flow.",
+              `You are a prediction-market desk analyst. Write a concise markdown brief (Situation, Tape read, Desk notes, Risks) from the JSON. No investment advice disclaimer spam. Be concrete about YES/NO odds and flow. ${toneSystemHint(tone)}`,
           },
           {
             role: "user",
@@ -154,17 +194,17 @@ export async function maybeOpenAIBrief(
       }),
     });
     if (!res.ok) {
-      return { narrative: buildTemplateBrief(market, tape), source: "template" };
+      return { narrative: buildTemplateBrief(market, tape, tone), source: "template" };
     }
     const json = (await res.json()) as {
       choices?: { message?: { content?: string } }[];
     };
     const content = json.choices?.[0]?.message?.content?.trim();
     if (!content) {
-      return { narrative: buildTemplateBrief(market, tape), source: "template" };
+      return { narrative: buildTemplateBrief(market, tape, tone), source: "template" };
     }
     return { narrative: content, source: "openai" };
   } catch {
-    return { narrative: buildTemplateBrief(market, tape), source: "template" };
+    return { narrative: buildTemplateBrief(market, tape, tone), source: "template" };
   }
 }

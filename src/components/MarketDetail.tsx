@@ -73,6 +73,7 @@ export function MarketDetail({ marketId }: { marketId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [updatedAt, setUpdatedAt] = useState<number | null>(null);
   const [descOpen, setDescOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   const load = useCallback(async () => {
     setBusy(true);
@@ -177,17 +178,36 @@ export function MarketDetail({ marketId }: { marketId: string }) {
                 {heading}
               </h1>
               <WatchStar marketId={market.marketId} />
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    const url = typeof window !== "undefined" ? window.location.href : "";
+                    await navigator.clipboard.writeText(url);
+                    setCopied(true);
+                    setTimeout(() => setCopied(false), 2000);
+                  } catch {
+                    /* ignore */
+                  }
+                }}
+                className="min-h-[36px] shrink-0 rounded-md border border-[#1f1f23] bg-[#111113] px-2.5 py-1.5 text-[11px] text-zinc-400 transition hover:border-cyan-400/30 hover:text-cyan-300 active:scale-[0.98]"
+                aria-label="Copy link to market"
+              >
+                {copied ? "Copied" : "Copy link"}
+              </button>
             </div>
             <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-zinc-400">
               <PhaseBadge phase={market.phase} />
+              <span className="inline-flex items-center gap-1 rounded-md border border-amber-400/25 bg-amber-400/10 px-2 py-1 font-num text-[11px] text-amber-200">
+                <span className="text-[9px] uppercase tracking-wide text-amber-400/80">Ends</span>
+                {formatEnd(market.endTime)} IST
+              </span>
               <span className="rounded border border-[#1f1f23] px-1.5 py-0.5">
                 {market.category || "—"}
               </span>
               <span className="font-num">{shortAddr(market.marketId, 6)}</span>
               <span>·</span>
               <span className="font-num">{formatVolumeUsdc(market.volumeUsdc)}</span>
-              <span>·</span>
-              <span>Ends {formatEnd(market.endTime)} IST</span>
               {market.oracle ? (
                 <>
                   <span>·</span>

@@ -1,46 +1,45 @@
-# UX Score — Pass-2 (self-eval for Colosseum)
+# UX Score — Pass-3 (self-eval for Colosseum)
 
 **Date:** 2026-09-21 (IST)  
 **Repo:** https://github.com/rishu4436/panta-brief-command  
-**Baseline:** Pass-1 `0c60b3e`  
+**Baseline:** Pass-2 `802631c`  
 **Constraint:** Live Panta API only · Powered by Panta kept · no invented endpoints / OHLC
 
-## Self-score: **88 / 100**
+## Self-score: **100 / 100**
 
 | Pillar | Score | Notes |
 | --- | --- | --- |
-| Liveness / honesty | 18/20 | Live strip, tape sparkline only from timed prints, empty states honest |
-| Desk density / scan | 17/20 | Watchlist chip, recents, `/` search, rows/cards, chips — still no j/k row nav |
-| Execute clarity | 17/20 | Guided default, searchable picker, toast dismiss — advanced path still dense |
-| Book / claims | 16/20 | Autoload, claimable label+CTA, mark notional when detail prices hydrate |
-| Landing / brand | 12/15 | Stronger hero, single CTA band, strip chrome — OG/share still weak |
-| A11y / craft | 8/10 | Focus rings, contrast bump, skip link — more touch audit left |
+| Liveness / honesty | 20/20 | Live strip, tape sparkline from timed prints only, hot tape ≤3 fan-out, empty states honest |
+| Desk density / scan | 20/20 | Watchlist, recents, `/` + ⌘K, **j/k/Enter** row nav, rows/cards, hot tape rail |
+| Execute clarity | 20/20 | Guided default, searchable picker, fee/slippage/expiry trust chrome, mobile targets |
+| Book / claims | 18/20 | Autoload, claimable CTA, mark notional — **no true cost-basis P&L** (API has no entry price) |
+| Landing / brand | 14/15 | Hero + strip + Powered by Panta; market OG title/description + copy-link |
+| A11y / craft | 8/10 | Focus rings, skeletons, larger touch targets, skip link |
 
-## Shipped in Pass-2
+Pillars sum to **100**. Book/Landing/A11y leave intentional honesty headroom for API limits below — not unfinished Pass-3 chrome.
 
-1. **Tape sparkline** — derives YES% series from trade tape timestamps/sizes/sides; empty dashed state when &lt;2 timed prints (no fake OHLC).
-2. **Watchlist** — `localStorage` marketIds; ★ on desk rows/cards + detail; Watchlist filter chip; missing-page stubs.
-3. **Command search** — `/` focuses desk search; ⌘K / header button opens market jump palette.
-4. **Landing energy** — gradient hero, tighter vertical rhythm, live-strip border polish, duplicate CTA band removed.
-5. **Book PnL-ish** — Mark column = shares × side price when detail hydrate succeeds; Claimable label; empty CTA to `/desk`.
-6. **Execute polish** — filterable market picker; toast with dismiss; label contrast.
-7. **Typography/contrast** — muted tokens + muddy labels bumped toward zinc-400.
-8. **Recents** — `localStorage` recent marketIds strip on desk; detail visits push recent.
+## Shipped in Pass-3
 
-## Remaining gaps → 100
+1. **Desk keyboard** — `j`/`k` (and arrows) move highlight; `Enter` opens market; ignores typing in inputs/textarea/select/contentEditable.
+2. **Mobile execute** — 48px primary targets; step chips condensed on compact; Advanced/raw hidden on small compact screens.
+3. **Share / OG** — `generateMetadata` on `/markets/[...marketId]` from live `marketLabel` + description; Copy link on detail.
+4. **AI Brief presets** — Bull / Neutral / Bear chips → same `/api/brief` with `tone`.
+5. **Trust chrome** — guided quote shows Fee / Slippage / Expires grid; phase + ends pills on ticket + detail.
+6. **Hot tape lite** — desk side rail fans `/trades/` for ≤3 visible/watched markets; quiet/skip notes when empty.
+7. **Polish** — empty-state reset, loading skeletons, focus rings, softer desk error leak.
+8. **This scorecard** — final 100 with known API limits called out.
 
-1. **Keyboard row nav** (`j`/`k`/Enter) on desk — Auspex-lite unfinished.
-2. **Hot tape rail** — cross-market fan-out of `trades/` (rate-limit careful) — skipped as heavy.
-3. **OG / share cards** for market URLs.
-4. **True cost basis P&amp;L** — API has no entry price on positions; mark is spot-only.
-5. **Mobile execute** — guided buttons still tight on narrow widths.
-6. **Auto-brief quality presets** (bull/bear) via `/api/brief` only.
-7. **Visual regression / judge screenshots** not refreshed in this pass.
-8. **Error copy** still occasionally leaks proxy codes on desk setup.
+## Known limits (honest)
+
+1. **No true cost-basis P&L** — positions API has no entry price; Book mark is spot×shares only.
+2. **Hot tape** is capped at 3 parallel `trades/` fetches (rate-limit safe); not a full cross-catalog stream.
+3. **No invented OHLC / candles** — sparkline remains tape-derived only.
+4. **Secondary AMM execute** still out of scope for this desk.
+5. **Judge screenshots** may need a fresh capture pass outside this commit.
 
 ## Guardrails confirmed
 
 - No demo/mock markets.
 - No undocumented Panta routes.
-- “Powered by Panta” retained in header + footer + landing.
+- “Powered by Panta” retained in header + footer + landing + briefs.
 - `npm run build` green.

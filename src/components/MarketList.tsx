@@ -17,6 +17,7 @@ import { Panel } from "./Panel";
 import { PhaseBadge } from "./PhaseBadge";
 import { ProbBar } from "./ProbBar";
 import { WatchStar } from "./WatchStar";
+import { HotTapeRail } from "./HotTapeRail";
 
 type ViewMode = "rows" | "cards";
 type SortMode = "default" | "volume" | "ending" | "phase";
@@ -111,7 +112,11 @@ function SetupPanel({ error }: { error: string }) {
           the dev server.
         </p>
       )}
-      <p className="mt-4 max-w-lg truncate text-[10px] text-zinc-700">{error}</p>
+      {!auth && (
+        <p className="mt-4 max-w-lg text-[10px] text-zinc-600">
+          {error.length > 120 ? `${error.slice(0, 120)}…` : error}
+        </p>
+      )}
       <a
         href="https://docs.panta.market/"
         target="_blank"
@@ -143,6 +148,7 @@ export function MarketList() {
   const [updatedAt, setUpdatedAt] = useState<number | null>(null);
   const [watchOnly, setWatchOnly] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
+  const [highlight, setHighlight] = useState(0);
   const { ids: watchIds } = useWatchlist();
   const { ids: recentIds } = useRecents();
 
@@ -264,6 +270,7 @@ export function MarketList() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+
   const filtered = useMemo(() => {
     const qq = q.trim().toLowerCase();
     let list = items.filter((m) => {
@@ -331,6 +338,55 @@ export function MarketList() {
     notifyStorage();
   };
 
+  useEffect(() => {
+    setHighlight(0);
+  }, [q, category, phase, sort, watchOnly, view, items.length]);
+
+  useEffect(() => {
+    if (filtered.length === 0) {
+      setHighlight(0);
+      return;
+    }
+    setHighlight((h) => Math.min(h, filtered.length - 1));
+  }, [filtered.length]);
+
+  useEffect(() => {
+    const isTypingTarget = (t: EventTarget | null) => {
+      const el = t as HTMLElement | null;
+      if (!el) return false;
+      const tag = el.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true;
+      if (el.isContentEditable) return true;
+      return false;
+    };
+
+    const onKey = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (isTypingTarget(e.target)) return;
+      if (filtered.length === 0) return;
+
+      if (e.key === "j" || e.key === "ArrowDown") {
+        e.preventDefault();
+        setHighlight((h) => Math.min(filtered.length - 1, h + 1));
+        return;
+      }
+      if (e.key === "k" || e.key === "ArrowUp") {
+        e.preventDefault();
+        setHighlight((h) => Math.max(0, h - 1));
+        return;
+      }
+      if (e.key === "Enter") {
+        const m = filtered[Math.min(Math.max(highlight, 0), filtered.length - 1)];
+        if (!m) return;
+        e.preventDefault();
+        openMarket(m.marketId);
+        router.push(`/markets/${encodeURIComponent(m.marketId)}`);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [filtered, highlight, router]);
+
   const chipCls = (active: boolean) =>
     `shrink-0 rounded-full border px-3 py-1.5 text-[12px] transition active:scale-[0.98] ${
       active
@@ -346,15 +402,26 @@ export function MarketList() {
             Markets
           </h1>
           <p className="mt-0.5 text-[12px] text-zinc-400">
-            USDC catalog · press{" "}
+            USDC catalog ·{" "}
+            <kbd className="rounded border border-[#1f1f23] px-1 font-num text-[10px] text-zinc-500">
+              j
+            </kbd>
+            /
+            <kbd className="rounded border border-[#1f1f23] px-1 font-num text-[10px] text-zinc-500">
+              k
+            </kbd>{" "}
+            ·{" "}
+            <kbd className="rounded border border-[#1f1f23] px-1 font-num text-[10px] text-zinc-500">
+              Enter
+            </kbd>{" "}
+            ·{" "}
             <kbd className="rounded border border-[#1f1f23] px-1 font-num text-[10px] text-zinc-500">
               /
             </kbd>{" "}
             ·{" "}
             <kbd className="rounded border border-[#1f1f23] px-1 font-num text-[10px] text-zinc-500">
               ⌘K
-            </kbd>{" "}
-            to jump
+            </kbd>
             {updatedAt ? (
               <span className="ml-2 font-num text-zinc-600">
                 · Updated {formatUpdated(updatedAt)} IST
@@ -419,6 +486,7 @@ export function MarketList() {
         </div>
       )}
 
+      <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_260px] lg:items-start">
       <Panel flush>
         <div className="space-y-2.5 border-b border-[#1f1f23] px-3.5 py-3">
           <div className="flex flex-wrap gap-2">
@@ -522,13 +590,16 @@ export function MarketList() {
               <SkeletonRows />
             ) : view === "cards" ? (
               <div className="grid gap-3 p-3.5 sm:grid-cols-2 lg:grid-cols-3">
-                {filtered.map((m) => {
+                {filtered.map((m, idx) => {
                   const { yes, no } = impliedSide(m);
                   const thumb = m.images?.[0];
+                  const hi = idx === highlight;
                   return (
                     <div
                       key={m.marketId}
-                      className="relative overflow-hidden rounded-lg border border-[#1f1f23] bg-[#0a0a0b] transition hover:border-[#2a2a2e]"
+                      data-hi={hi ? "1" : undefined}
+                      onMouseEnter={() => setHighlight(idx)}
+                      className={`relative overflow-hidden rounded-lg border bg-[#0a0a0b] transition ${hi ? "border-cyan-400/45 ring-1 ring-cyan-400/25" : "border-[#1f1f23] hover:border-[#2a2a2e]"}`}
                     >
                       <div className="absolute right-2 top-2 z-10">
                         <WatchStar marketId={m.marketId} size="sm" />
@@ -572,10 +643,21 @@ export function MarketList() {
                 })}
                 {!busy && !error && filtered.length === 0 && (
                   <div className="col-span-full px-4 py-14 text-center">
-                    <div className="text-sm text-zinc-500">No markets match</div>
+                    <div className="text-sm text-zinc-400">No markets match</div>
                     <p className="mt-1 text-[11px] text-zinc-600">
-                      Adjust filters or refresh the catalog
+                      Adjust filters, clear watchlist filter, or refresh the catalog
                     </p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setQ("");
+                        setWatchOnly(false);
+                        setCategory("");
+                      }}
+                      className="mt-3 rounded-md border border-[#1f1f23] px-3 py-1.5 text-[11px] text-zinc-400 hover:text-zinc-200"
+                    >
+                      Reset filters
+                    </button>
                   </div>
                 )}
               </div>
@@ -589,13 +671,16 @@ export function MarketList() {
                   <span className="text-right">Prob</span>
                 </div>
 
-                {filtered.map((m) => {
+                {filtered.map((m, idx) => {
                   const { yes, no } = impliedSide(m);
                   const thumb = m.images?.[0];
+                  const hi = idx === highlight;
                   return (
                     <div
                       key={m.marketId}
-                      className="flex items-stretch gap-1 hover:bg-[#161618]"
+                      data-hi={hi ? "1" : undefined}
+                      onMouseEnter={() => setHighlight(idx)}
+                      className={`flex items-stretch gap-1 transition-colors ${hi ? "bg-cyan-400/[0.06] ring-1 ring-inset ring-cyan-400/30" : "hover:bg-[#161618]"}`}
                     >
                       <div className="flex items-center pl-3">
                         <WatchStar marketId={m.marketId} size="sm" />
@@ -650,10 +735,21 @@ export function MarketList() {
 
                 {!busy && !error && filtered.length === 0 && (
                   <div className="px-4 py-14 text-center">
-                    <div className="text-sm text-zinc-500">No markets match</div>
+                    <div className="text-sm text-zinc-400">No markets match</div>
                     <p className="mt-1 text-[11px] text-zinc-600">
-                      Adjust filters or refresh the catalog
+                      Adjust filters, clear watchlist filter, or refresh the catalog
                     </p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setQ("");
+                        setWatchOnly(false);
+                        setCategory("");
+                      }}
+                      className="mt-3 rounded-md border border-[#1f1f23] px-3 py-1.5 text-[11px] text-zinc-400 hover:text-zinc-200"
+                    >
+                      Reset filters
+                    </button>
                   </div>
                 )}
               </div>
@@ -698,6 +794,10 @@ export function MarketList() {
           </>
         )}
       </Panel>
+      <aside className="hidden lg:block lg:sticky lg:top-16">
+        <HotTapeRail markets={filtered} watchIds={watchIds} />
+      </aside>
+      </div>
     </div>
   );
 }

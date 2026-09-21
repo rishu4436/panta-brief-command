@@ -17,9 +17,25 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Panta Brief Command",
+  title: {
+    default: "Panta Brief Command",
+    template: "%s | Panta Brief Command",
+  },
   description:
     "Solana prediction desk powered by Panta — market intel, AI briefs, primary buys, and book claims.",
+  openGraph: {
+    title: "Panta Brief Command",
+    description:
+      "Solana prediction desk powered by Panta — live markets, AI briefs, primary buys.",
+    siteName: "Panta Brief Command",
+    type: "website",
+  },
+  twitter: {
+    card: "summary",
+    title: "Panta Brief Command",
+    description:
+      "Solana prediction desk powered by Panta — live markets, AI briefs, primary buys.",
+  },
 };
 
 export default function RootLayout({

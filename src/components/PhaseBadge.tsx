@@ -12,7 +12,7 @@ export function PhaseBadge({ phase }: { phase?: string }) {
             : "bg-zinc-500/10 text-zinc-400 border-zinc-500/25";
   return (
     <span
-      className={`inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide ${color}`}
+      className={`inline-flex items-center rounded border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${color}`}
     >
       {phase || "—"}
     </span>

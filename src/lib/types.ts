@@ -155,6 +155,8 @@ export type TradeReportResponse = {
   kind?: string;
 };
 
+export type BriefTone = "bull" | "neutral" | "bear";
+
 export type BriefPayload = {
   market: MarketCatalogItem;
   tape: CatalogTradeRow[];

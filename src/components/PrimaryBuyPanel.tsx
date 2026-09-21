@@ -339,9 +339,9 @@ export function PrimaryBuyPanel({
   const inputCls =
     "mt-1 w-full rounded-md border border-[#1f1f23] bg-[#0a0a0b] px-3 py-2 text-sm text-zinc-100 outline-none focus:border-cyan-400/40";
   const btnPrimary =
-    "rounded-md bg-cyan-400 px-3 py-2.5 text-sm font-semibold text-[#0a0a0b] transition hover:bg-cyan-300 active:scale-[0.98] disabled:opacity-40";
+    "min-h-[48px] rounded-md bg-cyan-400 px-3 py-3 text-sm font-semibold text-[#0a0a0b] transition hover:bg-cyan-300 active:scale-[0.98] disabled:opacity-40";
   const btnGhost =
-    "rounded-md border border-[#1f1f23] bg-[#0a0a0b] px-3 py-2 text-sm text-zinc-300 transition hover:border-[#2a2a2e] hover:text-zinc-100 active:scale-[0.98] disabled:opacity-40";
+    "min-h-[44px] rounded-md border border-[#1f1f23] bg-[#0a0a0b] px-3 py-2.5 text-sm text-zinc-300 transition hover:border-[#2a2a2e] hover:text-zinc-100 active:scale-[0.98] disabled:opacity-40";
 
   const copySig = async () => {
     if (!signature) return;
@@ -353,10 +353,30 @@ export function PrimaryBuyPanel({
     }
   };
 
+  const selectedMarket = useMemo(
+    () => catalog.find((m) => m.marketId === marketId) || null,
+    [catalog, marketId],
+  );
+
+  const formatEndShort = (ts?: number | null) => {
+    if (!ts) return "—";
+    return new Date(ts * 1000).toLocaleString("en-IN", {
+      timeZone: "Asia/Calcutta",
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  };
+
   return (
     <Panel title={compact ? "Execute ticket" : "Primary buy"}>
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <div className="flex flex-wrap gap-1" role="list" aria-label="Execute steps">
+        <div
+          className={`flex flex-wrap gap-1 ${compact ? "hidden sm:flex" : ""}`}
+          role="list"
+          aria-label="Execute steps"
+        >
           {STEPS.map((label, i) => (
             <span
               key={label}
@@ -374,6 +394,12 @@ export function PrimaryBuyPanel({
             </span>
           ))}
         </div>
+        {compact && (
+          <div className="text-[10px] text-zinc-500 sm:hidden" aria-live="polite">
+            Step {Math.min(step + 1, STEPS.length)}/{STEPS.length}
+            {guidedPhase ? ` · ${guidedPhase}` : ""}
+          </div>
+        )}
         <div className="inline-flex rounded-md border border-[#1f1f23] bg-[#0a0a0b] p-0.5">
           <button
             type="button"
@@ -439,6 +465,23 @@ export function PrimaryBuyPanel({
           />
         </div>
 
+        {selectedMarket && (
+          <div className={`rounded-md border border-[#1f1f23] bg-[#0a0a0b] px-3 py-2.5 ${compact ? "" : "sm:col-span-2"}`}>
+            <div className="flex flex-wrap items-center gap-2 text-[11px]">
+              <span className="rounded border border-cyan-400/30 bg-cyan-400/10 px-1.5 py-0.5 font-medium uppercase tracking-wide text-cyan-300">
+                {selectedMarket.phase || "—"}
+              </span>
+              <span className="text-zinc-500">Ends</span>
+              <span className="font-num text-zinc-300">{formatEndShort(selectedMarket.endTime)} IST</span>
+              {selectedMarket.category ? (
+                <span className="rounded border border-[#1f1f23] px-1.5 py-0.5 text-zinc-500">
+                  {selectedMarket.category}
+                </span>
+              ) : null}
+            </div>
+          </div>
+        )}
+
         <div>
           <div className="text-[11px] text-zinc-400">Side</div>
           <div className="mt-1 grid grid-cols-2 gap-1.5">
@@ -446,7 +489,7 @@ export function PrimaryBuyPanel({
               type="button"
               aria-pressed={side === "yes"}
               onClick={() => setSide("yes")}
-              className={`min-h-[44px] rounded-md border py-2 text-sm font-semibold transition active:scale-[0.98] ${
+              className={`min-h-[48px] rounded-md border py-2.5 text-sm font-semibold transition active:scale-[0.98] ${
                 side === "yes"
                   ? "border-emerald-400/40 bg-emerald-500/15 text-emerald-300"
                   : "border-[#1f1f23] text-zinc-500 hover:border-[#2a2a2e]"
@@ -458,7 +501,7 @@ export function PrimaryBuyPanel({
               type="button"
               aria-pressed={side === "no"}
               onClick={() => setSide("no")}
-              className={`min-h-[44px] rounded-md border py-2 text-sm font-semibold transition active:scale-[0.98] ${
+              className={`min-h-[48px] rounded-md border py-2.5 text-sm font-semibold transition active:scale-[0.98] ${
                 side === "no"
                   ? "border-rose-400/40 bg-rose-500/15 text-rose-300"
                   : "border-[#1f1f23] text-zinc-500 hover:border-[#2a2a2e]"
@@ -484,7 +527,7 @@ export function PrimaryBuyPanel({
                 key={p}
                 type="button"
                 onClick={() => setAmountUsdc(p)}
-                className={`rounded border px-2 py-1 font-num text-[11px] transition active:scale-[0.98] ${
+                className={`min-h-[40px] min-w-[44px] rounded border px-3 py-2 font-num text-[12px] transition active:scale-[0.98] ${
                   amountUsdc === p
                     ? "border-cyan-400/40 bg-cyan-400/10 text-cyan-300"
                     : "border-[#1f1f23] text-zinc-500 hover:text-zinc-300"
@@ -527,22 +570,30 @@ export function PrimaryBuyPanel({
 
       {quote && (
         <div className="mt-3 rounded-md border border-cyan-400/20 bg-cyan-400/[0.04] p-3 text-[12px] leading-relaxed text-zinc-300">
-          <p>
+          <p className="text-[13px]">
             Pay{" "}
             <span className="font-num font-semibold text-cyan-300">
               {quote.amountUsdc || amountUsdc} USDC
             </span>{" "}
             → ~{quote.shares} {quote.side?.toUpperCase() || side.toUpperCase()} @{" "}
             <span className="font-num">{quote.avgPrice}</span>
-            {" · "}fee{" "}
-            <span className="font-num">{quote.feeUsdc}</span>
-            {expiresLabel ? (
-              <>
-                {" · "}expires in{" "}
-                <span className="font-num text-amber-300">{expiresLabel}</span>
-              </>
-            ) : null}
           </p>
+          <dl className="mt-2.5 grid grid-cols-3 gap-2 border-t border-cyan-400/15 pt-2.5 text-[11px]">
+            <div>
+              <dt className="text-[10px] uppercase tracking-wide text-zinc-500">Fee</dt>
+              <dd className="mt-0.5 font-num font-medium text-zinc-200">{quote.feeUsdc} USDC</dd>
+            </div>
+            <div>
+              <dt className="text-[10px] uppercase tracking-wide text-zinc-500">Slippage</dt>
+              <dd className="mt-0.5 font-num font-medium text-zinc-200">{maxSlippageBps} bps</dd>
+            </div>
+            <div>
+              <dt className="text-[10px] uppercase tracking-wide text-zinc-500">Expires</dt>
+              <dd className={`mt-0.5 font-num font-medium ${expiresLabel === "0:00" ? "text-rose-300" : "text-amber-300"}`}>
+                {expiresLabel || "—"}
+              </dd>
+            </div>
+          </dl>
         </div>
       )}
 
@@ -619,7 +670,7 @@ export function PrimaryBuyPanel({
               type="button"
               disabled={busy || !signature}
               onClick={() => void runFinishAttribution()}
-              className="w-full rounded-md border border-emerald-400/30 bg-emerald-500/10 px-3 py-2.5 text-sm text-emerald-200 active:scale-[0.98] disabled:opacity-40"
+              className="min-h-[48px] w-full rounded-md border border-emerald-400/30 bg-emerald-500/10 px-3 py-3 text-sm text-emerald-200 active:scale-[0.98] disabled:opacity-40"
             >
               {busy && guidedPhase ? guidedPhase : "Finish attribution"}
             </button>
@@ -653,8 +704,8 @@ export function PrimaryBuyPanel({
         </div>
       )}
 
-      <details className="mt-3 rounded-md border border-[#1f1f23] bg-[#0a0a0b] open:pb-0">
-        <summary className="cursor-pointer px-2.5 py-2 text-[10px] uppercase tracking-wide text-zinc-600 hover:text-zinc-400">
+      <details className={`mt-3 rounded-md border border-[#1f1f23] bg-[#0a0a0b] open:pb-0 ${compact ? "hidden sm:block" : ""}`}>
+        <summary className="min-h-[40px] cursor-pointer px-2.5 py-2 text-[10px] uppercase tracking-wide text-zinc-600 hover:text-zinc-400">
           Advanced / raw
         </summary>
         <div className={`grid gap-2 border-t border-[#1f1f23] p-2.5 ${compact ? "" : "lg:grid-cols-2"}`}>

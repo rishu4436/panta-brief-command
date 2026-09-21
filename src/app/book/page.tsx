@@ -1,4 +1,5 @@
 import { BookPanel } from "@/components/BookPanel";
+import { AttributedTrades } from "@/components/AttributedTrades";
 
 export default function BookPage() {
   return (
@@ -8,10 +9,11 @@ export default function BookPage() {
           Book
         </h1>
         <p className="mt-0.5 text-[12px] text-zinc-500">
-          Positions & claim builds
+          Positions · claims · attributed activity (GET /account/trades/)
         </p>
       </div>
       <BookPanel />
+      <AttributedTrades limit={50} />
     </div>
   );
 }

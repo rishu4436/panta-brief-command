@@ -197,7 +197,11 @@ export function BookPanel() {
                   <th scope="col" className="px-3 py-2 font-medium">
                     Shares
                   </th>
-                  <th scope="col" className="px-3 py-2 font-medium">
+                  <th
+                    scope="col"
+                    className="px-3 py-2 font-medium"
+                    title="Mark (spot × shares · not P&L)"
+                  >
                     Mark
                   </th>
                   <th scope="col" className="px-3 py-2 font-medium">

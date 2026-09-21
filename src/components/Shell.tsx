@@ -2,8 +2,11 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
+import { PublicKey } from "@solana/web3.js";
+import { shortAddr } from "@/lib/format";
 import { CommandPalette } from "./CommandPalette";
 
 const nav = [
@@ -11,6 +14,63 @@ const nav = [
   { href: "/execute", label: "Execute", match: (p: string) => p.startsWith("/execute") },
   { href: "/book", label: "Book", match: (p: string) => p.startsWith("/book") },
 ];
+
+/** Mainnet USDC mint — optional balance chip only */
+const USDC_MINT = new PublicKey("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v");
+
+function WalletMeta() {
+  const { publicKey, connected } = useWallet();
+  const { connection } = useConnection();
+  const [usdc, setUsdc] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!connected || !publicKey) {
+      setUsdc(null);
+      return;
+    }
+    (async () => {
+      try {
+        const res = await connection.getParsedTokenAccountsByOwner(publicKey, {
+          mint: USDC_MINT,
+        });
+        let total = 0;
+        for (const acc of res.value) {
+          const info = acc.account.data.parsed?.info;
+          const amt = info?.tokenAmount?.uiAmount;
+          if (typeof amt === "number" && Number.isFinite(amt)) total += amt;
+        }
+        if (!cancelled) {
+          setUsdc(
+            total.toLocaleString(undefined, {
+              maximumFractionDigits: 2,
+              minimumFractionDigits: 0,
+            }),
+          );
+        }
+      } catch {
+        if (!cancelled) setUsdc(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [connected, publicKey, connection]);
+
+  if (!connected || !publicKey) return null;
+
+  return (
+    <span className="hidden items-center gap-1.5 rounded-full border border-[#1f1f23] bg-[#111113] px-2.5 py-1 font-num text-[11px] text-zinc-400 sm:inline-flex">
+      <span className="text-zinc-300">{shortAddr(publicKey.toBase58(), 4)}</span>
+      {usdc != null && (
+        <>
+          <span className="text-zinc-700">·</span>
+          <span className="text-zinc-400">{usdc} USDC</span>
+        </>
+      )}
+    </span>
+  );
+}
 
 export function Shell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
@@ -76,13 +136,17 @@ export function Shell({ children }: { children: ReactNode }) {
                 Live
               </span>
             )}
+            <WalletMeta />
             {isLanding ? (
-              <Link
-                href="/desk"
-                className="rounded-md bg-cyan-400 px-3 py-1.5 text-[12px] font-semibold text-[#0a0a0b] transition hover:bg-cyan-300 active:scale-[0.98]"
-              >
-                Open desk
-              </Link>
+              <>
+                <Link
+                  href="/desk"
+                  className="rounded-md bg-cyan-400 px-3 py-1.5 text-[12px] font-semibold text-[#0a0a0b] transition hover:bg-cyan-300 active:scale-[0.98]"
+                >
+                  Open desk
+                </Link>
+                <WalletMultiButton />
+              </>
             ) : (
               <WalletMultiButton />
             )}

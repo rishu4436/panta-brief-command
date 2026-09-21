@@ -3,6 +3,7 @@
 import { useSearchParams } from "next/navigation";
 import { Suspense } from "react";
 import { PrimaryBuyPanel } from "@/components/PrimaryBuyPanel";
+import { AttributedTrades } from "@/components/AttributedTrades";
 import { Panel } from "@/components/Panel";
 
 function ExecuteInner() {
@@ -15,10 +16,11 @@ function ExecuteInner() {
           Execute
         </h1>
         <p className="mt-0.5 text-[12px] text-zinc-500">
-          Primary buy path · quote → attribute
+          Primary buy · guided Quote → Attribute · live attribution ledger
         </p>
       </div>
       <PrimaryBuyPanel initialMarketId={marketId} />
+      <AttributedTrades limit={25} kindFilter="buy" compact />
     </div>
   );
 }

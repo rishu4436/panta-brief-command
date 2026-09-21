@@ -211,16 +211,18 @@ export function PrimaryBuyPanel({
     return sig;
   };
 
-  const runSubmit = async () => {
+  const runSubmit = async (opts?: { orderId?: string; sig?: string }) => {
     requireReady();
-    if (!build?.orderId || !signature) {
+    const orderId = opts?.orderId || build?.orderId;
+    const sig = opts?.sig || signature;
+    if (!orderId || !sig) {
       throw new Error("Need orderId + signature");
     }
     const { raw } = await pantaFetch<Json>("/primaryordersubmit/", {
       method: "POST",
       body: {
-        orderId: build.orderId,
-        signature,
+        orderId,
+        signature: sig,
         wallet: publicKey!.toBase58(),
       },
     });
@@ -229,14 +231,16 @@ export function PrimaryBuyPanel({
     push("Submitted signature to Panta");
   };
 
-  const runVerify = async () => {
+  const runVerify = async (opts?: { orderId?: string; sig?: string | null }) => {
     requireReady();
-    if (!build?.orderId) throw new Error("Build first");
+    const orderId = opts?.orderId || build?.orderId;
+    const sig = opts?.sig !== undefined ? opts.sig : signature;
+    if (!orderId) throw new Error("Build first");
     const { raw } = await pantaFetch<Json>("/primaryorderverify/", {
       method: "POST",
       body: {
-        orderId: build.orderId,
-        signature,
+        orderId,
+        signature: sig,
         wallet: publicKey!.toBase58(),
       },
     });
@@ -245,15 +249,20 @@ export function PrimaryBuyPanel({
     push("Verify polled");
   };
 
-  const runAttribute = async () => {
+  const runAttribute = async (opts?: {
+    built?: PrimaryBuildResponse;
+    sig?: string;
+  }) => {
     requireReady();
-    if (!signature || !build) throw new Error("Need broadcast signature");
+    const built = opts?.built || build;
+    const sig = opts?.sig || signature;
+    if (!sig || !built) throw new Error("Need broadcast signature");
     const body: Record<string, string> = {
-      signature,
+      signature: sig,
       wallet: publicKey!.toBase58(),
-      marketId: build.marketId,
-      quoteId: build.quoteId,
-      clientOrderId: build.orderId,
+      marketId: built.marketId,
+      quoteId: built.quoteId,
+      clientOrderId: built.orderId,
     };
     if (attributionUserId) body.userId = attributionUserId;
     const { data, raw } = await pantaFetch<TradeReportResponse>("/trades/", {
@@ -264,7 +273,7 @@ export function PrimaryBuyPanel({
     setTradeRaw(raw);
     setStep(6);
     push(`Attributed trade · status ${data.status}`);
-    setToast(`Attributed · ${shortAddr(signature, 6)}`);
+    setToast(`Attributed · ${shortAddr(sig, 6)}`);
   };
 
   const runGuided = async () => {
@@ -276,9 +285,16 @@ export function PrimaryBuyPanel({
       setGuidedPhase("Building VT…");
       const b = await runBuild(q);
       setGuidedPhase("Sign in wallet…");
-      await runSignBroadcast(b);
+      const sig = await runSignBroadcast(b);
+      // One-shot finish: Submit → Verify → Attribute
+      setGuidedPhase("Submitting…");
+      await runSubmit({ orderId: b.orderId, sig });
+      setGuidedPhase("Verifying…");
+      await runVerify({ orderId: b.orderId, sig });
+      setGuidedPhase("Attributing…");
+      await runAttribute({ built: b, sig });
       setGuidedPhase(null);
-      push("Guided path ready — Submit / Verify / Attribute next");
+      push("Guided path complete · attributed");
     } catch (e) {
       setError(describeErr(e));
       setGuidedPhase(null);
@@ -539,10 +555,10 @@ export function PrimaryBuyPanel({
             <button
               type="button"
               onClick={() => setAmountUsdc("")}
-              className="rounded border border-[#1f1f23] px-2 py-1 text-[11px] text-zinc-400 hover:text-zinc-300 active:scale-[0.98]"
+              className="min-h-[40px] rounded border border-[#1f1f23] px-3 py-2 text-[12px] text-zinc-400 hover:text-zinc-300 active:scale-[0.98]"
               title="Clear amount"
             >
-              Max
+              Clear
             </button>
           </div>
         </div>
@@ -661,18 +677,22 @@ export function PrimaryBuyPanel({
           >
             {busy && guidedPhase
               ? guidedPhase
-              : step >= 3
-                ? "Re-run Quote → Sign"
-                : "Quote & continue"}
+              : step >= 6
+                ? "Buy again · Quote → Attribute"
+                : step >= 3 && !busy
+                  ? "Resume · Quote → Attribute"
+                  : "Buy · Quote → Attribute"}
           </button>
-          {step >= 3 && (
+          {step >= 3 && step < 6 && signature && (
             <button
               type="button"
-              disabled={busy || !signature}
+              disabled={busy}
               onClick={() => void runFinishAttribution()}
               className="min-h-[48px] w-full rounded-md border border-emerald-400/30 bg-emerald-500/10 px-3 py-3 text-sm text-emerald-200 active:scale-[0.98] disabled:opacity-40"
             >
-              {busy && guidedPhase ? guidedPhase : "Finish attribution"}
+              {busy && guidedPhase
+                ? guidedPhase
+                : "Retry Submit → Verify → Attr"}
             </button>
           )}
         </div>

@@ -198,3 +198,29 @@ a.active\:scale-\[0\.98\]:active {
   font-weight: 600;
   color: #0a0a0b;
 }
+
+
+/* Staged landing entrance */
+@keyframes stage-in {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.stage-in {
+  animation: stage-in 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.stage-delay-1 { animation-delay: 0.05s; }
+.stage-delay-2 { animation-delay: 0.12s; }
+.stage-delay-3 { animation-delay: 0.2s; }
+.stage-delay-4 { animation-delay: 0.28s; }
+.stage-delay-5 { animation-delay: 0.36s; }
+.stage-delay-6 { animation-delay: 0.44s; }
+.stage-delay-7 { animation-delay: 0.52s; }
+.stage-delay-8 { animation-delay: 0.6s; }
+
+@media (prefers-reduced-motion: reduce) {
+  .stage-in {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+}

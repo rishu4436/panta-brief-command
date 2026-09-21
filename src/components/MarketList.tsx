@@ -162,37 +162,50 @@ export function MarketList() {
   }, []);
 
   const hydrateTitles = useCallback(async (batch: MarketCatalogItem[]) => {
-    const need = batch.filter((m) => !(m.title || "").trim() && !(m.description || "").trim());
+    // Fetch detail when title empty (description alone still hydrates for a real title)
+    const need = batch.filter((m) => !(m.title || "").trim());
     if (need.length === 0) return;
-    const concurrency = 4;
+    // Priority queue: primary markets first, then higher volume
+    const ranked = [...need].sort((a, b) => {
+      const ap = (a.phase || "").toLowerCase() === "primary" ? 0 : 1;
+      const bp = (b.phase || "").toLowerCase() === "primary" ? 0 : 1;
+      if (ap !== bp) return ap - bp;
+      return volumeNum(b) - volumeNum(a);
+    });
+    const concurrency = 6;
     let idx = 0;
-    const updates = new Map<string, Partial<MarketCatalogItem>>();
 
     async function worker() {
-      while (idx < need.length) {
-        const m = need[idx++];
+      while (idx < ranked.length) {
+        const m = ranked[idx++];
         try {
           const { data } = await pantaFetch<MarketCatalogItem>(
             `/markets/${encodeURIComponent(m.marketId)}/`,
           );
           const title = (data.title || "").trim();
-          const description = (data.description || "").trim();
-          if (title || description) {
-            updates.set(m.marketId, {
-              title: title || description,
-              description: description || data.description,
-              oracle: data.oracle ?? m.oracle,
-              volumeUsdc: data.volumeUsdc ?? m.volumeUsdc,
-              yesPrice: data.yesPrice ?? m.yesPrice,
-              noPrice: data.noPrice ?? m.noPrice,
-              primaryYesPrice: data.primaryYesPrice ?? m.primaryYesPrice,
-              primaryNoPrice: data.primaryNoPrice ?? m.primaryNoPrice,
-              secondaryYesPrice: data.secondaryYesPrice ?? m.secondaryYesPrice,
-              secondaryNoPrice: data.secondaryNoPrice ?? m.secondaryNoPrice,
-              images: data.images?.length ? data.images : m.images,
-              phase: data.phase || m.phase,
-            });
-          }
+          const description =
+            (data.description || "").trim() || (m.description || "").trim();
+          if (!title && !description) continue;
+          const patch: Partial<MarketCatalogItem> = {
+            title: title || undefined,
+            description: description || data.description,
+            oracle: data.oracle ?? m.oracle,
+            volumeUsdc: data.volumeUsdc ?? m.volumeUsdc,
+            yesPrice: data.yesPrice ?? m.yesPrice,
+            noPrice: data.noPrice ?? m.noPrice,
+            primaryYesPrice: data.primaryYesPrice ?? m.primaryYesPrice,
+            primaryNoPrice: data.primaryNoPrice ?? m.primaryNoPrice,
+            secondaryYesPrice: data.secondaryYesPrice ?? m.secondaryYesPrice,
+            secondaryNoPrice: data.secondaryNoPrice ?? m.secondaryNoPrice,
+            images: data.images?.length ? data.images : m.images,
+            phase: data.phase || m.phase,
+          };
+          // Progressive paint so first-screen rows fill in early
+          setItems((prev) =>
+            prev.map((row) =>
+              row.marketId === m.marketId ? { ...row, ...patch } : row,
+            ),
+          );
         } catch {
           /* soft-fail per market */
         }
@@ -200,10 +213,6 @@ export function MarketList() {
     }
 
     await Promise.all(Array.from({ length: concurrency }, () => worker()));
-    if (updates.size === 0) return;
-    setItems((prev) =>
-      prev.map((m) => (updates.has(m.marketId) ? { ...m, ...updates.get(m.marketId) } : m)),
-    );
   }, []);
 
   const loadMarkets = useCallback(
@@ -701,15 +710,21 @@ export function MarketList() {
                         ) : null}
                         <div className="min-w-0">
                           <div className="truncate text-[13px] font-medium text-zinc-100 group-hover:text-white">
-                            {marketLabel(m)}
+                            {marketLabel(m, { max: 96 })}
                           </div>
                           <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px] text-zinc-600">
                             <span className="rounded border border-[#1f1f23] px-1 py-px text-zinc-500">
                               {m.category || "—"}
                             </span>
-                            <span className="font-num">
-                              {m.marketId.slice(0, 8)}…
-                            </span>
+                            {!(m.title || "").trim() && (m.description || "").trim() ? (
+                              <span className="max-w-[220px] truncate text-zinc-500">
+                                {(m.description || "").trim()}
+                              </span>
+                            ) : (
+                              <span className="font-num text-zinc-600">
+                                {m.marketId.slice(0, 8)}…
+                              </span>
+                            )}
                             <span className="font-num text-zinc-500 lg:hidden">
                               · {formatVolumeUsdc(m.volumeUsdc)}
                             </span>

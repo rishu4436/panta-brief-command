@@ -72,10 +72,8 @@ export function marketLabel(
   if (title) return opts?.max ? truncate(title, opts.max) : title;
   const desc = (market.description || "").trim();
   if (desc) return opts?.max ? truncate(desc, opts.max) : desc;
-  const cat = (market.category || "").trim();
-  const id = market.marketId ? shortAddr(market.marketId, 6) : "";
-  const fallback = [cat, id].filter(Boolean).join(" · ") || "Untitled market";
-  return fallback;
+  // Never lead with opaque id as the headline — explicit untitled cue
+  return "Untitled · open detail";
 }
 
 function truncate(s: string, max: number): string {

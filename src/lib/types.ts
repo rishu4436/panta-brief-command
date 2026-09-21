@@ -164,3 +164,39 @@ export type BriefPayload = {
   source: "openai" | "template";
   generatedAt: string;
 };
+
+/** GET /account/trades/ — partner attribution (docs.panta.market) */
+export type AccountTradeItem = {
+  signature: string;
+  wallet?: string;
+  marketId?: string;
+  side?: string;
+  kind?: string;
+  amountUsdc?: string;
+  amountUsdcBase?: string | number;
+  status?: string;
+  createdAt?: string;
+};
+
+export type AccountTradesSummary = {
+  total?: number;
+  activityTotal?: number;
+  buys?: number;
+  claims?: number;
+  volumeUsdc?: string;
+  volumeUsdcBase?: number;
+  tradeVolumeUsdc?: string;
+  tradeVolumeUsdcBase?: number;
+  claimPayoutUsdc?: string;
+  claimPayoutUsdcBase?: number;
+  activityValueUsdc?: string;
+  activityValueUsdcBase?: number;
+  zeroAmountBuys?: number;
+  unattributed?: number;
+  byKind?: Record<string, number>;
+};
+
+export type AccountTradesResponse = {
+  summary?: AccountTradesSummary;
+  items: AccountTradeItem[];
+};

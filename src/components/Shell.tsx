@@ -7,6 +7,7 @@ import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
 import { useEffect, useState, type ReactNode } from "react";
 import { PublicKey } from "@solana/web3.js";
 import { shortAddr } from "@/lib/format";
+import { BrandMark } from "./BrandMark";
 import { CommandPalette } from "./CommandPalette";
 
 const nav = [
@@ -85,11 +86,11 @@ export function Shell({ children }: { children: ReactNode }) {
         <div className="mx-auto flex h-12 max-w-[1400px] items-center justify-between gap-4 px-4">
           <div className="flex items-center gap-5">
             <Link href="/" className="flex items-center gap-2.5">
-              <span className="flex h-6 w-6 items-center justify-center rounded bg-cyan-400 text-[10px] font-black text-[#0a0a0b]">
-                P
-              </span>
-              <span className="text-[13px] font-semibold tracking-tight text-zinc-50">
-                Panta<span className="text-zinc-400">Brief</span>
+              <BrandMark className="h-6 w-6 shrink-0" />
+              <span className="flex flex-col leading-none">
+                <span className="text-[13px] font-semibold tracking-tight text-zinc-50">
+                  Brief Command
+                </span>
               </span>
             </Link>
             <nav className="hidden items-center gap-0.5 md:flex" aria-label="Primary">
@@ -186,12 +187,19 @@ export function Shell({ children }: { children: ReactNode }) {
         </nav>
       </header>
 
-      <main id="main" className="mx-auto max-w-[1400px] px-4 py-5">
+      <main
+        id="main"
+        className={
+          isLanding
+            ? "w-full"
+            : "mx-auto max-w-[1400px] px-4 py-5"
+        }
+      >
         {children}
       </main>
 
       <footer className="mx-auto max-w-[1400px] px-4 pb-6 pt-2 text-center text-[10px] text-zinc-500">
-        Powered by{" "}
+        Brief Command · Powered by{" "}
         <a
           className="text-zinc-400 hover:text-cyan-400"
           href="https://panta.market"

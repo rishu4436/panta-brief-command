@@ -18,23 +18,23 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: {
-    default: "Panta Brief Command",
-    template: "%s | Panta Brief Command",
+    default: "Brief Command",
+    template: "%s | Brief Command",
   },
   description:
-    "Solana prediction desk powered by Panta — market intel, AI briefs, primary buys, and book claims.",
+    "Brief Command — Solana prediction desk powered by Panta. Market intel, AI briefs, primary buys, and book claims.",
   openGraph: {
-    title: "Panta Brief Command",
+    title: "Brief Command",
     description:
-      "Solana prediction desk powered by Panta — live markets, AI briefs, primary buys.",
-    siteName: "Panta Brief Command",
+      "Solana prediction desk powered by Panta — intel, AI briefs, primary buys.",
+    siteName: "Brief Command",
     type: "website",
   },
   twitter: {
     card: "summary",
-    title: "Panta Brief Command",
+    title: "Brief Command",
     description:
-      "Solana prediction desk powered by Panta — live markets, AI briefs, primary buys.",
+      "Solana prediction desk powered by Panta — intel, AI briefs, primary buys.",
   },
 };
 

@@ -43,7 +43,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const description = descBits.join(" · ").slice(0, 200);
 
   const shortTitle = `${label}${phase}`;
-  const fullTitle = `${shortTitle} | Panta Brief Command`;
+  const fullTitle = `${shortTitle} | Brief Command`;
 
   return {
     title: shortTitle,
@@ -52,7 +52,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       title: fullTitle,
       description,
       type: "website",
-      siteName: "Panta Brief Command",
+      siteName: "Brief Command",
     },
     twitter: {
       card: "summary",

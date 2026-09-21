@@ -1,10 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { pantaFetch } from "@/lib/api";
 import { describeErr } from "@/lib/errors";
-import { formatVolumeUsdc, impliedSide } from "@/lib/format";
+import { formatVolumeUsdc, impliedSide, marketLabel } from "@/lib/format";
 import type {
   CategoriesResponse,
   MarketCatalogItem,
@@ -14,6 +15,9 @@ import { Panel } from "./Panel";
 import { PhaseBadge } from "./PhaseBadge";
 import { ProbBar } from "./ProbBar";
 
+type ViewMode = "rows" | "cards";
+type SortMode = "default" | "volume" | "ending" | "phase";
+
 function formatEnd(ts?: number | null): string {
   if (!ts) return "—";
   return new Date(ts * 1000).toLocaleString("en-IN", {
@@ -22,6 +26,17 @@ function formatEnd(ts?: number | null): string {
     day: "numeric",
     hour: "2-digit",
     minute: "2-digit",
+  });
+}
+
+function formatUpdated(ts: number | null): string {
+  if (!ts) return "";
+  const d = new Date(ts);
+  return d.toLocaleString("en-IN", {
+    timeZone: "Asia/Calcutta",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
   });
 }
 
@@ -41,6 +56,12 @@ function isApiKeyError(msg: string): boolean {
   );
 }
 
+function volumeNum(m: MarketCatalogItem): number {
+  const v = m.volumeUsdc ?? m.totalVolumeUsdc ?? 0;
+  const n = typeof v === "string" ? Number(v) : Number(v);
+  return Number.isFinite(n) ? n : 0;
+}
+
 function SkeletonRows() {
   return (
     <div className="divide-y divide-[#1f1f23]">
@@ -52,7 +73,7 @@ function SkeletonRows() {
           </div>
           <div className="skeleton h-5 w-16" />
           <div className="hidden w-24 space-y-1.5 sm:block">
-            <div className="skeleton h-5 w-16 ml-auto" />
+            <div className="skeleton ml-auto h-5 w-16" />
             <div className="skeleton h-1.5 w-full" />
           </div>
         </div>
@@ -92,7 +113,7 @@ function SetupPanel({ error }: { error: string }) {
         href="https://docs.panta.market/"
         target="_blank"
         rel="noreferrer"
-        className="mt-6 inline-flex items-center rounded-md bg-cyan-400 px-4 py-2 text-sm font-semibold text-[#0a0a0b] transition hover:bg-cyan-300"
+        className="mt-6 inline-flex items-center rounded-md bg-cyan-400 px-4 py-2 text-sm font-semibold text-[#0a0a0b] transition hover:bg-cyan-300 active:scale-[0.98]"
       >
         {auth ? "Get API key →" : "API docs →"}
       </a>
@@ -101,14 +122,22 @@ function SetupPanel({ error }: { error: string }) {
 }
 
 export function MarketList() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const initialQ = searchParams.get("q") || "";
+
   const [items, setItems] = useState<MarketCatalogItem[]>([]);
   const [categories, setCategories] = useState<string[]>([]);
   const [category, setCategory] = useState("");
-  const [phase, setPhase] = useState("");
+  const [phase, setPhase] = useState("primary");
+  const [sort, setSort] = useState<SortMode>("default");
+  const [view, setView] = useState<ViewMode>("rows");
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [q, setQ] = useState("");
+  const [q, setQ] = useState(initialQ);
+  const [updatedAt, setUpdatedAt] = useState<number | null>(null);
 
   const loadCategories = useCallback(async () => {
     try {
@@ -117,6 +146,51 @@ export function MarketList() {
     } catch {
       /* optional */
     }
+  }, []);
+
+  const hydrateTitles = useCallback(async (batch: MarketCatalogItem[]) => {
+    const need = batch.filter((m) => !(m.title || "").trim() && !(m.description || "").trim());
+    if (need.length === 0) return;
+    const concurrency = 4;
+    let idx = 0;
+    const updates = new Map<string, Partial<MarketCatalogItem>>();
+
+    async function worker() {
+      while (idx < need.length) {
+        const m = need[idx++];
+        try {
+          const { data } = await pantaFetch<MarketCatalogItem>(
+            `/markets/${encodeURIComponent(m.marketId)}/`,
+          );
+          const title = (data.title || "").trim();
+          const description = (data.description || "").trim();
+          if (title || description) {
+            updates.set(m.marketId, {
+              title: title || description,
+              description: description || data.description,
+              oracle: data.oracle ?? m.oracle,
+              volumeUsdc: data.volumeUsdc ?? m.volumeUsdc,
+              yesPrice: data.yesPrice ?? m.yesPrice,
+              noPrice: data.noPrice ?? m.noPrice,
+              primaryYesPrice: data.primaryYesPrice ?? m.primaryYesPrice,
+              primaryNoPrice: data.primaryNoPrice ?? m.primaryNoPrice,
+              secondaryYesPrice: data.secondaryYesPrice ?? m.secondaryYesPrice,
+              secondaryNoPrice: data.secondaryNoPrice ?? m.secondaryNoPrice,
+              images: data.images?.length ? data.images : m.images,
+              phase: data.phase || m.phase,
+            });
+          }
+        } catch {
+          /* soft-fail per market */
+        }
+      }
+    }
+
+    await Promise.all(Array.from({ length: concurrency }, () => worker()));
+    if (updates.size === 0) return;
+    setItems((prev) =>
+      prev.map((m) => (updates.has(m.marketId) ? { ...m, ...updates.get(m.marketId) } : m)),
+    );
   }, []);
 
   const loadMarkets = useCallback(
@@ -132,17 +206,18 @@ export function MarketList() {
             cursor: opts?.cursor || undefined,
           },
         });
-        setItems((prev) =>
-          opts?.append ? [...prev, ...(data.items || [])] : data.items || [],
-        );
+        const next = data.items || [];
+        setItems((prev) => (opts?.append ? [...prev, ...next] : next));
         setNextCursor(data.nextCursor ?? null);
+        setUpdatedAt(Date.now());
+        void hydrateTitles(next);
       } catch (e) {
         setError(describeErr(e));
       } finally {
         setBusy(false);
       }
     },
-    [category, phase],
+    [category, phase, hydrateTitles],
   );
 
   useEffect(() => {
@@ -153,17 +228,76 @@ export function MarketList() {
     void loadMarkets();
   }, [loadMarkets]);
 
-  const filtered = q.trim()
-    ? items.filter(
-        (m) =>
-          m.title.toLowerCase().includes(q.toLowerCase()) ||
-          m.marketId.toLowerCase().includes(q.toLowerCase()) ||
-          (m.category || "").toLowerCase().includes(q.toLowerCase()),
-      )
-    : items;
+  // Persist search in URL ?q=
+  useEffect(() => {
+    const t = setTimeout(() => {
+      const params = new URLSearchParams(searchParams.toString());
+      if (q.trim()) params.set("q", q.trim());
+      else params.delete("q");
+      const next = params.toString();
+      const cur = searchParams.toString();
+      if (next !== cur) {
+        router.replace(next ? `${pathname}?${next}` : pathname, { scroll: false });
+      }
+    }, 250);
+    return () => clearTimeout(t);
+  }, [q, pathname, router, searchParams]);
+
+  const filtered = useMemo(() => {
+    const qq = q.trim().toLowerCase();
+    let list = qq
+      ? items.filter((m) => {
+          const label = marketLabel(m).toLowerCase();
+          return (
+            label.includes(qq) ||
+            m.marketId.toLowerCase().includes(qq) ||
+            (m.category || "").toLowerCase().includes(qq) ||
+            (m.title || "").toLowerCase().includes(qq)
+          );
+        })
+      : [...items];
+
+    const phaseRank = (p?: string) => {
+      const x = (p || "").toLowerCase();
+      if (x === "primary") return 0;
+      if (x === "secondary") return 1;
+      if (x === "resolved") return 2;
+      if (x === "cancelled") return 3;
+      return 4;
+    };
+
+    if (sort === "volume") {
+      list = [...list].sort((a, b) => volumeNum(b) - volumeNum(a));
+    } else if (sort === "ending") {
+      list = [...list].sort((a, b) => {
+        const ae = a.endTime ?? Number.POSITIVE_INFINITY;
+        const be = b.endTime ?? Number.POSITIVE_INFINITY;
+        return ae - be;
+      });
+    } else if (sort === "phase") {
+      list = [...list].sort(
+        (a, b) => phaseRank(a.phase) - phaseRank(b.phase),
+      );
+    } else {
+      // Default: active phases first, then volume
+      list = [...list].sort((a, b) => {
+        const pr = phaseRank(a.phase) - phaseRank(b.phase);
+        if (pr !== 0) return pr;
+        return volumeNum(b) - volumeNum(a);
+      });
+    }
+    return list;
+  }, [items, q, sort]);
 
   const showSetup = Boolean(error && items.length === 0);
   const showSkeleton = busy && items.length === 0 && !error;
+
+  const chipCls = (active: boolean) =>
+    `shrink-0 rounded-full border px-3 py-1.5 text-[12px] transition active:scale-[0.98] ${
+      active
+        ? "border-cyan-400/40 bg-cyan-400/10 text-cyan-300"
+        : "border-[#1f1f23] bg-[#0a0a0b] text-zinc-400 hover:border-[#2a2a2e] hover:text-zinc-200"
+    }`;
 
   return (
     <div className="space-y-3 animate-fade-in">
@@ -174,49 +308,113 @@ export function MarketList() {
           </h1>
           <p className="mt-0.5 text-[12px] text-zinc-500">
             USDC catalog · live odds when detail fills
+            {updatedAt ? (
+              <span className="ml-2 font-num text-zinc-600">
+                · Updated {formatUpdated(updatedAt)} IST
+              </span>
+            ) : null}
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => void loadMarkets()}
-          className="rounded-md border border-[#1f1f23] bg-[#111113] px-2.5 py-1.5 text-[11px] text-zinc-400 transition hover:border-[#2a2a2e] hover:text-zinc-200"
-          disabled={busy}
-        >
-          {busy ? "Syncing…" : "Refresh"}
-        </button>
+        <div className="flex items-center gap-2">
+          <div className="inline-flex rounded-md border border-[#1f1f23] bg-[#0a0a0b] p-0.5">
+            <button
+              type="button"
+              aria-pressed={view === "rows"}
+              onClick={() => setView("rows")}
+              className={`rounded px-2.5 py-1 text-[11px] transition ${
+                view === "rows"
+                  ? "bg-[#161618] text-zinc-100"
+                  : "text-zinc-500 hover:text-zinc-300"
+              }`}
+            >
+              Rows
+            </button>
+            <button
+              type="button"
+              aria-pressed={view === "cards"}
+              onClick={() => setView("cards")}
+              className={`rounded px-2.5 py-1 text-[11px] transition ${
+                view === "cards"
+                  ? "bg-[#161618] text-zinc-100"
+                  : "text-zinc-500 hover:text-zinc-300"
+              }`}
+            >
+              Cards
+            </button>
+          </div>
+          <button
+            type="button"
+            onClick={() => void loadMarkets()}
+            className="rounded-md border border-[#1f1f23] bg-[#111113] px-2.5 py-1.5 text-[11px] text-zinc-400 transition hover:border-[#2a2a2e] hover:text-zinc-200 active:scale-[0.98]"
+            disabled={busy}
+          >
+            {busy ? "Syncing…" : "Refresh"}
+          </button>
+        </div>
       </div>
 
       <Panel flush>
-        <div className="flex flex-wrap gap-2 border-b border-[#1f1f23] px-3.5 py-3">
-          <input
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="Search markets…"
-            className="min-w-[200px] flex-1 rounded-md border border-[#1f1f23] bg-[#0a0a0b] px-3 py-2 text-sm text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-cyan-400/40"
-          />
-          <select
-            value={category}
-            onChange={(e) => setCategory(e.target.value)}
-            className="rounded-md border border-[#1f1f23] bg-[#0a0a0b] px-3 py-2 text-sm text-zinc-300"
+        <div className="space-y-2.5 border-b border-[#1f1f23] px-3.5 py-3">
+          <div className="flex flex-wrap gap-2">
+            <input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Search markets…"
+              aria-label="Search markets"
+              className="min-w-[200px] flex-1 rounded-md border border-[#1f1f23] bg-[#0a0a0b] px-3 py-2 text-sm text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-cyan-400/40"
+            />
+            <select
+              value={sort}
+              onChange={(e) => setSort(e.target.value as SortMode)}
+              aria-label="Sort markets"
+              className="rounded-md border border-[#1f1f23] bg-[#0a0a0b] px-3 py-2 text-sm text-zinc-300"
+            >
+              <option value="default">Sort: Default</option>
+              <option value="volume">Sort: Volume</option>
+              <option value="ending">Sort: Ending soon</option>
+              <option value="phase">Sort: Phase</option>
+            </select>
+            <select
+              value={phase}
+              onChange={(e) => setPhase(e.target.value)}
+              aria-label="Filter by phase"
+              className="rounded-md border border-[#1f1f23] bg-[#0a0a0b] px-3 py-2 text-sm text-zinc-300"
+            >
+              <option value="">All phases</option>
+              <option value="primary">primary</option>
+              <option value="secondary">secondary</option>
+              <option value="resolved">resolved</option>
+              <option value="cancelled">cancelled</option>
+            </select>
+          </div>
+
+          <div
+            className="flex gap-1.5 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+            role="listbox"
+            aria-label="Categories"
           >
-            <option value="">All categories</option>
+            <button
+              type="button"
+              role="option"
+              aria-selected={category === ""}
+              onClick={() => setCategory("")}
+              className={chipCls(category === "")}
+            >
+              All
+            </button>
             {categories.map((c) => (
-              <option key={c} value={c}>
+              <button
+                key={c}
+                type="button"
+                role="option"
+                aria-selected={category === c}
+                onClick={() => setCategory(c)}
+                className={chipCls(category === c)}
+              >
                 {c}
-              </option>
+              </button>
             ))}
-          </select>
-          <select
-            value={phase}
-            onChange={(e) => setPhase(e.target.value)}
-            className="rounded-md border border-[#1f1f23] bg-[#0a0a0b] px-3 py-2 text-sm text-zinc-300"
-          >
-            <option value="">All phases</option>
-            <option value="primary">primary</option>
-            <option value="secondary">secondary</option>
-            <option value="resolved">resolved</option>
-            <option value="cancelled">cancelled</option>
-          </select>
+          </div>
         </div>
 
         {showSetup ? (
@@ -231,9 +429,59 @@ export function MarketList() {
 
             {showSkeleton ? (
               <SkeletonRows />
+            ) : view === "cards" ? (
+              <div className="grid gap-3 p-3.5 sm:grid-cols-2 lg:grid-cols-3">
+                {filtered.map((m) => {
+                  const { yes, no } = impliedSide(m);
+                  const thumb = m.images?.[0];
+                  return (
+                    <Link
+                      key={m.marketId}
+                      href={`/markets/${encodeURIComponent(m.marketId)}`}
+                      className="group flex min-h-[44px] flex-col overflow-hidden rounded-lg border border-[#1f1f23] bg-[#0a0a0b] transition hover:border-[#2a2a2e] active:scale-[0.99]"
+                    >
+                      {thumb ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={thumb}
+                          alt=""
+                          className="h-28 w-full object-cover opacity-90 transition group-hover:opacity-100"
+                        />
+                      ) : (
+                        <div className="flex h-16 items-center justify-center bg-[#161618] text-[10px] uppercase tracking-wider text-zinc-700">
+                          no image
+                        </div>
+                      )}
+                      <div className="flex flex-1 flex-col gap-2 p-3">
+                        <div className="line-clamp-2 text-[13px] font-medium text-zinc-100 group-hover:text-white">
+                          {marketLabel(m)}
+                        </div>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <PhaseBadge phase={m.phase} />
+                          <span className="rounded border border-[#1f1f23] px-1 py-px text-[10px] text-zinc-500">
+                            {m.category || "—"}
+                          </span>
+                        </div>
+                        <ProbBar yes={yes} no={no} size="sm" showLabels />
+                        <div className="mt-auto flex justify-between font-num text-[10px] text-zinc-600">
+                          <span>{formatVolumeUsdc(m.volumeUsdc)}</span>
+                          <span>Ends {formatEnd(m.endTime)}</span>
+                        </div>
+                      </div>
+                    </Link>
+                  );
+                })}
+                {!busy && !error && filtered.length === 0 && (
+                  <div className="col-span-full px-4 py-14 text-center">
+                    <div className="text-sm text-zinc-500">No markets match</div>
+                    <p className="mt-1 text-[11px] text-zinc-600">
+                      Adjust filters or refresh the catalog
+                    </p>
+                  </div>
+                )}
+              </div>
             ) : (
               <div className="divide-y divide-[#1f1f23]">
-                {/* Header */}
                 <div className="hidden grid-cols-[1fr_88px_100px_110px] gap-3 px-4 py-2 text-[10px] font-medium uppercase tracking-wider text-zinc-600 sm:grid lg:grid-cols-[1fr_88px_100px_100px_110px]">
                   <span>Market</span>
                   <span>Phase</span>
@@ -244,23 +492,37 @@ export function MarketList() {
 
                 {filtered.map((m) => {
                   const { yes, no } = impliedSide(m);
+                  const thumb = m.images?.[0];
                   return (
                     <Link
                       key={m.marketId}
                       href={`/markets/${encodeURIComponent(m.marketId)}`}
-                      className="group grid grid-cols-1 items-center gap-3 px-4 py-3.5 transition-colors hover:bg-[#161618] sm:grid-cols-[1fr_88px_100px_110px] lg:grid-cols-[1fr_88px_100px_100px_110px]"
+                      className="group grid min-h-[44px] grid-cols-1 items-center gap-3 px-4 py-3.5 transition-colors hover:bg-[#161618] sm:grid-cols-[1fr_88px_100px_110px] lg:grid-cols-[1fr_88px_100px_100px_110px]"
                     >
-                      <div className="min-w-0">
-                        <div className="truncate text-[13px] font-medium text-zinc-100 group-hover:text-white">
-                          {m.title}
-                        </div>
-                        <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px] text-zinc-600">
-                          <span className="rounded border border-[#1f1f23] px-1 py-px text-zinc-500">
-                            {m.category || "—"}
-                          </span>
-                          <span className="font-num">
-                            {m.marketId.slice(0, 8)}…
-                          </span>
+                      <div className="flex min-w-0 items-center gap-3">
+                        {thumb ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={thumb}
+                            alt=""
+                            className="hidden h-10 w-10 shrink-0 rounded object-cover sm:block"
+                          />
+                        ) : null}
+                        <div className="min-w-0">
+                          <div className="truncate text-[13px] font-medium text-zinc-100 group-hover:text-white">
+                            {marketLabel(m)}
+                          </div>
+                          <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px] text-zinc-600">
+                            <span className="rounded border border-[#1f1f23] px-1 py-px text-zinc-500">
+                              {m.category || "—"}
+                            </span>
+                            <span className="font-num">
+                              {m.marketId.slice(0, 8)}…
+                            </span>
+                            <span className="font-num text-zinc-500 lg:hidden">
+                              · {formatVolumeUsdc(m.volumeUsdc)}
+                            </span>
+                          </div>
                         </div>
                       </div>
                       <div>
@@ -298,7 +560,7 @@ export function MarketList() {
                   onClick={() =>
                     void loadMarkets({ append: true, cursor: nextCursor })
                   }
-                  className="rounded-md border border-[#1f1f23] bg-[#0a0a0b] px-4 py-2 text-sm text-zinc-300 transition hover:border-[#2a2a2e] hover:text-zinc-100 disabled:opacity-40"
+                  className="rounded-md border border-[#1f1f23] bg-[#0a0a0b] px-4 py-2 text-sm text-zinc-300 transition hover:border-[#2a2a2e] hover:text-zinc-100 active:scale-[0.98] disabled:opacity-40"
                 >
                   Load more
                 </button>

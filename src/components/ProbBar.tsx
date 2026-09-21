@@ -35,7 +35,17 @@ export function ProbBar({
 
   if (!has) {
     return (
-      <div className={`font-num text-zinc-600 ${hero}`}>—</div>
+      <div
+        className={`font-num text-zinc-600 ${size === "sm" ? "text-[11px]" : hero}`}
+        title="Spot fills on market open"
+      >
+        <span className="tracking-widest">···</span>
+        {size !== "sm" && (
+          <div className="mt-0.5 text-[10px] font-sans tracking-normal text-zinc-600">
+            Open for spot
+          </div>
+        )}
+      </div>
     );
   }
 
@@ -83,26 +93,32 @@ export function DualSideHero({
   return (
     <div>
       <div className="grid grid-cols-2 gap-3">
-        <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/[0.07] p-4">
+        <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/[0.07] p-4 transition-all duration-300">
           <div className="text-[10px] font-medium uppercase tracking-wider text-emerald-400/80">
             Yes
           </div>
-          <div className="mt-1 font-num text-3xl font-semibold tracking-tight text-emerald-300">
-            {y !== null ? `${y.toFixed(1)}%` : "—"}
+          <div
+            key={`y-${y}`}
+            className="mt-1 font-num text-3xl font-semibold tracking-tight text-emerald-300 transition-all duration-300"
+          >
+            {y !== null ? `${y.toFixed(1)}%` : "···"}
           </div>
           <div className="mt-0.5 font-num text-[11px] text-emerald-400/50">
-            {yes != null && yes !== "" ? Number(yes).toFixed(4) : "—"}
+            {yes != null && yes !== "" ? Number(yes).toFixed(4) : "Open for spot"}
           </div>
         </div>
-        <div className="rounded-lg border border-rose-500/20 bg-rose-500/[0.07] p-4">
+        <div className="rounded-lg border border-rose-500/20 bg-rose-500/[0.07] p-4 transition-all duration-300">
           <div className="text-[10px] font-medium uppercase tracking-wider text-rose-400/80">
             No
           </div>
-          <div className="mt-1 font-num text-3xl font-semibold tracking-tight text-rose-300">
-            {n !== null ? `${n.toFixed(1)}%` : "—"}
+          <div
+            key={`n-${n}`}
+            className="mt-1 font-num text-3xl font-semibold tracking-tight text-rose-300 transition-all duration-300"
+          >
+            {n !== null ? `${n.toFixed(1)}%` : "···"}
           </div>
           <div className="mt-0.5 font-num text-[11px] text-rose-400/50">
-            {no != null && no !== "" ? Number(no).toFixed(4) : "—"}
+            {no != null && no !== "" ? Number(no).toFixed(4) : "Open for spot"}
           </div>
         </div>
       </div>

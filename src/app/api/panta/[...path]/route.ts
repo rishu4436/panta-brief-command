@@ -6,9 +6,19 @@ const UPSTREAM =
 
 type Ctx = { params: Promise<{ path: string[] }> };
 
+function decodeSeg(seg: string): string {
+  try {
+    return decodeURIComponent(seg);
+  } catch {
+    return seg;
+  }
+}
+
 async function forward(req: NextRequest, ctx: Ctx) {
   const { path } = await ctx.params;
-  const suffix = path.map(encodeURIComponent).join("/");
+  // Decode once (Next may leave encoded segments), then encode exactly once.
+  const decoded = (path || []).map(decodeSeg);
+  const suffix = decoded.map(encodeURIComponent).join("/");
   const url = new URL(`${UPSTREAM}/${suffix}/`);
   req.nextUrl.searchParams.forEach((value, key) => {
     url.searchParams.set(key, value);
@@ -38,8 +48,23 @@ async function forward(req: NextRequest, ctx: Ctx) {
   }
 
   try {
-    const upstream = await fetch(url.toString(), init);
-    const text = await upstream.text();
+    let upstream = await fetch(url.toString(), init);
+    let text = await upstream.text();
+
+    // Retry without trailing slash on MARKET_NOT_FOUND (some gateways differ).
+    if (
+      upstream.status === 404 &&
+      req.method === "GET" &&
+      /MARKET_NOT_FOUND/i.test(text)
+    ) {
+      const alt = new URL(`${UPSTREAM}/${suffix}`);
+      req.nextUrl.searchParams.forEach((value, key) => {
+        alt.searchParams.set(key, value);
+      });
+      upstream = await fetch(alt.toString(), init);
+      text = await upstream.text();
+    }
+
     return new NextResponse(text, {
       status: upstream.status,
       headers: {

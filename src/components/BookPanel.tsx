@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { pantaFetch } from "@/lib/api";
 import { describeErr } from "@/lib/errors";
@@ -20,6 +21,7 @@ type ClaimMode = "win" | "creator-fees";
 export function BookPanel() {
   const { publicKey, signTransaction, connected } = useWallet();
   const { connection } = useConnection();
+  const ticketRef = useRef<HTMLDivElement>(null);
 
   const [positions, setPositions] = useState<PositionRow[]>([]);
   const [busy, setBusy] = useState(false);
@@ -27,6 +29,7 @@ export function BookPanel() {
   const [error, setError] = useState<string | null>(null);
   const [claimError, setClaimError] = useState<string | null>(null);
   const [claimMsg, setClaimMsg] = useState<string | null>(null);
+  const [claimSig, setClaimSig] = useState<string | null>(null);
   const [mode, setMode] = useState<ClaimMode>("win");
   const [claimMarketId, setClaimMarketId] = useState("");
 
@@ -49,10 +52,31 @@ export function BookPanel() {
     }
   }, [publicKey]);
 
+  useEffect(() => {
+    if (publicKey) {
+      void load();
+    } else {
+      setPositions([]);
+      setError(null);
+    }
+  }, [publicKey, load]);
+
+  const fillClaim = (marketId: string) => {
+    setClaimMarketId(marketId);
+    setMode("win");
+    setClaimError(null);
+    setClaimMsg(null);
+    setClaimSig(null);
+    requestAnimationFrame(() => {
+      ticketRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    });
+  };
+
   const runClaim = async () => {
     setClaimBusy(true);
     setClaimError(null);
     setClaimMsg(null);
+    setClaimSig(null);
     try {
       if (!publicKey || !signTransaction) {
         throw new Error("Connect a signing wallet");
@@ -82,7 +106,8 @@ export function BookPanel() {
         skipPreflight: false,
         preflightCommitment: "confirmed",
       });
-      setClaimMsg(`Broadcast claim ${sig}`);
+      setClaimSig(sig);
+      setClaimMsg(`Claim broadcast · ${shortAddr(sig, 6)}`);
       if (mode === "win") {
         try {
           await pantaFetch("/trades/", {
@@ -93,11 +118,12 @@ export function BookPanel() {
               marketId: claimMarketId.trim(),
             },
           });
-          setClaimMsg((m) => `${m} · attributed via POST /trades/`);
+          setClaimMsg((m) => `${m} · attributed`);
         } catch {
           /* optional */
         }
       }
+      void load();
     } catch (e) {
       setClaimError(describeErr(e));
     } finally {
@@ -116,7 +142,7 @@ export function BookPanel() {
               type="button"
               disabled={busy || !connected}
               onClick={() => void load()}
-              className="mr-3.5 rounded-md border border-[#1f1f23] bg-[#0a0a0b] px-2 py-1 text-[11px] text-zinc-400 hover:text-zinc-200 disabled:opacity-40"
+              className="mr-3.5 rounded-md border border-[#1f1f23] bg-[#0a0a0b] px-2 py-1 text-[11px] text-zinc-400 hover:text-zinc-200 active:scale-[0.98] disabled:opacity-40"
             >
               {busy ? "Loading…" : "Refresh"}
             </button>
@@ -136,58 +162,94 @@ export function BookPanel() {
             <table className="w-full text-left text-sm">
               <thead className="text-[10px] uppercase tracking-wider text-zinc-600">
                 <tr className="border-b border-[#1f1f23]">
-                  <th className="px-3.5 py-2 font-medium">Market</th>
-                  <th className="px-3 py-2 font-medium">Side</th>
-                  <th className="px-3 py-2 font-medium">Shares</th>
-                  <th className="px-3 py-2 font-medium">Phase</th>
-                  <th className="px-3 py-2 font-medium">Claim</th>
+                  <th scope="col" className="px-3.5 py-2 font-medium">
+                    Market
+                  </th>
+                  <th scope="col" className="px-3 py-2 font-medium">
+                    Side
+                  </th>
+                  <th scope="col" className="px-3 py-2 font-medium">
+                    Shares
+                  </th>
+                  <th scope="col" className="px-3 py-2 font-medium">
+                    Outcome
+                  </th>
+                  <th scope="col" className="px-3 py-2 font-medium">
+                    Phase
+                  </th>
+                  <th scope="col" className="px-3 py-2 font-medium">
+                    Claim
+                  </th>
                 </tr>
               </thead>
               <tbody>
-                {positions.map((p, i) => (
-                  <tr
-                    key={`${p.marketId}-${p.side}-${i}`}
-                    className="border-t border-[#1f1f23] transition-colors hover:bg-[#161618]"
-                  >
-                    <td className="px-3.5 py-2.5">
-                      <div className="font-medium text-zinc-200">
-                        {p.title || shortAddr(p.marketId, 5)}
-                      </div>
-                      <button
-                        type="button"
-                        className="text-[11px] text-cyan-400 hover:underline"
-                        onClick={() => setClaimMarketId(p.marketId)}
-                      >
-                        use for claim
-                      </button>
-                    </td>
-                    <td
-                      className={`px-3 py-2.5 font-num text-xs uppercase ${
-                        p.side?.toLowerCase() === "yes"
-                          ? "text-emerald-400"
-                          : p.side?.toLowerCase() === "no"
-                            ? "text-rose-400"
-                            : "text-zinc-400"
+                {positions.map((p, i) => {
+                  const claimable = Boolean(p.claimable && !p.claimed);
+                  return (
+                    <tr
+                      key={`${p.marketId}-${p.side}-${i}`}
+                      className={`border-t border-[#1f1f23] transition-colors hover:bg-[#161618] ${
+                        claimable
+                          ? "border-l-2 border-l-emerald-400/70 bg-emerald-500/[0.04]"
+                          : ""
                       }`}
                     >
-                      {p.side}
-                    </td>
-                    <td className="px-3 py-2.5 font-num text-zinc-300">{p.shares}</td>
-                    <td className="px-3 py-2.5">
-                      <PhaseBadge phase={p.phase} />
-                    </td>
-                    <td className="px-3 py-2.5 text-xs text-zinc-500">
-                      {p.claimed ? "claimed" : p.claimable ? "claimable" : "—"}
-                    </td>
-                  </tr>
-                ))}
+                      <td className="px-3.5 py-2.5">
+                        <div className="font-medium text-zinc-200">
+                          {p.title || shortAddr(p.marketId, 5)}
+                        </div>
+                      </td>
+                      <td
+                        className={`px-3 py-2.5 font-num text-xs uppercase ${
+                          p.side?.toLowerCase() === "yes"
+                            ? "text-emerald-400"
+                            : p.side?.toLowerCase() === "no"
+                              ? "text-rose-400"
+                              : "text-zinc-400"
+                        }`}
+                      >
+                        {p.side}
+                      </td>
+                      <td className="px-3 py-2.5 font-num text-zinc-300">
+                        {p.shares}
+                      </td>
+                      <td className="px-3 py-2.5 font-num text-xs text-zinc-500">
+                        {p.outcome || "—"}
+                      </td>
+                      <td className="px-3 py-2.5">
+                        <PhaseBadge phase={p.phase} />
+                      </td>
+                      <td className="px-3 py-2.5 text-xs">
+                        {p.claimed ? (
+                          <span className="text-zinc-500">Claimed</span>
+                        ) : claimable ? (
+                          <button
+                            type="button"
+                            onClick={() => fillClaim(p.marketId)}
+                            className="rounded-md border border-emerald-400/40 bg-emerald-500/15 px-2 py-1 text-[11px] font-semibold text-emerald-300 transition hover:bg-emerald-500/25 active:scale-[0.98]"
+                          >
+                            Claim
+                          </button>
+                        ) : (
+                          <span className="text-zinc-600">—</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
                 {positions.length === 0 && connected && !busy && (
                   <tr>
                     <td
-                      colSpan={5}
+                      colSpan={6}
                       className="px-3.5 py-12 text-center text-sm text-zinc-600"
                     >
-                      No positions yet
+                      <p>No positions — buy on a market terminal</p>
+                      <Link
+                        href="/desk"
+                        className="mt-2 inline-block text-cyan-400 hover:underline"
+                      >
+                        Open desk →
+                      </Link>
                     </td>
                   </tr>
                 )}
@@ -197,13 +259,14 @@ export function BookPanel() {
         </Panel>
       </div>
 
-      <div className="lg:col-span-2">
+      <div className="lg:col-span-2" ref={ticketRef}>
         <Panel title="Claim ticket">
           <div className="mb-3 flex gap-1.5">
             <button
               type="button"
+              aria-pressed={mode === "win"}
               onClick={() => setMode("win")}
-              className={`flex-1 rounded-md px-3 py-1.5 text-xs font-semibold transition ${
+              className={`flex-1 rounded-md px-3 py-1.5 text-xs font-semibold transition active:scale-[0.98] ${
                 mode === "win"
                   ? "bg-cyan-400 text-[#0a0a0b]"
                   : "border border-[#1f1f23] text-zinc-500 hover:text-zinc-300"
@@ -213,8 +276,9 @@ export function BookPanel() {
             </button>
             <button
               type="button"
+              aria-pressed={mode === "creator-fees"}
               onClick={() => setMode("creator-fees")}
-              className={`flex-1 rounded-md px-3 py-1.5 text-xs font-semibold transition ${
+              className={`flex-1 rounded-md px-3 py-1.5 text-xs font-semibold transition active:scale-[0.98] ${
                 mode === "creator-fees"
                   ? "bg-cyan-400 text-[#0a0a0b]"
                   : "border border-[#1f1f23] text-zinc-500 hover:text-zinc-300"
@@ -237,15 +301,25 @@ export function BookPanel() {
             </div>
           )}
           {claimMsg && (
-            <div className="mt-3 break-all rounded-md border border-emerald-500/25 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-200">
+            <div className="mt-3 break-all rounded-md border border-emerald-500/25 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-200 animate-fade-in">
               {claimMsg}
+              {claimSig && (
+                <a
+                  href={`https://solscan.io/tx/${claimSig}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mt-1 block text-cyan-300 hover:underline"
+                >
+                  View on Solscan →
+                </a>
+              )}
             </div>
           )}
           <button
             type="button"
             disabled={claimBusy || !connected}
             onClick={() => void runClaim()}
-            className="mt-4 w-full rounded-md bg-cyan-400 py-2.5 text-sm font-semibold text-[#0a0a0b] transition hover:bg-cyan-300 disabled:opacity-40"
+            className="mt-4 w-full rounded-md bg-cyan-400 py-2.5 text-sm font-semibold text-[#0a0a0b] transition hover:bg-cyan-300 active:scale-[0.98] disabled:opacity-40"
           >
             {claimBusy ? "Building…" : "Build · sign · broadcast"}
           </button>

@@ -7,6 +7,7 @@ import { describeErr } from "@/lib/errors";
 import {
   formatVolumeUsdc,
   impliedSide,
+  marketLabel,
   shortAddr,
 } from "@/lib/format";
 import type {
@@ -30,6 +31,16 @@ function formatEnd(ts?: number | null): string {
     year: "numeric",
     hour: "2-digit",
     minute: "2-digit",
+  });
+}
+
+function formatUpdated(ts: number | null): string {
+  if (!ts) return "";
+  return new Date(ts).toLocaleString("en-IN", {
+    timeZone: "Asia/Calcutta",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
   });
 }
 
@@ -57,15 +68,20 @@ export function MarketDetail({ marketId }: { marketId: string }) {
   const [busy, setBusy] = useState(true);
   const [tapeBusy, setTapeBusy] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [updatedAt, setUpdatedAt] = useState<number | null>(null);
+  const [descOpen, setDescOpen] = useState(false);
 
   const load = useCallback(async () => {
     setBusy(true);
     setError(null);
     try {
+      const id = marketId.trim();
+      if (!id) throw new Error("Missing marketId");
       const { data } = await pantaFetch<MarketCatalogItem>(
-        `/markets/${encodeURIComponent(marketId)}/`,
+        `/markets/${encodeURIComponent(id)}/`,
       );
       setMarket(data);
+      setUpdatedAt(Date.now());
     } catch (e) {
       setError(describeErr(e));
     } finally {
@@ -76,8 +92,9 @@ export function MarketDetail({ marketId }: { marketId: string }) {
   const loadTape = useCallback(async () => {
     setTapeBusy(true);
     try {
+      const id = marketId.trim();
       const { data } = await pantaFetch<MarketTradesResponse>(
-        `/markets/${encodeURIComponent(marketId)}/trades/`,
+        `/markets/${encodeURIComponent(id)}/trades/`,
       );
       setTape(data.items || []);
     } catch {
@@ -106,12 +123,24 @@ export function MarketDetail({ marketId }: { marketId: string }) {
     return (
       <Panel>
         <p className="text-sm text-rose-300">{error}</p>
-        <Link
-          href="/desk"
-          className="mt-3 inline-block text-sm text-cyan-400 hover:text-cyan-300"
-        >
-          ← Back to desk
-        </Link>
+        <p className="mt-2 font-num text-[11px] text-zinc-600 break-all">
+          marketId: {marketId}
+        </p>
+        <div className="mt-3 flex flex-wrap gap-3">
+          <button
+            type="button"
+            onClick={() => void load()}
+            className="text-sm text-cyan-400 hover:text-cyan-300"
+          >
+            Retry
+          </button>
+          <Link
+            href="/desk"
+            className="text-sm text-cyan-400 hover:text-cyan-300"
+          >
+            ← Back to desk
+          </Link>
+        </div>
       </Panel>
     );
   }
@@ -119,6 +148,13 @@ export function MarketDetail({ marketId }: { marketId: string }) {
   if (!market) return null;
 
   const { yes, no } = impliedSide(market);
+  const heading = marketLabel(market);
+  const desc = (market.description || "").trim();
+  const descIsDupe =
+    desc &&
+    heading &&
+    desc.slice(0, 80).toLowerCase() === heading.slice(0, 80).toLowerCase();
+  const showDesc = desc && !descIsDupe;
 
   return (
     <div className="space-y-4 animate-fade-in">
@@ -130,9 +166,9 @@ export function MarketDetail({ marketId }: { marketId: string }) {
           ← Desk
         </Link>
         <div className="mt-1.5 flex flex-wrap items-start justify-between gap-3">
-          <div className="min-w-0">
-            <h1 className="text-xl font-semibold tracking-tight text-zinc-50 md:text-2xl">
-              {market.title}
+          <div className="min-w-0 w-full">
+            <h1 className="break-words text-xl font-semibold leading-snug tracking-tight text-zinc-50 md:text-2xl">
+              {heading}
             </h1>
             <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-zinc-500">
               <PhaseBadge phase={market.phase} />
@@ -144,22 +180,59 @@ export function MarketDetail({ marketId }: { marketId: string }) {
               <span className="font-num">{formatVolumeUsdc(market.volumeUsdc)}</span>
               <span>·</span>
               <span>Ends {formatEnd(market.endTime)} IST</span>
+              {market.oracle ? (
+                <>
+                  <span>·</span>
+                  <span title={market.oracle} className="max-w-[180px] truncate">
+                    Oracle {market.oracle}
+                  </span>
+                </>
+              ) : null}
+              {market.resolutionTime ? (
+                <>
+                  <span>·</span>
+                  <span>Resolution {formatEnd(market.resolutionTime)} IST</span>
+                </>
+              ) : null}
+              {updatedAt ? (
+                <>
+                  <span>·</span>
+                  <span className="font-num">Updated {formatUpdated(updatedAt)} IST</span>
+                </>
+              ) : null}
             </div>
           </div>
         </div>
       </div>
 
-      {/* 3-column terminal */}
       <div className="grid gap-3 lg:grid-cols-12 lg:items-start">
-        {/* Left — context + AI brief */}
         <div className="space-y-3 lg:col-span-3">
           <Panel title="Context">
-            {market.description ? (
-              <p className="text-[13px] leading-relaxed text-zinc-400">
-                {market.description}
-              </p>
+            {showDesc ? (
+              <div>
+                <p
+                  className={`text-[13px] leading-relaxed text-zinc-400 ${
+                    descOpen ? "" : "line-clamp-4"
+                  }`}
+                >
+                  {desc}
+                </p>
+                {desc.length > 180 && (
+                  <button
+                    type="button"
+                    onClick={() => setDescOpen((v) => !v)}
+                    className="mt-1 text-[11px] text-cyan-400 hover:underline"
+                  >
+                    {descOpen ? "Less" : "More"}
+                  </button>
+                )}
+              </div>
             ) : (
-              <p className="text-[13px] text-zinc-600">No description on file.</p>
+              <p className="text-[13px] text-zinc-600">
+                {descIsDupe
+                  ? "See headline above for the market question."
+                  : "No additional context on file."}
+              </p>
             )}
             <dl className="mt-4 space-y-2 border-t border-[#1f1f23] pt-3 text-[11px]">
               <div className="flex justify-between gap-2">
@@ -176,23 +249,36 @@ export function MarketDetail({ marketId }: { marketId: string }) {
                   {shortAddr(market.creatorAddress, 4)}
                 </dd>
               </div>
+              <div className="flex justify-between gap-2">
+                <dt className="text-zinc-600">Resolution</dt>
+                <dd className="text-right text-zinc-400">
+                  {formatEnd(market.resolutionTime)} IST
+                </dd>
+              </div>
+              <div className="flex justify-between gap-2">
+                <dt className="text-zinc-600">Oracle</dt>
+                <dd
+                  className="max-w-[60%] truncate text-right text-zinc-400"
+                  title={market.oracle || undefined}
+                >
+                  {market.oracle || "—"}
+                </dd>
+              </div>
             </dl>
           </Panel>
-          <AiBrief market={market} tape={tape} />
+          <AiBrief market={market} tape={tape} auto />
         </div>
 
-        {/* Center — probability hero + tape */}
         <div className="space-y-3 lg:col-span-5">
           <Panel title="Probability">
             <DualSideHero yes={yes} no={no} />
             <p className="mt-3 text-[10px] text-zinc-600">
-              Spot from detail when RPC fills · list rows may show null until open
+              Primary/spot from detail fields · nulls mean open for spot
             </p>
           </Panel>
           <TradeTape items={tape} busy={tapeBusy} />
         </div>
 
-        {/* Right — sticky execute ticket */}
         <div className="lg:col-span-4 lg:sticky lg:top-16">
           <PrimaryBuyPanel initialMarketId={market.marketId} compact />
         </div>

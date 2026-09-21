@@ -61,8 +61,13 @@ export function buildTemplateBrief(
       ? "No recent tape prints in the catalog window — liquidity discovery is thin; treat odds as soft until flow appears."
       : `Tape shows ${tapeStats.count} recent print(s): ~${tapeStats.yesBuys} YES-leaning vs ~${tapeStats.noBuys} NO-leaning. Last print lean: ${(tapeStats.lastSide || "n/a").toUpperCase()}.`;
 
+  const headline =
+    (market.title || "").trim() ||
+    (market.description || "").trim().slice(0, 140) ||
+    market.marketId;
+
   return [
-    `## Desk brief — ${market.title}`,
+    `## Desk brief — ${headline}`,
     "",
     `**Thesis lean:** ${lean}  ·  **Phase:** ${phase}  ·  **Status:** ${status}`,
     `**Implied odds:** YES ${yesPct} / NO ${noPct}  ·  **Catalog volume:** ${vol}`,
@@ -106,7 +111,7 @@ export async function maybeOpenAIBrief(
   const model = process.env.OPENAI_MODEL?.trim() || "gpt-4o-mini";
   const { yes, no } = impliedSide(market);
   const prompt = {
-    title: market.title,
+    title: (market.title || "").trim() || (market.description || "").trim(),
     description: market.description,
     category: market.category,
     phase: market.phase,

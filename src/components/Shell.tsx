@@ -17,6 +17,9 @@ export function Shell({ children }: { children: ReactNode }) {
 
   return (
     <div className="min-h-screen bg-[#0a0a0b] text-zinc-100">
+      <a href="#main" className="skip-link">
+        Skip to content
+      </a>
       <header className="sticky top-0 z-40 border-b border-[#1f1f23] bg-[#0a0a0b]/95 backdrop-blur-md">
         <div className="mx-auto flex h-12 max-w-[1400px] items-center justify-between gap-4 px-4">
           <div className="flex items-center gap-5">
@@ -28,7 +31,7 @@ export function Shell({ children }: { children: ReactNode }) {
                 Panta<span className="text-zinc-500">Brief</span>
               </span>
             </Link>
-            <nav className="hidden items-center gap-0.5 md:flex">
+            <nav className="hidden items-center gap-0.5 md:flex" aria-label="Primary">
               {nav.map((item) => {
                 const active = item.match(pathname);
                 return (
@@ -49,6 +52,14 @@ export function Shell({ children }: { children: ReactNode }) {
           </div>
 
           <div className="flex items-center gap-2.5">
+            <a
+              href="https://panta.market"
+              target="_blank"
+              rel="noreferrer"
+              className="hidden items-center gap-1.5 rounded-full border border-[#1f1f23] bg-[#111113] px-2.5 py-1 text-[10px] text-zinc-500 transition hover:border-[#2a2a2e] hover:text-zinc-300 sm:inline-flex"
+            >
+              Powered by Panta
+            </a>
             {!isLanding && (
               <span className="hidden items-center gap-1.5 rounded-full border border-[#1f1f23] bg-[#111113] px-2.5 py-1 text-[11px] text-zinc-400 sm:inline-flex">
                 <span className="live-dot h-1.5 w-1.5 rounded-full bg-emerald-400" />
@@ -58,7 +69,7 @@ export function Shell({ children }: { children: ReactNode }) {
             {isLanding ? (
               <Link
                 href="/desk"
-                className="rounded-md bg-cyan-400 px-3 py-1.5 text-[12px] font-semibold text-[#0a0a0b] transition hover:bg-cyan-300"
+                className="rounded-md bg-cyan-400 px-3 py-1.5 text-[12px] font-semibold text-[#0a0a0b] transition hover:bg-cyan-300 active:scale-[0.98]"
               >
                 Open desk
               </Link>
@@ -68,7 +79,7 @@ export function Shell({ children }: { children: ReactNode }) {
           </div>
         </div>
 
-        <nav className="flex gap-1 border-t border-[#1f1f23] px-3 py-1.5 md:hidden">
+        <nav className="flex gap-1 border-t border-[#1f1f23] px-3 py-1.5 md:hidden" aria-label="Mobile">
           <Link
             href="/"
             className={`flex-1 rounded-md px-2 py-1.5 text-center text-xs ${
@@ -94,7 +105,9 @@ export function Shell({ children }: { children: ReactNode }) {
         </nav>
       </header>
 
-      <main className="mx-auto max-w-[1400px] px-4 py-5">{children}</main>
+      <main id="main" className="mx-auto max-w-[1400px] px-4 py-5">
+        {children}
+      </main>
 
       <footer className="mx-auto max-w-[1400px] px-4 pb-6 pt-2 text-center text-[10px] text-zinc-600">
         Powered by{" "}

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { LiveStrip } from "@/components/LiveStrip";
 
 const props = [
   {
@@ -39,10 +40,23 @@ export default function LandingPage() {
             A terminal-density desk for Panta USDC markets — live odds, AI
             briefs, primary buys, and claims. Built for operators, not demos.
           </p>
+          <p className="mt-4 flex flex-wrap items-center justify-center gap-2 text-[12px] text-zinc-500">
+            <Link href="/desk" className="text-zinc-300 transition hover:text-cyan-400">
+              Intel
+            </Link>
+            <span className="text-zinc-700">→</span>
+            <Link href="/execute" className="text-zinc-300 transition hover:text-cyan-400">
+              Execute
+            </Link>
+            <span className="text-zinc-700">→</span>
+            <Link href="/book" className="text-zinc-300 transition hover:text-cyan-400">
+              Book
+            </Link>
+          </p>
           <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
             <Link
               href="/desk"
-              className="inline-flex items-center rounded-md bg-cyan-400 px-5 py-2.5 text-sm font-semibold text-[#0a0a0b] transition hover:bg-cyan-300"
+              className="inline-flex items-center rounded-md bg-cyan-400 px-5 py-2.5 text-sm font-semibold text-[#0a0a0b] transition hover:bg-cyan-300 active:scale-[0.98]"
             >
               Open live desk →
             </Link>
@@ -50,43 +64,14 @@ export default function LandingPage() {
               href="https://docs.panta.market/"
               target="_blank"
               rel="noreferrer"
-              className="inline-flex items-center rounded-md border border-[#1f1f23] bg-[#111113] px-5 py-2.5 text-sm font-medium text-zinc-300 transition hover:border-[#2a2a2e] hover:text-zinc-100"
+              className="inline-flex items-center rounded-md border border-[#1f1f23] bg-[#111113] px-5 py-2.5 text-sm font-medium text-zinc-300 transition hover:border-[#2a2a2e] hover:text-zinc-100 active:scale-[0.98]"
             >
               API docs
             </a>
           </div>
         </div>
 
-        {/* Mini terminal preview strip */}
-        <div className="relative mx-auto mt-14 max-w-4xl overflow-hidden rounded-xl border border-[#1f1f23] bg-[#111113] shadow-2xl shadow-black/40">
-          <div className="flex items-center gap-2 border-b border-[#1f1f23] px-4 py-2.5">
-            <span className="h-2 w-2 rounded-full bg-[#2a2a2e]" />
-            <span className="h-2 w-2 rounded-full bg-[#2a2a2e]" />
-            <span className="h-2 w-2 rounded-full bg-[#2a2a2e]" />
-            <span className="ml-2 font-num text-[10px] text-zinc-600">
-              desk · markets
-            </span>
-          </div>
-          <div className="grid divide-y divide-[#1f1f23] md:grid-cols-3 md:divide-x md:divide-y-0">
-            {[
-              { label: "YES", pct: "62.4%", color: "text-emerald-400", bar: "w-[62%]" },
-              { label: "Volume", pct: "184.2k", color: "text-zinc-200", bar: "w-[78%]" },
-              { label: "NO", pct: "37.6%", color: "text-rose-400", bar: "w-[38%]" },
-            ].map((cell) => (
-              <div key={cell.label} className="px-5 py-6">
-                <div className="text-[10px] font-medium uppercase tracking-wider text-zinc-600">
-                  {cell.label}
-                </div>
-                <div className={`mt-1 font-num text-2xl font-semibold ${cell.color}`}>
-                  {cell.pct}
-                </div>
-                <div className="mt-3 h-1 w-full overflow-hidden rounded-full bg-[#1f1f23]">
-                  <div className={`h-full rounded-full bg-current opacity-60 ${cell.color} ${cell.bar}`} />
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
+        <LiveStrip />
       </section>
 
       {/* Value props */}
@@ -125,7 +110,7 @@ export default function LandingPage() {
         </p>
         <Link
           href="/desk"
-          className="mt-6 inline-flex items-center rounded-md bg-cyan-400 px-5 py-2.5 text-sm font-semibold text-[#0a0a0b] transition hover:bg-cyan-300"
+          className="mt-6 inline-flex items-center rounded-md bg-cyan-400 px-5 py-2.5 text-sm font-semibold text-[#0a0a0b] transition hover:bg-cyan-300 active:scale-[0.98]"
         >
           Enter desk →
         </Link>

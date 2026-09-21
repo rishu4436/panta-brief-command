@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
 import type { ReactNode } from "react";
+import { CommandPalette } from "./CommandPalette";
 
 const nav = [
   { href: "/desk", label: "Desk", match: (p: string) => p === "/desk" || p.startsWith("/markets") },
@@ -28,7 +29,7 @@ export function Shell({ children }: { children: ReactNode }) {
                 P
               </span>
               <span className="text-[13px] font-semibold tracking-tight text-zinc-50">
-                Panta<span className="text-zinc-500">Brief</span>
+                Panta<span className="text-zinc-400">Brief</span>
               </span>
             </Link>
             <nav className="hidden items-center gap-0.5 md:flex" aria-label="Primary">
@@ -41,7 +42,7 @@ export function Shell({ children }: { children: ReactNode }) {
                     className={`rounded-md px-2.5 py-1 text-[13px] transition-colors ${
                       active
                         ? "bg-[#161618] text-zinc-50"
-                        : "text-zinc-500 hover:bg-[#161618] hover:text-zinc-200"
+                        : "text-zinc-400 hover:bg-[#161618] hover:text-zinc-100"
                     }`}
                   >
                     {item.label}
@@ -52,11 +53,20 @@ export function Shell({ children }: { children: ReactNode }) {
           </div>
 
           <div className="flex items-center gap-2.5">
+            <button
+              type="button"
+              onClick={() => window.dispatchEvent(new Event("panta-brief-cmdk"))}
+              className="hidden items-center gap-1.5 rounded-md border border-[#1f1f23] bg-[#111113] px-2 py-1 font-num text-[10px] text-zinc-500 transition hover:border-[#2a2a2e] hover:text-zinc-300 sm:inline-flex"
+              title="Jump to market (⌘K)"
+              aria-label="Open command palette"
+            >
+              ⌘K
+            </button>
             <a
               href="https://panta.market"
               target="_blank"
               rel="noreferrer"
-              className="hidden items-center gap-1.5 rounded-full border border-[#1f1f23] bg-[#111113] px-2.5 py-1 text-[10px] text-zinc-500 transition hover:border-[#2a2a2e] hover:text-zinc-300 sm:inline-flex"
+              className="hidden items-center gap-1.5 rounded-full border border-[#1f1f23] bg-[#111113] px-2.5 py-1 text-[10px] text-zinc-400 transition hover:border-[#2a2a2e] hover:text-zinc-200 sm:inline-flex"
             >
               Powered by Panta
             </a>
@@ -109,10 +119,10 @@ export function Shell({ children }: { children: ReactNode }) {
         {children}
       </main>
 
-      <footer className="mx-auto max-w-[1400px] px-4 pb-6 pt-2 text-center text-[10px] text-zinc-600">
+      <footer className="mx-auto max-w-[1400px] px-4 pb-6 pt-2 text-center text-[10px] text-zinc-500">
         Powered by{" "}
         <a
-          className="text-zinc-500 hover:text-cyan-400"
+          className="text-zinc-400 hover:text-cyan-400"
           href="https://panta.market"
           target="_blank"
           rel="noreferrer"
@@ -121,7 +131,7 @@ export function Shell({ children }: { children: ReactNode }) {
         </a>{" "}
         ·{" "}
         <a
-          className="text-zinc-500 hover:text-cyan-400"
+          className="text-zinc-400 hover:text-cyan-400"
           href="https://docs.panta.market/"
           target="_blank"
           rel="noreferrer"
@@ -129,6 +139,8 @@ export function Shell({ children }: { children: ReactNode }) {
           Docs
         </a>
       </footer>
+
+      <CommandPalette />
     </div>
   );
 }

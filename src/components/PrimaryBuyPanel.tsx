@@ -63,6 +63,7 @@ export function PrimaryBuyPanel({
   const [toast, setToast] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [catalog, setCatalog] = useState<MarketCatalogItem[]>([]);
+  const [pickerQuery, setPickerQuery] = useState("");
 
   const [quote, setQuote] = useState<PrimaryQuoteResponse | null>(null);
   const [build, setBuild] = useState<PrimaryBuildResponse | null>(null);
@@ -317,6 +318,19 @@ export function PrimaryBuyPanel({
     }
   };
 
+  const filteredCatalog = useMemo(() => {
+    const qq = pickerQuery.trim().toLowerCase();
+    if (!qq) return catalog;
+    return catalog.filter((m) => {
+      const label = marketLabel(m).toLowerCase();
+      return (
+        label.includes(qq) ||
+        m.marketId.toLowerCase().includes(qq) ||
+        (m.category || "").toLowerCase().includes(qq)
+      );
+    });
+  }, [catalog, pickerQuery]);
+
   const expiresLabel = useMemo(
     () => (quote?.expiresAt ? countdownLabel(quote.expiresAt, now) : null),
     [quote?.expiresAt, now],
@@ -385,24 +399,36 @@ export function PrimaryBuyPanel({
       </div>
 
       <div className={`grid gap-2.5 ${compact ? "grid-cols-1" : "sm:grid-cols-2"}`}>
-        <div className={`block text-[11px] text-zinc-500 ${compact ? "" : "sm:col-span-2"}`}>
+        <div className={`block text-[11px] text-zinc-400 ${compact ? "" : "sm:col-span-2"}`}>
           <span>Market</span>
           {catalog.length > 0 && (
-            <select
-              value={catalog.some((m) => m.marketId === marketId) ? marketId : ""}
-              onChange={(e) => {
-                if (e.target.value) setMarketId(e.target.value);
-              }}
-              aria-label="Pick market"
-              className={`${inputCls} mb-1.5`}
-            >
-              <option value="">Select live market…</option>
-              {catalog.map((m) => (
-                <option key={m.marketId} value={m.marketId}>
-                  {marketLabel(m, { max: 72 })}
-                </option>
-              ))}
-            </select>
+            <>
+              <input
+                value={pickerQuery}
+                onChange={(e) => setPickerQuery(e.target.value)}
+                placeholder="Filter markets…"
+                aria-label="Filter market picker"
+                className={`${inputCls} mb-1.5`}
+              />
+              <select
+                value={catalog.some((m) => m.marketId === marketId) ? marketId : ""}
+                onChange={(e) => {
+                  if (e.target.value) setMarketId(e.target.value);
+                }}
+                aria-label="Pick market"
+                className={`${inputCls} mb-1.5`}
+              >
+                <option value="">Select live market…</option>
+                {filteredCatalog.map((m) => (
+                  <option key={m.marketId} value={m.marketId}>
+                    {marketLabel(m, { max: 72 })}
+                  </option>
+                ))}
+              </select>
+              {pickerQuery && filteredCatalog.length === 0 && (
+                <p className="mb-1.5 text-[10px] text-zinc-500">No catalog hits — paste an id below</p>
+              )}
+            </>
           )}
           <input
             value={marketId}
@@ -414,7 +440,7 @@ export function PrimaryBuyPanel({
         </div>
 
         <div>
-          <div className="text-[11px] text-zinc-500">Side</div>
+          <div className="text-[11px] text-zinc-400">Side</div>
           <div className="mt-1 grid grid-cols-2 gap-1.5">
             <button
               type="button"
@@ -444,7 +470,7 @@ export function PrimaryBuyPanel({
         </div>
 
         <div>
-          <label className="block text-[11px] text-zinc-500">
+          <label className="block text-[11px] text-zinc-400">
             Amount (USDC)
             <input
               value={amountUsdc}
@@ -470,7 +496,7 @@ export function PrimaryBuyPanel({
             <button
               type="button"
               onClick={() => setAmountUsdc("")}
-              className="rounded border border-[#1f1f23] px-2 py-1 text-[11px] text-zinc-500 hover:text-zinc-300 active:scale-[0.98]"
+              className="rounded border border-[#1f1f23] px-2 py-1 text-[11px] text-zinc-400 hover:text-zinc-300 active:scale-[0.98]"
               title="Clear amount"
             >
               Max
@@ -478,7 +504,7 @@ export function PrimaryBuyPanel({
           </div>
         </div>
 
-        <label className="block text-[11px] text-zinc-500">
+        <label className="block text-[11px] text-zinc-400">
           Max slippage (bps)
           <input
             type="number"
@@ -488,7 +514,7 @@ export function PrimaryBuyPanel({
           />
         </label>
         {!compact && (
-          <label className="block text-[11px] text-zinc-500 sm:col-span-2">
+          <label className="block text-[11px] text-zinc-400 sm:col-span-2">
             Attribution userId (optional)
             <input
               value={userId}
@@ -544,8 +570,19 @@ export function PrimaryBuyPanel({
       )}
 
       {toast && (
-        <div className="mt-2 rounded-md border border-emerald-500/25 bg-emerald-500/10 px-2.5 py-2 text-xs text-emerald-200 animate-fade-in">
-          {toast}
+        <div
+          role="status"
+          className="mt-2 flex items-start justify-between gap-2 rounded-md border border-emerald-400/30 bg-emerald-500/15 px-3 py-2.5 text-xs text-emerald-100 shadow-lg shadow-emerald-500/5 animate-fade-in"
+        >
+          <span className="min-w-0 break-words">{toast}</span>
+          <button
+            type="button"
+            onClick={() => setToast(null)}
+            className="shrink-0 text-[10px] uppercase tracking-wide text-emerald-300/70 hover:text-emerald-200"
+            aria-label="Dismiss"
+          >
+            Dismiss
+          </button>
         </div>
       )}
 

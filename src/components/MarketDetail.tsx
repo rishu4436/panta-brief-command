@@ -15,12 +15,15 @@ import type {
   MarketCatalogItem,
   MarketTradesResponse,
 } from "@/lib/types";
+import { notifyStorage, pushRecent } from "@/lib/storage";
 import { AiBrief } from "./AiBrief";
 import { Panel } from "./Panel";
 import { PhaseBadge } from "./PhaseBadge";
 import { DualSideHero } from "./ProbBar";
 import { PrimaryBuyPanel } from "./PrimaryBuyPanel";
+import { TapeSparkline } from "./TapeSparkline";
 import { TradeTape } from "./TradeTape";
+import { WatchStar } from "./WatchStar";
 
 function formatEnd(ts?: number | null): string {
   if (!ts) return "—";
@@ -82,6 +85,8 @@ export function MarketDetail({ marketId }: { marketId: string }) {
       );
       setMarket(data);
       setUpdatedAt(Date.now());
+      pushRecent(id);
+      notifyStorage();
     } catch (e) {
       setError(describeErr(e));
     } finally {
@@ -123,7 +128,7 @@ export function MarketDetail({ marketId }: { marketId: string }) {
     return (
       <Panel>
         <p className="text-sm text-rose-300">{error}</p>
-        <p className="mt-2 font-num text-[11px] text-zinc-600 break-all">
+        <p className="mt-2 font-num text-[11px] text-zinc-500 break-all">
           marketId: {marketId}
         </p>
         <div className="mt-3 flex flex-wrap gap-3">
@@ -161,16 +166,19 @@ export function MarketDetail({ marketId }: { marketId: string }) {
       <div>
         <Link
           href="/desk"
-          className="text-[11px] uppercase tracking-wide text-zinc-600 transition hover:text-cyan-400"
+          className="text-[11px] uppercase tracking-wide text-zinc-500 transition hover:text-cyan-400"
         >
           ← Desk
         </Link>
         <div className="mt-1.5 flex flex-wrap items-start justify-between gap-3">
-          <div className="min-w-0 w-full">
-            <h1 className="break-words text-xl font-semibold leading-snug tracking-tight text-zinc-50 md:text-2xl">
-              {heading}
-            </h1>
-            <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-zinc-500">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-start gap-2">
+              <h1 className="min-w-0 flex-1 break-words text-xl font-semibold leading-snug tracking-tight text-zinc-50 md:text-2xl">
+                {heading}
+              </h1>
+              <WatchStar marketId={market.marketId} />
+            </div>
+            <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-zinc-400">
               <PhaseBadge phase={market.phase} />
               <span className="rounded border border-[#1f1f23] px-1.5 py-0.5">
                 {market.category || "—"}
@@ -211,7 +219,7 @@ export function MarketDetail({ marketId }: { marketId: string }) {
             {showDesc ? (
               <div>
                 <p
-                  className={`text-[13px] leading-relaxed text-zinc-400 ${
+                  className={`text-[13px] leading-relaxed text-zinc-300 ${
                     descOpen ? "" : "line-clamp-4"
                   }`}
                 >
@@ -276,6 +284,7 @@ export function MarketDetail({ marketId }: { marketId: string }) {
               Primary/spot from detail fields · nulls mean open for spot
             </p>
           </Panel>
+          <TapeSparkline items={tape} busy={tapeBusy} />
           <TradeTape items={tape} busy={tapeBusy} />
         </div>
 

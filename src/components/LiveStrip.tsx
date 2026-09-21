@@ -39,7 +39,7 @@ function StaticPreview() {
           <div className={`mt-1 font-num text-2xl font-semibold ${cell.color}`}>
             ···
           </div>
-          <div className="mt-1 text-[10px] text-zinc-600">{cell.hint}</div>
+          <div className="mt-1 text-[10px] text-zinc-500">{cell.hint}</div>
           <div className="mt-3 h-1 w-full overflow-hidden rounded-full bg-[#1f1f23]">
             <div className="h-full w-1/2 rounded-full bg-current opacity-20 text-zinc-500" />
           </div>
@@ -84,12 +84,12 @@ export function LiveStrip() {
   const showPreview = !busy && (failed || items.length === 0);
 
   return (
-    <div className="relative mx-auto mt-14 max-w-4xl overflow-hidden rounded-xl border border-[#1f1f23] bg-[#111113] shadow-2xl shadow-black/40">
+    <div className="relative mx-auto mt-8 max-w-4xl overflow-hidden rounded-xl border border-cyan-400/15 bg-[#111113] shadow-2xl shadow-cyan-500/5">
       <div className="flex items-center gap-2 border-b border-[#1f1f23] px-4 py-2.5">
         <span className="h-2 w-2 rounded-full bg-[#2a2a2e]" />
         <span className="h-2 w-2 rounded-full bg-[#2a2a2e]" />
         <span className="h-2 w-2 rounded-full bg-[#2a2a2e]" />
-        <span className="ml-2 font-num text-[10px] text-zinc-600">
+        <span className="ml-2 font-num text-[10px] text-zinc-500">
           {showLive
             ? "live strip · GET /markets/?limit=6"
             : showPreview
@@ -119,10 +119,10 @@ export function LiveStrip() {
                 className="group flex min-h-[44px] items-center gap-3 px-4 py-3 transition-colors hover:bg-[#161618] active:scale-[0.995]"
               >
                 <div className="min-w-0 flex-1">
-                  <div className="truncate text-[13px] font-medium text-zinc-100 group-hover:text-white">
+                  <div className="truncate text-[13px] font-medium text-zinc-50 group-hover:text-white">
                     {marketLabel(m)}
                   </div>
-                  <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[10px] text-zinc-600">
+                  <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[10px] text-zinc-500">
                     <PhaseBadge phase={m.phase} />
                     <span className="font-num">{formatVolumeUsdc(m.volumeUsdc)}</span>
                   </div>

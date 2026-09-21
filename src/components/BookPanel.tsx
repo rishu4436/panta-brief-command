@@ -5,11 +5,12 @@ import Link from "next/link";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { pantaFetch } from "@/lib/api";
 import { describeErr } from "@/lib/errors";
-import { shortAddr } from "@/lib/format";
+import { impliedSide, shortAddr } from "@/lib/format";
 import { instructionsToVersionedTx } from "@/lib/solana";
 import type {
   ClaimBuildResponse,
   CreatorFeesClaimBuildResponse,
+  MarketCatalogItem,
   PositionRow,
   PositionsResponse,
 } from "@/lib/types";
@@ -32,6 +33,9 @@ export function BookPanel() {
   const [claimSig, setClaimSig] = useState<string | null>(null);
   const [mode, setMode] = useState<ClaimMode>("win");
   const [claimMarketId, setClaimMarketId] = useState("");
+  const [priceByMarket, setPriceByMarket] = useState<
+    Record<string, { yes: string | null; no: string | null }>
+  >({});
 
   const load = useCallback(async () => {
     if (!publicKey) {
@@ -44,7 +48,29 @@ export function BookPanel() {
       const { data } = await pantaFetch<PositionsResponse>("/positions/", {
         query: { wallet: publicKey.toBase58() },
       });
-      setPositions(data.positions || []);
+      const rows = data.positions || [];
+      setPositions(rows);
+      // Soft-fetch detail prices for notional marks (live API only)
+      const ids = Array.from(new Set(rows.map((r) => r.marketId))).slice(0, 12);
+      void (async () => {
+        const next: Record<string, { yes: string | null; no: string | null }> = {};
+        await Promise.all(
+          ids.map(async (id) => {
+            try {
+              const { data: m } = await pantaFetch<MarketCatalogItem>(
+                `/markets/${encodeURIComponent(id)}/`,
+              );
+              const side = impliedSide(m);
+              next[id] = { yes: side.yes, no: side.no };
+            } catch {
+              /* skip */
+            }
+          }),
+        );
+        if (Object.keys(next).length) {
+          setPriceByMarket((prev) => ({ ...prev, ...next }));
+        }
+      })();
     } catch (e) {
       setError(describeErr(e));
     } finally {
@@ -172,6 +198,9 @@ export function BookPanel() {
                     Shares
                   </th>
                   <th scope="col" className="px-3 py-2 font-medium">
+                    Mark
+                  </th>
+                  <th scope="col" className="px-3 py-2 font-medium">
                     Outcome
                   </th>
                   <th scope="col" className="px-3 py-2 font-medium">
@@ -213,6 +242,33 @@ export function BookPanel() {
                       <td className="px-3 py-2.5 font-num text-zinc-300">
                         {p.shares}
                       </td>
+                      <td className="px-3 py-2.5 font-num text-xs text-zinc-400">
+                        {(() => {
+                          const px = priceByMarket[p.marketId];
+                          if (!px) return <span className="text-zinc-600">···</span>;
+                          const side = (p.side || "").toLowerCase();
+                          const price =
+                            side === "yes" || side === "y"
+                              ? px.yes
+                              : side === "no" || side === "n"
+                                ? px.no
+                                : null;
+                          const shares = Number(p.shares);
+                          const pr = price != null && price !== "" ? Number(price) : NaN;
+                          if (!Number.isFinite(shares) || !Number.isFinite(pr)) {
+                            return <span className="text-zinc-600">—</span>;
+                          }
+                          const notional = shares * pr;
+                          return (
+                            <span title={`shares × ${pr.toFixed(4)}`}>
+                              {notional.toLocaleString(undefined, {
+                                maximumFractionDigits: 2,
+                              })}{" "}
+                              USDC
+                            </span>
+                          );
+                        })()}
+                      </td>
                       <td className="px-3 py-2.5 font-num text-xs text-zinc-500">
                         {p.outcome || "—"}
                       </td>
@@ -223,15 +279,20 @@ export function BookPanel() {
                         {p.claimed ? (
                           <span className="text-zinc-500">Claimed</span>
                         ) : claimable ? (
-                          <button
-                            type="button"
-                            onClick={() => fillClaim(p.marketId)}
-                            className="rounded-md border border-emerald-400/40 bg-emerald-500/15 px-2 py-1 text-[11px] font-semibold text-emerald-300 transition hover:bg-emerald-500/25 active:scale-[0.98]"
-                          >
-                            Claim
-                          </button>
+                          <div className="flex flex-col items-start gap-1">
+                            <span className="text-[10px] font-medium uppercase tracking-wide text-emerald-400/80">
+                              Claimable
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => fillClaim(p.marketId)}
+                              className="rounded-md border border-emerald-400/40 bg-emerald-500/15 px-2 py-1 text-[11px] font-semibold text-emerald-300 transition hover:bg-emerald-500/25 active:scale-[0.98]"
+                            >
+                              Claim
+                            </button>
+                          </div>
                         ) : (
-                          <span className="text-zinc-600">—</span>
+                          <span className="text-zinc-500">Open</span>
                         )}
                       </td>
                     </tr>
@@ -240,15 +301,18 @@ export function BookPanel() {
                 {positions.length === 0 && connected && !busy && (
                   <tr>
                     <td
-                      colSpan={6}
+                      colSpan={7}
                       className="px-3.5 py-12 text-center text-sm text-zinc-600"
                     >
-                      <p>No positions — buy on a market terminal</p>
+                      <p className="text-zinc-400">No positions yet</p>
+                      <p className="mt-1 text-[11px] text-zinc-500">
+                        Primary buys land here after attribute
+                      </p>
                       <Link
                         href="/desk"
-                        className="mt-2 inline-block text-cyan-400 hover:underline"
+                        className="mt-3 inline-flex items-center rounded-md bg-cyan-400 px-3 py-1.5 text-[12px] font-semibold text-[#0a0a0b] transition hover:bg-cyan-300"
                       >
-                        Open desk →
+                        Browse desk →
                       </Link>
                     </td>
                   </tr>

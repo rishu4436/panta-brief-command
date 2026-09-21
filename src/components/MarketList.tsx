@@ -1,19 +1,22 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { pantaFetch } from "@/lib/api";
 import { describeErr } from "@/lib/errors";
 import { formatVolumeUsdc, impliedSide, marketLabel } from "@/lib/format";
+import { notifyStorage, pushRecent } from "@/lib/storage";
 import type {
   CategoriesResponse,
   MarketCatalogItem,
   MarketsListResponse,
 } from "@/lib/types";
+import { useRecents, useWatchlist } from "@/hooks/useLocalIds";
 import { Panel } from "./Panel";
 import { PhaseBadge } from "./PhaseBadge";
 import { ProbBar } from "./ProbBar";
+import { WatchStar } from "./WatchStar";
 
 type ViewMode = "rows" | "cards";
 type SortMode = "default" | "volume" | "ending" | "phase";
@@ -138,6 +141,10 @@ export function MarketList() {
   const [error, setError] = useState<string | null>(null);
   const [q, setQ] = useState(initialQ);
   const [updatedAt, setUpdatedAt] = useState<number | null>(null);
+  const [watchOnly, setWatchOnly] = useState(false);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const { ids: watchIds } = useWatchlist();
+  const { ids: recentIds } = useRecents();
 
   const loadCategories = useCallback(async () => {
     try {
@@ -243,19 +250,33 @@ export function MarketList() {
     return () => clearTimeout(t);
   }, [q, pathname, router, searchParams]);
 
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "/" || e.metaKey || e.ctrlKey || e.altKey) return;
+      const tag = (e.target as HTMLElement | null)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      if ((e.target as HTMLElement | null)?.isContentEditable) return;
+      e.preventDefault();
+      searchRef.current?.focus();
+      searchRef.current?.select();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   const filtered = useMemo(() => {
     const qq = q.trim().toLowerCase();
-    let list = qq
-      ? items.filter((m) => {
-          const label = marketLabel(m).toLowerCase();
-          return (
-            label.includes(qq) ||
-            m.marketId.toLowerCase().includes(qq) ||
-            (m.category || "").toLowerCase().includes(qq) ||
-            (m.title || "").toLowerCase().includes(qq)
-          );
-        })
-      : [...items];
+    let list = items.filter((m) => {
+      if (watchOnly && !watchIds.includes(m.marketId)) return false;
+      if (!qq) return true;
+      const label = marketLabel(m).toLowerCase();
+      return (
+        label.includes(qq) ||
+        m.marketId.toLowerCase().includes(qq) ||
+        (m.category || "").toLowerCase().includes(qq) ||
+        (m.title || "").toLowerCase().includes(qq)
+      );
+    });
 
     const phaseRank = (p?: string) => {
       const x = (p || "").toLowerCase();
@@ -287,10 +308,28 @@ export function MarketList() {
       });
     }
     return list;
-  }, [items, q, sort]);
+  }, [items, q, sort, watchOnly, watchIds]);
 
   const showSetup = Boolean(error && items.length === 0);
   const showSkeleton = busy && items.length === 0 && !error;
+
+  const missingWatch = useMemo(() => {
+    if (!watchOnly) return [] as string[];
+    const present = new Set(items.map((m) => m.marketId));
+    return watchIds.filter((id) => !present.has(id));
+  }, [watchOnly, watchIds, items]);
+
+  const recentMarkets = useMemo(() => {
+    const byId = new Map(items.map((m) => [m.marketId, m]));
+    return recentIds
+      .map((id) => byId.get(id) ?? ({ marketId: id } as MarketCatalogItem))
+      .slice(0, 6);
+  }, [items, recentIds]);
+
+  const openMarket = (id: string) => {
+    pushRecent(id);
+    notifyStorage();
+  };
 
   const chipCls = (active: boolean) =>
     `shrink-0 rounded-full border px-3 py-1.5 text-[12px] transition active:scale-[0.98] ${
@@ -306,8 +345,16 @@ export function MarketList() {
           <h1 className="text-lg font-semibold tracking-tight text-zinc-50">
             Markets
           </h1>
-          <p className="mt-0.5 text-[12px] text-zinc-500">
-            USDC catalog · live odds when detail fills
+          <p className="mt-0.5 text-[12px] text-zinc-400">
+            USDC catalog · press{" "}
+            <kbd className="rounded border border-[#1f1f23] px-1 font-num text-[10px] text-zinc-500">
+              /
+            </kbd>{" "}
+            ·{" "}
+            <kbd className="rounded border border-[#1f1f23] px-1 font-num text-[10px] text-zinc-500">
+              ⌘K
+            </kbd>{" "}
+            to jump
             {updatedAt ? (
               <span className="ml-2 font-num text-zinc-600">
                 · Updated {formatUpdated(updatedAt)} IST
@@ -353,16 +400,41 @@ export function MarketList() {
         </div>
       </div>
 
+      {recentIds.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-[10px] font-medium uppercase tracking-wider text-zinc-500">
+            Recent
+          </span>
+          {recentMarkets.map((m) => (
+            <Link
+              key={m.marketId}
+              href={`/markets/${encodeURIComponent(m.marketId)}`}
+              onClick={() => openMarket(m.marketId)}
+              className="max-w-[180px] truncate rounded-full border border-[#1f1f23] bg-[#111113] px-2.5 py-1 text-[11px] text-zinc-300 transition hover:border-cyan-400/30 hover:text-cyan-300"
+              title={marketLabel(m)}
+            >
+              {marketLabel(m)}
+            </Link>
+          ))}
+        </div>
+      )}
+
       <Panel flush>
         <div className="space-y-2.5 border-b border-[#1f1f23] px-3.5 py-3">
           <div className="flex flex-wrap gap-2">
-            <input
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder="Search markets…"
-              aria-label="Search markets"
-              className="min-w-[200px] flex-1 rounded-md border border-[#1f1f23] bg-[#0a0a0b] px-3 py-2 text-sm text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-cyan-400/40"
-            />
+            <div className="relative min-w-[200px] flex-1">
+              <input
+                ref={searchRef}
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                placeholder="Search markets…"
+                aria-label="Search markets"
+                className="w-full rounded-md border border-[#1f1f23] bg-[#0a0a0b] px-3 py-2 pr-8 text-sm text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-cyan-400/40"
+              />
+              <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 font-num text-[10px] text-zinc-600">
+                /
+              </span>
+            </div>
             <select
               value={sort}
               onChange={(e) => setSort(e.target.value as SortMode)}
@@ -396,9 +468,25 @@ export function MarketList() {
             <button
               type="button"
               role="option"
-              aria-selected={category === ""}
-              onClick={() => setCategory("")}
-              className={chipCls(category === "")}
+              aria-selected={watchOnly}
+              onClick={() => setWatchOnly((v) => !v)}
+              className={`shrink-0 rounded-full border px-3 py-1.5 text-[12px] transition active:scale-[0.98] ${
+                watchOnly
+                  ? "border-amber-400/40 bg-amber-400/10 text-amber-300"
+                  : "border-[#1f1f23] bg-[#0a0a0b] text-zinc-400 hover:border-[#2a2a2e] hover:text-zinc-200"
+              }`}
+            >
+              ★ Watchlist{watchIds.length ? ` (${watchIds.length})` : ""}
+            </button>
+            <button
+              type="button"
+              role="option"
+              aria-selected={category === "" && !watchOnly}
+              onClick={() => {
+                setCategory("");
+                setWatchOnly(false);
+              }}
+              className={chipCls(category === "" && !watchOnly)}
             >
               All
             </button>
@@ -407,9 +495,12 @@ export function MarketList() {
                 key={c}
                 type="button"
                 role="option"
-                aria-selected={category === c}
-                onClick={() => setCategory(c)}
-                className={chipCls(category === c)}
+                aria-selected={category === c && !watchOnly}
+                onClick={() => {
+                  setCategory(c);
+                  setWatchOnly(false);
+                }}
+                className={chipCls(category === c && !watchOnly)}
               >
                 {c}
               </button>
@@ -435,11 +526,18 @@ export function MarketList() {
                   const { yes, no } = impliedSide(m);
                   const thumb = m.images?.[0];
                   return (
-                    <Link
+                    <div
                       key={m.marketId}
-                      href={`/markets/${encodeURIComponent(m.marketId)}`}
-                      className="group flex min-h-[44px] flex-col overflow-hidden rounded-lg border border-[#1f1f23] bg-[#0a0a0b] transition hover:border-[#2a2a2e] active:scale-[0.99]"
+                      className="relative overflow-hidden rounded-lg border border-[#1f1f23] bg-[#0a0a0b] transition hover:border-[#2a2a2e]"
                     >
+                      <div className="absolute right-2 top-2 z-10">
+                        <WatchStar marketId={m.marketId} size="sm" />
+                      </div>
+                      <Link
+                        href={`/markets/${encodeURIComponent(m.marketId)}`}
+                        onClick={() => openMarket(m.marketId)}
+                        className="group flex min-h-[44px] flex-col active:scale-[0.99]"
+                      >
                       {thumb ? (
                         // eslint-disable-next-line @next/next/no-img-element
                         <img
@@ -463,12 +561,13 @@ export function MarketList() {
                           </span>
                         </div>
                         <ProbBar yes={yes} no={no} size="sm" showLabels />
-                        <div className="mt-auto flex justify-between font-num text-[10px] text-zinc-600">
+                        <div className="mt-auto flex justify-between font-num text-[10px] text-zinc-500">
                           <span>{formatVolumeUsdc(m.volumeUsdc)}</span>
                           <span>Ends {formatEnd(m.endTime)}</span>
                         </div>
                       </div>
-                    </Link>
+                      </Link>
+                    </div>
                   );
                 })}
                 {!busy && !error && filtered.length === 0 && (
@@ -494,11 +593,18 @@ export function MarketList() {
                   const { yes, no } = impliedSide(m);
                   const thumb = m.images?.[0];
                   return (
-                    <Link
+                    <div
                       key={m.marketId}
-                      href={`/markets/${encodeURIComponent(m.marketId)}`}
-                      className="group grid min-h-[44px] grid-cols-1 items-center gap-3 px-4 py-3.5 transition-colors hover:bg-[#161618] sm:grid-cols-[1fr_88px_100px_110px] lg:grid-cols-[1fr_88px_100px_100px_110px]"
+                      className="flex items-stretch gap-1 hover:bg-[#161618]"
                     >
+                      <div className="flex items-center pl-3">
+                        <WatchStar marketId={m.marketId} size="sm" />
+                      </div>
+                      <Link
+                        href={`/markets/${encodeURIComponent(m.marketId)}`}
+                        onClick={() => openMarket(m.marketId)}
+                        className="group grid min-h-[44px] flex-1 grid-cols-1 items-center gap-3 px-3 py-3.5 transition-colors sm:grid-cols-[1fr_88px_100px_110px] lg:grid-cols-[1fr_88px_100px_100px_110px]"
+                      >
                       <div className="flex min-w-0 items-center gap-3">
                         {thumb ? (
                           // eslint-disable-next-line @next/next/no-img-element
@@ -537,7 +643,8 @@ export function MarketList() {
                       <div className="sm:text-right">
                         <ProbBar yes={yes} no={no} size="sm" showLabels />
                       </div>
-                    </Link>
+                      </Link>
+                    </div>
                   );
                 })}
 
@@ -552,7 +659,29 @@ export function MarketList() {
               </div>
             )}
 
-            {nextCursor && (
+            {missingWatch.length > 0 && (
+              <div className="border-t border-[#1f1f23] px-3.5 py-3">
+                <div className="mb-2 text-[10px] uppercase tracking-wider text-zinc-500">
+                  Watched · not on this page
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {missingWatch.map((id) => (
+                    <div key={id} className="flex items-center gap-1">
+                      <WatchStar marketId={id} size="sm" />
+                      <Link
+                        href={`/markets/${encodeURIComponent(id)}`}
+                        onClick={() => openMarket(id)}
+                        className="rounded-md border border-[#1f1f23] px-2 py-1 font-num text-[11px] text-zinc-400 hover:border-cyan-400/30 hover:text-cyan-300"
+                      >
+                        {id.slice(0, 8)}…
+                      </Link>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {nextCursor && !watchOnly && (
               <div className="flex justify-center border-t border-[#1f1f23] py-3">
                 <button
                   type="button"

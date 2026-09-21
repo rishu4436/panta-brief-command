@@ -106,7 +106,7 @@ export function MarketList() {
   const [category, setCategory] = useState("");
   const [phase, setPhase] = useState("");
   const [nextCursor, setNextCursor] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [q, setQ] = useState("");
 

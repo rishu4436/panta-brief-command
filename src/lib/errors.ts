@@ -6,10 +6,11 @@ export function describeErr(e: unknown): string {
     if (any.body && typeof any.body === "object" && any.body !== null) {
       const b = any.body as Record<string, unknown>;
       const code = b.code ? String(b.code) : undefined;
-      const detail = b.detail
-        ? typeof b.detail === "string"
-          ? b.detail
-          : JSON.stringify(b.detail)
+      const detailRaw = b.detail ?? b.message;
+      const detail = detailRaw
+        ? typeof detailRaw === "string"
+          ? detailRaw
+          : JSON.stringify(detailRaw)
         : undefined;
       if (code && detail) return `${code}: ${detail}`;
       if (code) return code;

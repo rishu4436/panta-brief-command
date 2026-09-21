@@ -31,11 +31,13 @@ function isApiKeyError(msg: string): boolean {
     m.includes("api key") ||
     m.includes("panta_api_key") ||
     m.includes("unauthorized") ||
+    m.includes("authentication") ||
     m.includes("401") ||
     m.includes("missing key") ||
     m.includes("x-api-key") ||
     m.includes("forbidden") ||
-    m.includes("503")
+    m.includes("503") ||
+    m.includes("proxy_unreachable")
   );
 }
 
@@ -60,24 +62,31 @@ function SkeletonRows() {
 }
 
 function SetupPanel({ error }: { error: string }) {
+  const auth = isApiKeyError(error);
   return (
     <div className="flex flex-col items-center justify-center px-6 py-16 text-center animate-fade-in">
       <span className="flex h-12 w-12 items-center justify-center rounded-xl bg-cyan-400 text-lg font-black text-[#0a0a0b]">
         P
       </span>
       <h2 className="mt-4 text-lg font-semibold tracking-tight text-zinc-50">
-        Connect Panta API
+        {auth ? "Connect Panta API" : "Desk unavailable"}
       </h2>
       <p className="mt-2 max-w-sm text-sm text-zinc-500">
-        Add your key to unlock the live market catalog.
+        {auth
+          ? "Add your key to unlock the live market catalog."
+          : "Live catalog could not load. Check the proxy and try again."}
       </p>
-      <code className="mt-4 rounded-md border border-[#1f1f23] bg-[#0a0a0b] px-3 py-2 font-num text-[12px] text-cyan-300">
-        PANTA_API_KEY=pk_…
-      </code>
-      <p className="mt-3 max-w-md text-[11px] text-zinc-600">
-        Place it in <span className="text-zinc-400">.env.local</span> and restart
-        the dev server.
-      </p>
+      {auth && (
+        <code className="mt-4 rounded-md border border-[#1f1f23] bg-[#0a0a0b] px-3 py-2 font-num text-[12px] text-cyan-300">
+          PANTA_API_KEY=pk_…
+        </code>
+      )}
+      {auth && (
+        <p className="mt-3 max-w-md text-[11px] text-zinc-600">
+          Place it in <span className="text-zinc-400">.env.local</span> and restart
+          the dev server.
+        </p>
+      )}
       <p className="mt-4 max-w-lg truncate text-[10px] text-zinc-700">{error}</p>
       <a
         href="https://docs.panta.market/"
@@ -85,7 +94,7 @@ function SetupPanel({ error }: { error: string }) {
         rel="noreferrer"
         className="mt-6 inline-flex items-center rounded-md bg-cyan-400 px-4 py-2 text-sm font-semibold text-[#0a0a0b] transition hover:bg-cyan-300"
       >
-        Get API key →
+        {auth ? "Get API key →" : "API docs →"}
       </a>
     </div>
   );
@@ -153,7 +162,7 @@ export function MarketList() {
       )
     : items;
 
-  const showSetup = error && items.length === 0 && isApiKeyError(error);
+  const showSetup = Boolean(error && items.length === 0);
   const showSkeleton = busy && items.length === 0 && !error;
 
   return (
@@ -270,7 +279,7 @@ export function MarketList() {
                   );
                 })}
 
-                {!busy && filtered.length === 0 && (
+                {!busy && !error && filtered.length === 0 && (
                   <div className="px-4 py-14 text-center">
                     <div className="text-sm text-zinc-500">No markets match</div>
                     <p className="mt-1 text-[11px] text-zinc-600">

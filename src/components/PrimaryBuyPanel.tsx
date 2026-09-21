@@ -11,21 +11,23 @@ import type {
   PrimaryQuoteResponse,
   TradeReportResponse,
 } from "@/lib/types";
-import { GlassCard } from "./GlassCard";
+import { Panel } from "./Panel";
 
 const STEPS = [
   "Quote",
   "Build",
-  "Sign & broadcast",
+  "Sign",
   "Submit",
   "Verify",
-  "Attribute",
+  "Attr",
 ] as const;
 
 export function PrimaryBuyPanel({
   initialMarketId = "",
+  compact = false,
 }: {
   initialMarketId?: string;
+  compact?: boolean;
 }) {
   const { publicKey, signTransaction, connected } = useWallet();
   const { connection } = useConnection();
@@ -237,89 +239,116 @@ export function PrimaryBuyPanel({
     }
   };
 
+  const inputCls =
+    "mt-1 w-full rounded-md border border-[#1f1f23] bg-[#0a0a0b] px-3 py-2 text-sm text-zinc-100 outline-none focus:border-cyan-400/40";
+  const btnPrimary =
+    "rounded-md bg-cyan-400 px-3 py-2 text-sm font-semibold text-[#0a0a0b] transition hover:bg-cyan-300 disabled:opacity-40";
+  const btnGhost =
+    "rounded-md border border-[#1f1f23] bg-[#0a0a0b] px-3 py-2 text-sm text-zinc-300 transition hover:border-[#2a2a2e] hover:text-zinc-100 disabled:opacity-40";
+
   return (
-    <GlassCard title="Primary buy · quote → attribute">
-      <div className="mb-4 flex flex-wrap gap-1.5">
+    <Panel title={compact ? "Execute ticket" : "Primary buy"}>
+      <div className="mb-3 flex flex-wrap gap-1">
         {STEPS.map((label, i) => (
           <span
             key={label}
-            className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide ${
+            className={`rounded border px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide ${
               step > i
-                ? "border-emerald-400/40 bg-emerald-500/10 text-emerald-300"
+                ? "border-emerald-400/30 bg-emerald-500/10 text-emerald-300"
                 : step === i
-                  ? "border-cyan-400/50 bg-cyan-500/15 text-cyan-200"
-                  : "border-white/10 text-zinc-500"
+                  ? "border-cyan-400/40 bg-cyan-400/10 text-cyan-300"
+                  : "border-[#1f1f23] text-zinc-600"
             }`}
           >
-            {i + 1}. {label}
+            {i + 1}.{label}
           </span>
         ))}
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2">
-        <label className="block text-xs text-zinc-400 sm:col-span-2">
+      <div className={`grid gap-2.5 ${compact ? "grid-cols-1" : "sm:grid-cols-2"}`}>
+        <label className={`block text-[11px] text-zinc-500 ${compact ? "" : "sm:col-span-2"}`}>
           Market ID
           <input
             value={marketId}
             onChange={(e) => setMarketId(e.target.value)}
-            className="mt-1 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm outline-none ring-cyan-400/40 focus:ring"
+            className={inputCls}
           />
         </label>
-        <label className="block text-xs text-zinc-400">
-          Side
-          <select
-            value={side}
-            onChange={(e) => setSide(e.target.value as "yes" | "no")}
-            className="mt-1 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm"
-          >
-            <option value="yes">YES</option>
-            <option value="no">NO</option>
-          </select>
-        </label>
-        <label className="block text-xs text-zinc-400">
+
+        <div className={compact ? "" : ""}>
+          <div className="text-[11px] text-zinc-500">Side</div>
+          <div className="mt-1 grid grid-cols-2 gap-1.5">
+            <button
+              type="button"
+              onClick={() => setSide("yes")}
+              className={`rounded-md border py-2 text-sm font-semibold transition ${
+                side === "yes"
+                  ? "border-emerald-400/40 bg-emerald-500/15 text-emerald-300"
+                  : "border-[#1f1f23] text-zinc-500 hover:border-[#2a2a2e]"
+              }`}
+            >
+              YES
+            </button>
+            <button
+              type="button"
+              onClick={() => setSide("no")}
+              className={`rounded-md border py-2 text-sm font-semibold transition ${
+                side === "no"
+                  ? "border-rose-400/40 bg-rose-500/15 text-rose-300"
+                  : "border-[#1f1f23] text-zinc-500 hover:border-[#2a2a2e]"
+              }`}
+            >
+              NO
+            </button>
+          </div>
+        </div>
+
+        <label className="block text-[11px] text-zinc-500">
           Amount (USDC)
           <input
             value={amountUsdc}
             onChange={(e) => setAmountUsdc(e.target.value)}
-            className="mt-1 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm"
+            className={`${inputCls} font-num`}
           />
         </label>
-        <label className="block text-xs text-zinc-400">
+        <label className="block text-[11px] text-zinc-500">
           Max slippage (bps)
           <input
             type="number"
             value={maxSlippageBps}
             onChange={(e) => setMaxSlippageBps(Number(e.target.value))}
-            className="mt-1 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm"
+            className={`${inputCls} font-num`}
           />
         </label>
-        <label className="block text-xs text-zinc-400">
-          Attribution userId (optional)
-          <input
-            value={userId}
-            onChange={(e) => setUserId(e.target.value)}
-            className="mt-1 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm"
-          />
-        </label>
+        {!compact && (
+          <label className="block text-[11px] text-zinc-500 sm:col-span-2">
+            Attribution userId (optional)
+            <input
+              value={userId}
+              onChange={(e) => setUserId(e.target.value)}
+              className={inputCls}
+            />
+          </label>
+        )}
       </div>
 
       {quote && (
-        <div className="mt-4 grid grid-cols-2 gap-2 rounded-xl border border-cyan-400/20 bg-cyan-500/5 p-3 text-xs sm:grid-cols-4">
+        <div className="mt-3 grid grid-cols-2 gap-2 rounded-md border border-cyan-400/20 bg-cyan-400/[0.04] p-2.5 text-[11px] sm:grid-cols-4">
           <div>
-            <div className="text-zinc-500">Shares</div>
-            <div className="font-semibold text-cyan-200">{quote.shares}</div>
+            <div className="text-zinc-600">Shares</div>
+            <div className="font-num font-semibold text-cyan-300">{quote.shares}</div>
           </div>
           <div>
-            <div className="text-zinc-500">Avg price</div>
-            <div className="font-semibold text-cyan-200">{quote.avgPrice}</div>
+            <div className="text-zinc-600">Avg</div>
+            <div className="font-num font-semibold text-cyan-300">{quote.avgPrice}</div>
           </div>
           <div>
-            <div className="text-zinc-500">Fee</div>
-            <div className="font-semibold text-cyan-200">{quote.feeUsdc}</div>
+            <div className="text-zinc-600">Fee</div>
+            <div className="font-num font-semibold text-cyan-300">{quote.feeUsdc}</div>
           </div>
           <div>
-            <div className="text-zinc-500">Expires</div>
-            <div className="font-semibold text-cyan-200">
+            <div className="text-zinc-600">Expires</div>
+            <div className="font-num font-semibold text-cyan-300">
               {new Date(quote.expiresAt).toLocaleTimeString()}
             </div>
           </div>
@@ -327,99 +356,76 @@ export function PrimaryBuyPanel({
       )}
 
       {signature && (
-        <p className="mt-3 break-all text-xs text-zinc-400">
-          Signature: <span className="text-emerald-300">{signature}</span>
+        <p className="mt-2 break-all font-num text-[10px] text-zinc-500">
+          sig <span className="text-emerald-400">{signature}</span>
         </p>
       )}
 
       {error && (
-        <div className="mt-3 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-200">
+        <div className="mt-2 rounded-md border border-rose-500/25 bg-rose-500/10 px-2.5 py-2 text-xs text-rose-200">
           {error}
         </div>
       )}
 
-      <div className="mt-4 flex flex-wrap gap-2">
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => void runQuote()}
-          className="rounded-lg bg-cyan-500 px-3 py-2 text-sm font-semibold text-slate-950 disabled:opacity-50"
-        >
+      <div className={`mt-3 flex flex-wrap gap-1.5 ${compact ? "flex-col" : ""}`}>
+        <button type="button" disabled={busy} onClick={() => void runQuote()} className={btnPrimary}>
           1 · Quote
         </button>
-        <button
-          type="button"
-          disabled={busy || !quote}
-          onClick={() => void runBuild()}
-          className="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-sm disabled:opacity-40"
-        >
+        <button type="button" disabled={busy || !quote} onClick={() => void runBuild()} className={btnGhost}>
           2 · Build VT
         </button>
-        <button
-          type="button"
-          disabled={busy || !build}
-          onClick={() => void runSignBroadcast()}
-          className="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-sm disabled:opacity-40"
-        >
+        <button type="button" disabled={busy || !build} onClick={() => void runSignBroadcast()} className={btnGhost}>
           3 · Sign & send
         </button>
-        <button
-          type="button"
-          disabled={busy || !signature}
-          onClick={() => void runSubmit()}
-          className="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-sm disabled:opacity-40"
-        >
+        <button type="button" disabled={busy || !signature} onClick={() => void runSubmit()} className={btnGhost}>
           4 · Submit
         </button>
-        <button
-          type="button"
-          disabled={busy || !build}
-          onClick={() => void runVerify()}
-          className="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-sm disabled:opacity-40"
-        >
+        <button type="button" disabled={busy || !build} onClick={() => void runVerify()} className={btnGhost}>
           5 · Verify
         </button>
         <button
           type="button"
           disabled={busy || !signature}
           onClick={() => void runAttribute()}
-          className="rounded-lg border border-emerald-400/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-200 disabled:opacity-40"
+          className="rounded-md border border-emerald-400/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-200 disabled:opacity-40"
         >
           6 · POST /trades/
         </button>
       </div>
 
       {!connected && (
-        <p className="mt-3 text-xs text-amber-300/90">
+        <p className="mt-2 text-[11px] text-amber-400/90">
           Connect Phantom or Solflare before quoting.
         </p>
       )}
 
-      <div className="mt-4 grid gap-3 lg:grid-cols-2">
-        <div className="rounded-xl border border-white/5 bg-black/25 p-3">
-          <div className="mb-2 text-[11px] uppercase tracking-wide text-zinc-500">
-            Desk log
+      {!compact && (
+        <div className="mt-3 grid gap-2 lg:grid-cols-2">
+          <div className="rounded-md border border-[#1f1f23] bg-[#0a0a0b] p-2.5">
+            <div className="mb-1.5 text-[10px] uppercase tracking-wide text-zinc-600">
+              Desk log
+            </div>
+            <ul className="max-h-36 space-y-1 overflow-y-auto font-num text-[10px] text-zinc-500">
+              {log.map((l, i) => (
+                <li key={i}>{l}</li>
+              ))}
+              {log.length === 0 && <li>Idle — run Quote to open a session.</li>}
+            </ul>
           </div>
-          <ul className="max-h-40 space-y-1 overflow-y-auto font-mono text-[11px] text-zinc-400">
-            {log.map((l, i) => (
-              <li key={i}>{l}</li>
-            ))}
-            {log.length === 0 && <li>Idle — run Quote to open a session.</li>}
-          </ul>
-        </div>
-        <div className="rounded-xl border border-white/5 bg-black/25 p-3">
-          <div className="mb-2 text-[11px] uppercase tracking-wide text-zinc-500">
-            Last responses
+          <div className="rounded-md border border-[#1f1f23] bg-[#0a0a0b] p-2.5">
+            <div className="mb-1.5 text-[10px] uppercase tracking-wide text-zinc-600">
+              Last responses
+            </div>
+            <pre className="max-h-36 overflow-auto font-num text-[9px] text-zinc-600">
+              {JSON.stringify(
+                { submitRaw, verifyRaw, tradeRaw, orderId: build?.orderId },
+                null,
+                2,
+              )}
+            </pre>
           </div>
-          <pre className="max-h-40 overflow-auto text-[10px] text-zinc-500">
-            {JSON.stringify(
-              { submitRaw, verifyRaw, tradeRaw, orderId: build?.orderId },
-              null,
-              2,
-            )}
-          </pre>
         </div>
-      </div>
-    </GlassCard>
+      )}
+    </Panel>
   );
 }

@@ -1,0 +1,121 @@
+"use client";
+
+import { formatOddsPct } from "@/lib/format";
+
+function toPct(price: string | number | null | undefined): number | null {
+  if (price === undefined || price === null || price === "") return null;
+  const n = typeof price === "string" ? Number(price) : price;
+  if (!Number.isFinite(n)) return null;
+  return Math.max(0, Math.min(1, n)) * 100;
+}
+
+export function ProbBar({
+  yes,
+  no,
+  size = "md",
+  showLabels = true,
+}: {
+  yes: string | number | null | undefined;
+  no: string | number | null | undefined;
+  size?: "sm" | "md" | "lg";
+  showLabels?: boolean;
+}) {
+  const y = toPct(yes);
+  const n = toPct(no);
+  const has = y !== null || n !== null;
+  const yW = y ?? (n !== null ? 100 - n : 50);
+  const nW = n ?? (y !== null ? 100 - y : 50);
+
+  const hero =
+    size === "lg"
+      ? "text-4xl md:text-5xl"
+      : size === "md"
+        ? "text-xl"
+        : "text-sm";
+
+  if (!has) {
+    return (
+      <div className={`font-num text-zinc-600 ${hero}`}>—</div>
+    );
+  }
+
+  const primary = y ?? 100 - (n as number);
+
+  return (
+    <div className="min-w-0">
+      <div className={`font-num font-semibold tracking-tight text-zinc-50 ${hero}`}>
+        {formatOddsPct(primary / 100)}
+      </div>
+      {showLabels && (
+        <div className="mt-1.5 flex h-1.5 w-full overflow-hidden rounded-full bg-[#1f1f23]">
+          <div
+            className="h-full bg-emerald-500 transition-all duration-300"
+            style={{ width: `${yW}%` }}
+          />
+          <div
+            className="h-full bg-rose-500 transition-all duration-300"
+            style={{ width: `${nW}%` }}
+          />
+        </div>
+      )}
+      {showLabels && size !== "sm" && (
+        <div className="mt-1 flex justify-between font-num text-[10px]">
+          <span className="text-emerald-400">YES {y !== null ? `${y.toFixed(0)}¢` : "—"}</span>
+          <span className="text-rose-400">NO {n !== null ? `${n.toFixed(0)}¢` : "—"}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function DualSideHero({
+  yes,
+  no,
+}: {
+  yes: string | number | null | undefined;
+  no: string | number | null | undefined;
+}) {
+  const y = toPct(yes);
+  const n = toPct(no);
+  const yW = y ?? (n !== null ? 100 - n : 50);
+  const nW = n ?? (y !== null ? 100 - y : 50);
+
+  return (
+    <div>
+      <div className="grid grid-cols-2 gap-3">
+        <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/[0.07] p-4">
+          <div className="text-[10px] font-medium uppercase tracking-wider text-emerald-400/80">
+            Yes
+          </div>
+          <div className="mt-1 font-num text-3xl font-semibold tracking-tight text-emerald-300">
+            {y !== null ? `${y.toFixed(1)}%` : "—"}
+          </div>
+          <div className="mt-0.5 font-num text-[11px] text-emerald-400/50">
+            {yes != null && yes !== "" ? Number(yes).toFixed(4) : "—"}
+          </div>
+        </div>
+        <div className="rounded-lg border border-rose-500/20 bg-rose-500/[0.07] p-4">
+          <div className="text-[10px] font-medium uppercase tracking-wider text-rose-400/80">
+            No
+          </div>
+          <div className="mt-1 font-num text-3xl font-semibold tracking-tight text-rose-300">
+            {n !== null ? `${n.toFixed(1)}%` : "—"}
+          </div>
+          <div className="mt-0.5 font-num text-[11px] text-rose-400/50">
+            {no != null && no !== "" ? Number(no).toFixed(4) : "—"}
+          </div>
+        </div>
+      </div>
+      <div className="mt-3 flex h-2 w-full overflow-hidden rounded-full bg-[#1f1f23]">
+        <div
+          className="h-full bg-emerald-500 transition-all duration-500"
+          style={{ width: `${yW}%` }}
+        />
+        <div
+          className="h-full bg-rose-500 transition-all duration-500"
+          style={{ width: `${nW}%` }}
+        />
+      </div>
+    </div>
+  );
+}

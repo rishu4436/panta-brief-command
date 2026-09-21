@@ -12,7 +12,7 @@ import type {
   PositionRow,
   PositionsResponse,
 } from "@/lib/types";
-import { GlassCard } from "./GlassCard";
+import { Panel } from "./Panel";
 import { PhaseBadge } from "./PhaseBadge";
 
 type ClaimMode = "win" | "creator-fees";
@@ -106,49 +106,50 @@ export function BookPanel() {
   };
 
   return (
-    <div className="grid gap-4 lg:grid-cols-5">
+    <div className="grid gap-3 lg:grid-cols-5 animate-fade-in">
       <div className="lg:col-span-3">
-        <GlassCard
+        <Panel
           title="Positions"
+          flush
           action={
             <button
               type="button"
               disabled={busy || !connected}
               onClick={() => void load()}
-              className="rounded-md border border-white/10 bg-white/5 px-2 py-1 text-[11px] hover:bg-white/10 disabled:opacity-40"
+              className="mr-3.5 rounded-md border border-[#1f1f23] bg-[#0a0a0b] px-2 py-1 text-[11px] text-zinc-400 hover:text-zinc-200 disabled:opacity-40"
             >
               {busy ? "Loading…" : "Refresh"}
             </button>
           }
         >
           {!connected && (
-            <p className="text-sm text-amber-200/90">
-              Connect a wallet to query <code>GET /positions/?wallet=</code>.
+            <p className="px-3.5 py-4 text-sm text-amber-400/90">
+              Connect a wallet to query positions.
             </p>
           )}
           {error && (
-            <div className="mb-3 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-200">
+            <div className="mx-3.5 mt-3 rounded-md border border-rose-500/25 bg-rose-500/10 px-3 py-2 text-sm text-rose-200">
               {error}
             </div>
           )}
-          <div className="overflow-hidden rounded-xl border border-white/5">
+          <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
-              <thead className="bg-white/5 text-[11px] uppercase tracking-wide text-zinc-500">
-                <tr>
-                  <th className="px-3 py-2">Market</th>
-                  <th className="px-3 py-2">Side</th>
-                  <th className="px-3 py-2">Shares</th>
-                  <th className="px-3 py-2">Phase</th>
-                  <th className="px-3 py-2">Claim</th>
+              <thead className="text-[10px] uppercase tracking-wider text-zinc-600">
+                <tr className="border-b border-[#1f1f23]">
+                  <th className="px-3.5 py-2 font-medium">Market</th>
+                  <th className="px-3 py-2 font-medium">Side</th>
+                  <th className="px-3 py-2 font-medium">Shares</th>
+                  <th className="px-3 py-2 font-medium">Phase</th>
+                  <th className="px-3 py-2 font-medium">Claim</th>
                 </tr>
               </thead>
               <tbody>
                 {positions.map((p, i) => (
                   <tr
                     key={`${p.marketId}-${p.side}-${i}`}
-                    className="border-t border-white/5"
+                    className="border-t border-[#1f1f23] transition-colors hover:bg-[#161618]"
                   >
-                    <td className="px-3 py-2">
+                    <td className="px-3.5 py-2.5">
                       <div className="font-medium text-zinc-200">
                         {p.title || shortAddr(p.marketId, 5)}
                       </div>
@@ -160,48 +161,52 @@ export function BookPanel() {
                         use for claim
                       </button>
                     </td>
-                    <td className="px-3 py-2 uppercase text-zinc-300">{p.side}</td>
-                    <td className="px-3 py-2 text-zinc-300">{p.shares}</td>
-                    <td className="px-3 py-2">
+                    <td
+                      className={`px-3 py-2.5 font-num text-xs uppercase ${
+                        p.side?.toLowerCase() === "yes"
+                          ? "text-emerald-400"
+                          : p.side?.toLowerCase() === "no"
+                            ? "text-rose-400"
+                            : "text-zinc-400"
+                      }`}
+                    >
+                      {p.side}
+                    </td>
+                    <td className="px-3 py-2.5 font-num text-zinc-300">{p.shares}</td>
+                    <td className="px-3 py-2.5">
                       <PhaseBadge phase={p.phase} />
                     </td>
-                    <td className="px-3 py-2 text-xs">
+                    <td className="px-3 py-2.5 text-xs text-zinc-500">
                       {p.claimed ? "claimed" : p.claimable ? "claimable" : "—"}
                     </td>
                   </tr>
                 ))}
-                {positions.length === 0 && (
+                {positions.length === 0 && connected && !busy && (
                   <tr>
                     <td
                       colSpan={5}
-                      className="px-3 py-8 text-center text-sm text-zinc-500"
+                      className="px-3.5 py-12 text-center text-sm text-zinc-600"
                     >
-                      No positions loaded yet.
+                      No positions yet
                     </td>
                   </tr>
                 )}
               </tbody>
             </table>
           </div>
-        </GlassCard>
+        </Panel>
       </div>
 
       <div className="lg:col-span-2">
-        <GlassCard title="Claim build">
-          <p className="mb-3 text-xs text-zinc-400">
-            Builds unsigned instructions via{" "}
-            <code>POST /claim/build/</code> or{" "}
-            <code>POST /claim/creator-fees/build/</code>, compiles a versioned
-            tx, signs, broadcasts, and optionally attributes win claims.
-          </p>
-          <div className="mb-3 flex gap-2">
+        <Panel title="Claim ticket">
+          <div className="mb-3 flex gap-1.5">
             <button
               type="button"
               onClick={() => setMode("win")}
-              className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${
+              className={`flex-1 rounded-md px-3 py-1.5 text-xs font-semibold transition ${
                 mode === "win"
-                  ? "bg-cyan-500 text-slate-950"
-                  : "border border-white/10 text-zinc-400"
+                  ? "bg-cyan-400 text-[#0a0a0b]"
+                  : "border border-[#1f1f23] text-zinc-500 hover:text-zinc-300"
               }`}
             >
               Win claim
@@ -209,30 +214,30 @@ export function BookPanel() {
             <button
               type="button"
               onClick={() => setMode("creator-fees")}
-              className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${
+              className={`flex-1 rounded-md px-3 py-1.5 text-xs font-semibold transition ${
                 mode === "creator-fees"
-                  ? "bg-violet-500 text-slate-950"
-                  : "border border-white/10 text-zinc-400"
+                  ? "bg-cyan-400 text-[#0a0a0b]"
+                  : "border border-[#1f1f23] text-zinc-500 hover:text-zinc-300"
               }`}
             >
               Creator fees
             </button>
           </div>
-          <label className="block text-xs text-zinc-400">
+          <label className="block text-[11px] text-zinc-500">
             Market ID
             <input
               value={claimMarketId}
               onChange={(e) => setClaimMarketId(e.target.value)}
-              className="mt-1 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm"
+              className="mt-1 w-full rounded-md border border-[#1f1f23] bg-[#0a0a0b] px-3 py-2 text-sm outline-none focus:border-cyan-400/40"
             />
           </label>
           {claimError && (
-            <div className="mt-3 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-200">
+            <div className="mt-3 rounded-md border border-rose-500/25 bg-rose-500/10 px-3 py-2 text-sm text-rose-200">
               {claimError}
             </div>
           )}
           {claimMsg && (
-            <div className="mt-3 break-all rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-200">
+            <div className="mt-3 break-all rounded-md border border-emerald-500/25 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-200">
               {claimMsg}
             </div>
           )}
@@ -240,11 +245,11 @@ export function BookPanel() {
             type="button"
             disabled={claimBusy || !connected}
             onClick={() => void runClaim()}
-            className="mt-4 w-full rounded-lg bg-gradient-to-r from-emerald-400 to-cyan-500 py-2 text-sm font-semibold text-slate-950 disabled:opacity-40"
+            className="mt-4 w-full rounded-md bg-cyan-400 py-2.5 text-sm font-semibold text-[#0a0a0b] transition hover:bg-cyan-300 disabled:opacity-40"
           >
             {claimBusy ? "Building…" : "Build · sign · broadcast"}
           </button>
-        </GlassCard>
+        </Panel>
       </div>
     </div>
   );

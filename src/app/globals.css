@@ -1,8 +1,35 @@
 @import "tailwindcss";
 
 :root {
-  --background: #020617;
-  --foreground: #f4f4f5;
+  --bg: #0a0a0b;
+  --bg-elevated: #111113;
+  --bg-panel: #111113;
+  --bg-hover: #161618;
+  --border: #1f1f23;
+  --border-strong: #2a2a2e;
+  --fg: #fafafa;
+  --fg-muted: #a1a1aa;
+  --fg-dim: #71717a;
+  --yes: #10b981;
+  --yes-soft: rgba(16, 185, 129, 0.12);
+  --no: #f43f5e;
+  --no-soft: rgba(244, 63, 94, 0.12);
+  --accent: #22d3ee;
+  --accent-soft: rgba(34, 211, 238, 0.12);
+  --warn: #fbbf24;
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+}
+
+@theme inline {
+  --color-terminal-bg: var(--bg);
+  --color-terminal-panel: var(--bg-panel);
+  --color-terminal-border: var(--border);
+  --color-terminal-yes: var(--yes);
+  --color-terminal-no: var(--no);
+  --color-terminal-accent: var(--accent);
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
 }
 
 html {
@@ -10,34 +37,101 @@ html {
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family:
-    ui-sans-serif,
-    system-ui,
-    -apple-system,
-    Segoe UI,
-    Roboto,
-    Helvetica,
-    Arial,
-    "Apple Color Emoji",
-    "Segoe UI Emoji";
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-sans);
   min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-/* Wallet adapter button polish inside glass header */
+/* Numeric / mono utility */
+.font-num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+/* Wallet adapter — match terminal chrome, kill purple clash */
 .wallet-adapter-button {
-  font-family: inherit !important;
+  font-family: var(--font-sans) !important;
+  height: 32px !important;
+  border-radius: 6px !important;
+  background: #161618 !important;
+  border: 1px solid #1f1f23 !important;
+  color: #fafafa !important;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  line-height: 1 !important;
+  padding: 0 12px !important;
+  transition: background 0.15s ease, border-color 0.15s ease !important;
+}
+.wallet-adapter-button:not([disabled]):hover {
+  background: #1c1c1f !important;
+  border-color: #2a2a2e !important;
+}
+.wallet-adapter-button-trigger {
+  background: #161618 !important;
+}
+.wallet-adapter-modal-wrapper {
+  background: rgba(10, 10, 11, 0.85) !important;
+  backdrop-filter: blur(8px);
+}
+.wallet-adapter-modal {
+  background: #111113 !important;
+  border: 1px solid #1f1f23 !important;
+  border-radius: 12px !important;
+  font-family: var(--font-sans) !important;
+}
+.wallet-adapter-modal-title {
+  color: #fafafa !important;
+  font-weight: 600 !important;
+}
+.wallet-adapter-modal-list li {
+  background: #161618 !important;
+  border: 1px solid #1f1f23 !important;
+  border-radius: 8px !important;
+}
+.wallet-adapter-modal-list li:hover {
+  background: #1c1c1f !important;
 }
 
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(148, 163, 184, 0.35);
+  background: #2a2a2e;
   border-radius: 999px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
+}
+
+/* Soft row / tab motion */
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes pulse-soft {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 0.7; }
+}
+.animate-fade-in {
+  animation: fade-in 0.25s ease-out both;
+}
+.skeleton {
+  background: linear-gradient(90deg, #161618 0%, #1c1c1f 50%, #161618 100%);
+  background-size: 200% 100%;
+  animation: pulse-soft 1.4s ease-in-out infinite;
+  border-radius: 6px;
+}
+
+/* Live pill pulse */
+@keyframes live-dot {
+  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.5); }
+  50% { opacity: 0.7; box-shadow: 0 0 0 4px rgba(16, 185, 129, 0); }
+}
+.live-dot {
+  animation: live-dot 2s ease-in-out infinite;
 }

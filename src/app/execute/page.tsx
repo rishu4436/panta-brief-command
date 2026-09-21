@@ -3,22 +3,21 @@
 import { useSearchParams } from "next/navigation";
 import { Suspense } from "react";
 import { PrimaryBuyPanel } from "@/components/PrimaryBuyPanel";
-import { GlassCard } from "@/components/GlassCard";
+import { Panel } from "@/components/Panel";
 
 function ExecuteInner() {
   const sp = useSearchParams();
   const marketId = sp.get("marketId") || "";
   return (
-    <div className="space-y-4">
-      <GlassCard title="Execute">
-        <h1 className="text-2xl font-semibold text-zinc-50">Primary buy desk</h1>
-        <p className="mt-2 text-sm text-zinc-400">
-          Full Panta primary path using{" "}
-          <code className="text-cyan-300/80">@solana/web3.js</code> + wallet
-          adapter. Instructions + blockhash compile to a versioned transaction
-          client-side; the API key never leaves the server proxy.
+    <div className="space-y-3 animate-fade-in">
+      <div>
+        <h1 className="text-lg font-semibold tracking-tight text-zinc-50">
+          Execute
+        </h1>
+        <p className="mt-0.5 text-[12px] text-zinc-500">
+          Primary buy path · quote → attribute
         </p>
-      </GlassCard>
+      </div>
       <PrimaryBuyPanel initialMarketId={marketId} />
     </div>
   );
@@ -28,9 +27,10 @@ export default function ExecutePage() {
   return (
     <Suspense
       fallback={
-        <GlassCard>
-          <p className="text-sm text-zinc-400">Loading execute desk…</p>
-        </GlassCard>
+        <Panel>
+          <div className="skeleton h-4 w-40" />
+          <div className="skeleton mt-3 h-64 w-full" />
+        </Panel>
       }
     >
       <ExecuteInner />

@@ -16,7 +16,7 @@ function ExecuteInner() {
           Execute
         </h1>
         <p className="mt-0.5 text-[12px] text-zinc-500">
-          Primary buy · guided Quote → Attribute · live attribution ledger
+          Guided primary buy · quote through attribute · live activity
         </p>
       </div>
       <PrimaryBuyPanel initialMarketId={marketId} />

@@ -8,15 +8,23 @@ export type SparkPoint = {
   t: number;
   /** Implied YES probability 0–1 derived from tape row */
   yesProb: number;
+  source: "ratio" | "nudge" | "spot";
 };
 
 /**
- * Derive a simple YES probability series from trade tape.
- * Prefer yesAmount/(yes+no); soft side+size signal otherwise.
+ * Derive a YES probability series from trade tape.
+ * Prefer yesAmount/(yes+no). Soft side+size nudge only when it stays near spot.
  * Never invent OHLC — return empty if fewer than 2 timed points.
  */
-export function deriveTapeSeries(items: CatalogTradeRow[]): SparkPoint[] {
+export function deriveTapeSeries(
+  items: CatalogTradeRow[],
+  spotYes?: number | null,
+): SparkPoint[] {
   const points: SparkPoint[] = [];
+  const spot =
+    spotYes != null && Number.isFinite(spotYes)
+      ? Math.max(0.02, Math.min(0.98, spotYes))
+      : null;
 
   for (const t of items) {
     const bt = t.blockTime;
@@ -24,10 +32,18 @@ export function deriveTapeSeries(items: CatalogTradeRow[]): SparkPoint[] {
     const time = Number(bt);
 
     let yesProb: number | null = null;
+    let source: SparkPoint["source"] = "ratio";
     const y = Number(t.yesAmount ?? NaN);
     const n = Number(t.noAmount ?? NaN);
     if (Number.isFinite(y) && Number.isFinite(n) && y + n > 0) {
-      yesProb = y / (y + n);
+      // Flow mix ≠ market price — only keep when near spot (or no spot yet)
+      const mix = y / (y + n);
+      if (spot != null && Math.abs(mix - spot) > 0.3) {
+        yesProb = null;
+      } else {
+        yesProb = mix;
+        source = "ratio";
+      }
     } else {
       const side = (t.side || "").toLowerCase();
       const amt = Number(t.amountUsdc ?? NaN);
@@ -38,6 +54,16 @@ export function deriveTapeSeries(items: CatalogTradeRow[]): SparkPoint[] {
         } else {
           yesProb = side === "yes" ? 0.55 : 0.45;
         }
+        source = "nudge";
+        // Honesty: if spot is ~balanced (or known) and nudge diverges wildly, drop nudge
+        if (spot != null && yesProb != null) {
+          if (Math.abs(yesProb - spot) > 0.28) {
+            yesProb = null;
+          }
+        } else if (yesProb != null && Math.abs(yesProb - 0.5) > 0.35) {
+          // No spot — still avoid painting 85–98% from weak heuristics alone
+          yesProb = null;
+        }
       }
     }
 
@@ -45,6 +71,7 @@ export function deriveTapeSeries(items: CatalogTradeRow[]): SparkPoint[] {
     points.push({
       t: time,
       yesProb: Math.max(0.02, Math.min(0.98, yesProb)),
+      source,
     });
   }
 
@@ -64,6 +91,8 @@ function buildPath(
   w: number,
   h: number,
   pad = 4,
+  /** When spot is known, keep axis honest around it instead of zooming to 98% */
+  axisSpot?: number | null,
 ): { line: string; area: string; lastX: number; lastY: number } {
   const minT = series[0].t;
   const maxT = series[series.length - 1].t;
@@ -71,7 +100,16 @@ function buildPath(
   const ys = series.map((p) => p.yesProb);
   let minY = Math.min(...ys);
   let maxY = Math.max(...ys);
-  if (maxY - minY < 0.02) {
+  if (axisSpot != null && Number.isFinite(axisSpot)) {
+    // Expand axis to include spot so a 50/50 market isn't framed as 98%
+    minY = Math.min(minY, axisSpot);
+    maxY = Math.max(maxY, axisSpot);
+    // Prefer a readable band around spot when series is flat/extreme vs spot
+    if (Math.abs(maxY - minY) < 0.08) {
+      minY = Math.max(0, axisSpot - 0.12);
+      maxY = Math.min(1, axisSpot + 0.12);
+    }
+  } else if (maxY - minY < 0.02) {
     minY = Math.max(0, minY - 0.05);
     maxY = Math.min(1, maxY + 0.05);
   }
@@ -95,18 +133,35 @@ function buildPath(
 export function TapeSparkline({
   items,
   busy,
+  spotYes,
 }: {
   items: CatalogTradeRow[];
   busy?: boolean;
+  /** Live detail YES price 0–1 — used to gate wild tape heuristics */
+  spotYes?: number | null;
 }) {
-  const series = useMemo(() => deriveTapeSeries(items), [items]);
+  const series = useMemo(
+    () => deriveTapeSeries(items, spotYes),
+    [items, spotYes],
+  );
   const enough = series.length >= 2;
+  const timedCount = useMemo(
+    () => items.filter((t) => t.blockTime != null && Number.isFinite(Number(t.blockTime))).length,
+    [items],
+  );
+  const printLabel =
+    enough
+      ? timedCount > series.length
+        ? `${series.length}/${timedCount} prints`
+        : `${series.length} prints`
+      : "";
+  const usedNudge = series.some((p) => p.source === "nudge");
   const w = 320;
   const h = 72;
 
   const path = useMemo(
-    () => (enough ? buildPath(series, w, h) : null),
-    [enough, series],
+    () => (enough ? buildPath(series, w, h, 4, spotYes) : null),
+    [enough, series, spotYes],
   );
 
   const delta =
@@ -119,7 +174,7 @@ export function TapeSparkline({
 
   return (
     <Panel
-      title="Tape sparkline"
+      title="Tape-implied"
       action={
         enough ? (
           <span
@@ -128,7 +183,7 @@ export function TapeSparkline({
             }`}
           >
             {up ? "+" : ""}
-            {(delta * 100).toFixed(1)}¢ · {series.length} prints
+            {(delta * 100).toFixed(1)}¢ · {printLabel}
           </span>
         ) : null
       }
@@ -137,9 +192,12 @@ export function TapeSparkline({
         <div className="skeleton h-[72px] w-full" />
       ) : !enough ? (
         <div className="flex h-[72px] flex-col items-center justify-center rounded-md border border-dashed border-[#1f1f23] bg-[#0a0a0b]/60 px-3 text-center">
-          <div className="text-[12px] text-zinc-400">No sparkline yet</div>
+          <div className="text-[12px] text-zinc-400">No tape series yet</div>
           <p className="mt-0.5 text-[10px] text-zinc-500">
-            Needs ≥2 timed tape prints with size or side — no invented OHLC
+            Needs ≥2 timed prints with size — no invented OHLC
+            {items.length > 0 && timedCount < 2
+              ? ` · ${items.length} tape row${items.length === 1 ? "" : "s"} lack timestamps`
+              : ""}
           </p>
         </div>
       ) : path ? (
@@ -148,7 +206,7 @@ export function TapeSparkline({
             viewBox={`0 0 ${w} ${h}`}
             className="h-[72px] w-full"
             role="img"
-            aria-label="YES probability from trade tape"
+            aria-label="Tape-implied YES probability"
           >
             <path d={path.area} fill={fill} />
             <path
@@ -165,8 +223,12 @@ export function TapeSparkline({
             <span>start {(series[0].yesProb * 100).toFixed(1)}%</span>
             <span>
               last {(series[series.length - 1].yesProb * 100).toFixed(1)}% YES
+              {usedNudge ? " · soft" : ""}
             </span>
           </div>
+          <p className="mt-1 text-[10px] text-zinc-600">
+            Tape-implied series{spotYes != null ? " · anchored to spot axis" : ""} · not OHLC
+          </p>
         </div>
       ) : null}
     </Panel>

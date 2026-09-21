@@ -1,7 +1,7 @@
 "use client";
 
 import type { CatalogTradeRow } from "@/lib/types";
-import { formatBlockTime, formatVolumeUsdc, shortAddr } from "@/lib/format";
+import { formatRelativeTime, formatTapeSize, shortAddr } from "@/lib/format";
 import { Panel } from "./Panel";
 
 function rowSide(t: CatalogTradeRow): string {
@@ -13,13 +13,6 @@ function rowSide(t: CatalogTradeRow): string {
   return "—";
 }
 
-function rowSize(t: CatalogTradeRow): string {
-  if (t.amountUsdc) return formatVolumeUsdc(t.amountUsdc);
-  const y = t.yesAmount ?? "—";
-  const n = t.noAmount ?? "—";
-  return `Y ${y} / N ${n}`;
-}
-
 export function TradeTape({
   items,
   busy,
@@ -27,6 +20,7 @@ export function TradeTape({
   items: CatalogTradeRow[];
   busy?: boolean;
 }) {
+  const now = Date.now();
   return (
     <Panel title="Trade tape" flush>
       <div className="max-h-96 overflow-y-auto">
@@ -61,18 +55,25 @@ export function TradeTape({
               <div
                 key={`${t.signature || t.id || i}`}
                 className="grid grid-cols-[52px_1fr_88px_72px] items-center gap-2 px-3.5 py-1.5 text-[11px] transition-colors hover:bg-[#161618] sm:grid-cols-[52px_1fr_100px_88px_72px]"
+                title={
+                  t.blockTime
+                    ? new Date(t.blockTime * 1000).toLocaleString("en-IN", {
+                        timeZone: "Asia/Calcutta",
+                      }) + " IST"
+                    : undefined
+                }
               >
                 <span className={`font-num font-semibold ${sideColor}`}>
                   {side}
                 </span>
                 <span className="truncate font-num text-zinc-300">
-                  {rowSize(t)}
+                  {formatTapeSize(t)}
                 </span>
                 <span className="hidden font-num text-[10px] text-zinc-600 sm:inline">
                   {shortAddr(t.wallet, 4)}
                 </span>
                 <span className="font-num text-[10px] text-zinc-500">
-                  {formatBlockTime(t.blockTime)}
+                  {formatRelativeTime(t.blockTime, now)}
                 </span>
                 <span className="text-right">
                   {t.isPrimary ? (

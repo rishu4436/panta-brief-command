@@ -99,9 +99,10 @@ export function Shell({ children }: { children: ReactNode }) {
                   <Link
                     key={item.href}
                     href={item.href}
+                    aria-current={active ? "page" : undefined}
                     className={`rounded-md px-2.5 py-1 text-[13px] transition-colors ${
                       active
-                        ? "bg-[#161618] text-zinc-50"
+                        ? "bg-cyan-400/10 text-cyan-300 ring-1 ring-inset ring-cyan-400/35"
                         : "text-zinc-400 hover:bg-[#161618] hover:text-zinc-100"
                     }`}
                   >
@@ -156,8 +157,11 @@ export function Shell({ children }: { children: ReactNode }) {
         <nav className="flex gap-1 border-t border-[#1f1f23] px-3 py-1.5 md:hidden" aria-label="Mobile">
           <Link
             href="/"
+            aria-current={isLanding ? "page" : undefined}
             className={`flex-1 rounded-md px-2 py-1.5 text-center text-xs ${
-              isLanding ? "bg-[#161618] text-zinc-50" : "text-zinc-500"
+              isLanding
+                ? "bg-cyan-400/10 text-cyan-300 ring-1 ring-inset ring-cyan-400/35"
+                : "text-zinc-500 hover:bg-[#161618] hover:text-zinc-200"
             }`}
           >
             Home
@@ -168,8 +172,11 @@ export function Shell({ children }: { children: ReactNode }) {
               <Link
                 key={item.href}
                 href={item.href}
+                aria-current={active ? "page" : undefined}
                 className={`flex-1 rounded-md px-2 py-1.5 text-center text-xs ${
-                  active ? "bg-[#161618] text-zinc-50" : "text-zinc-500"
+                  active
+                    ? "bg-cyan-400/10 text-cyan-300 ring-1 ring-inset ring-cyan-400/35"
+                    : "text-zinc-500 hover:bg-[#161618] hover:text-zinc-200"
                 }`}
               >
                 {item.label}

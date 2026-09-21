@@ -8,6 +8,7 @@ import type {
   MarketCatalogItem,
 } from "@/lib/types";
 import { describeErr } from "@/lib/errors";
+import { formatFriendlyIst } from "@/lib/format";
 import { BriefMarkdown } from "./BriefMarkdown";
 import { Panel } from "./Panel";
 
@@ -151,10 +152,7 @@ export function AiBrief({
               {tone}
             </span>
             <span className="font-num">
-              {new Date(brief.generatedAt).toLocaleString("en-IN", {
-                timeZone: "Asia/Calcutta",
-              })}{" "}
-              IST
+              {formatFriendlyIst(brief.generatedAt)}
             </span>
           </div>
           <BriefMarkdown source={brief.narrative} />

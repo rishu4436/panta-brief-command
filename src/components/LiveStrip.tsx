@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { pantaFetch } from "@/lib/api";
-import { formatVolumeUsdc, impliedSide, marketLabel } from "@/lib/format";
+import { formatVolumeUsdc, impliedSide, marketActivityRank, marketLabel } from "@/lib/format";
 import type { MarketCatalogItem, MarketsListResponse } from "@/lib/types";
 import { ProbBar } from "./ProbBar";
 import { PhaseBadge } from "./PhaseBadge";
@@ -60,11 +60,39 @@ export function LiveStrip() {
       setBusy(true);
       setFailed(false);
       try {
-        const { data } = await pantaFetch<MarketsListResponse>("/markets/", {
-          query: { limit: "6" },
-        });
+        // Prefer primary/active; demote cancelled/resolved in the strip
+        let items: MarketCatalogItem[] = [];
+        try {
+          const { data } = await pantaFetch<MarketsListResponse>("/markets/", {
+            query: { status: "primary", limit: "8" },
+          });
+          items = data.items || [];
+        } catch {
+          /* fall through to unfiltered */
+        }
+        if (items.length < 3) {
+          try {
+            const { data } = await pantaFetch<MarketsListResponse>("/markets/", {
+              query: { limit: "12" },
+            });
+            const extra = data.items || [];
+            const seen = new Set(items.map((m) => m.marketId));
+            for (const m of extra) {
+              if (!seen.has(m.marketId)) {
+                items.push(m);
+                seen.add(m.marketId);
+              }
+            }
+          } catch {
+            /* keep primary-only list */
+          }
+        }
+        if (items.length === 0) throw new Error("empty catalog");
+        items = [...items].sort(
+          (a, b) => marketActivityRank(a) - marketActivityRank(b),
+        );
         if (!cancelled) {
-          setItems((data.items || []).slice(0, 6));
+          setItems(items.slice(0, 6));
         }
       } catch {
         if (!cancelled) {
@@ -91,7 +119,7 @@ export function LiveStrip() {
         <span className="h-2 w-2 rounded-full bg-[#2a2a2e]" />
         <span className="ml-2 font-num text-[10px] text-zinc-500">
           {showLive
-            ? "live strip · GET /markets/?limit=6"
+            ? "live strip · primary first"
             : showPreview
               ? "Preview · connect API for live strip"
               : "desk · loading catalog"}

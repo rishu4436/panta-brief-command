@@ -389,33 +389,41 @@ export function PrimaryBuyPanel({
     <Panel title={compact ? "Execute ticket" : "Primary buy"}>
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <div
-          className={`flex flex-wrap gap-1 ${compact ? "hidden sm:flex" : ""}`}
-          role="list"
-          aria-label="Execute steps"
+          className="flex flex-wrap items-center gap-1.5"
+          aria-label="Execute progress"
         >
-          {STEPS.map((label, i) => (
-            <span
-              key={label}
-              role="listitem"
-              aria-current={step === i ? "step" : undefined}
-              className={`step-chip rounded border px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide transition-all duration-300 ${
-                step > i
-                  ? "border-emerald-400/30 bg-emerald-500/10 text-emerald-300"
-                  : step === i
-                    ? "border-cyan-400/40 bg-cyan-400/10 text-cyan-300"
-                    : "border-[#1f1f23] text-zinc-600"
-              }`}
-            >
-              {i + 1}.{label}
-            </span>
-          ))}
+          <span className="text-[10px] text-zinc-500">
+            {guidedPhase
+              ? guidedPhase
+              : step === 0
+                ? "Ready to quote"
+                : step >= STEPS.length
+                  ? "Attributed"
+                  : STEPS[Math.min(step, STEPS.length - 1)]}
+          </span>
+          <span className="font-num text-[10px] text-zinc-600">
+            {Math.min(step + 1, STEPS.length)}/{STEPS.length}
+          </span>
+          {!compact && (
+            <div className="ml-1 hidden flex-wrap gap-1 sm:flex" role="presentation">
+              {STEPS.map((label, i) => (
+                <span
+                  key={label}
+                                    aria-current={step === i ? "step" : undefined}
+                  className={`step-chip rounded border px-1.5 py-0.5 text-[9px] font-medium tracking-wide transition-all duration-300 ${
+                    step > i
+                      ? "border-emerald-400/30 bg-emerald-500/10 text-emerald-300"
+                      : step === i
+                        ? "border-cyan-400/40 bg-cyan-400/10 text-cyan-300"
+                        : "border-[#1f1f23] text-zinc-600"
+                  }`}
+                >
+                  {label}
+                </span>
+              ))}
+            </div>
+          )}
         </div>
-        {compact && (
-          <div className="text-[10px] text-zinc-500 sm:hidden" aria-live="polite">
-            Step {Math.min(step + 1, STEPS.length)}/{STEPS.length}
-            {guidedPhase ? ` · ${guidedPhase}` : ""}
-          </div>
-        )}
         <div className="inline-flex rounded-md border border-[#1f1f23] bg-[#0a0a0b] p-0.5">
           <button
             type="button"
@@ -443,60 +451,76 @@ export function PrimaryBuyPanel({
       <div className={`grid gap-2.5 ${compact ? "grid-cols-1" : "sm:grid-cols-2"}`}>
         <div className={`block text-[11px] text-zinc-400 ${compact ? "" : "sm:col-span-2"}`}>
           <span>Market</span>
-          {catalog.length > 0 && (
+          {compact ? (
+            <div className="mt-1 rounded-md border border-[#1f1f23] bg-[#0a0a0b] px-3 py-2.5">
+              <div className="text-[12px] font-medium leading-snug text-zinc-200">
+                {selectedMarket
+                  ? marketLabel(selectedMarket, { max: 96 })
+                  : marketId
+                    ? shortAddr(marketId, 8)
+                    : "This market"}
+              </div>
+              {selectedMarket && (
+                <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[11px]">
+                  <span className="rounded border border-cyan-400/30 bg-cyan-400/10 px-1.5 py-0.5 font-medium uppercase tracking-wide text-cyan-300">
+                    {selectedMarket.phase || "—"}
+                  </span>
+                  <span className="text-zinc-500">Ends</span>
+                  <span className="font-num text-zinc-300">
+                    {formatEndShort(selectedMarket.endTime)} IST
+                  </span>
+                </div>
+              )}
+            </div>
+          ) : (
             <>
-              <input
-                value={pickerQuery}
-                onChange={(e) => setPickerQuery(e.target.value)}
-                placeholder="Filter markets…"
-                aria-label="Filter market picker"
-                className={`${inputCls} mb-1.5`}
-              />
-              <select
-                value={catalog.some((m) => m.marketId === marketId) ? marketId : ""}
-                onChange={(e) => {
-                  if (e.target.value) setMarketId(e.target.value);
-                }}
-                aria-label="Pick market"
-                className={`${inputCls} mb-1.5`}
-              >
-                <option value="">Select live market…</option>
-                {filteredCatalog.map((m) => (
-                  <option key={m.marketId} value={m.marketId}>
-                    {marketLabel(m, { max: 72 })}
+              <div className="relative mt-1">
+                <input
+                  value={pickerQuery}
+                  onChange={(e) => setPickerQuery(e.target.value)}
+                  placeholder="Search markets…"
+                  aria-label="Search markets"
+                  className={`${inputCls} mb-1.5`}
+                />
+                <select
+                  value={catalog.some((m) => m.marketId === marketId) ? marketId : ""}
+                  onChange={(e) => {
+                    if (e.target.value) {
+                      setMarketId(e.target.value);
+                      setPickerQuery("");
+                    }
+                  }}
+                  aria-label="Pick market"
+                  className={inputCls}
+                >
+                  <option value="">
+                    {filteredCatalog.length
+                      ? "Select a live market…"
+                      : pickerQuery
+                        ? "No matches — open Advanced to paste ID"
+                        : "Loading catalog…"}
                   </option>
-                ))}
-              </select>
-              {pickerQuery && filteredCatalog.length === 0 && (
-                <p className="mb-1.5 text-[10px] text-zinc-500">No catalog hits — paste an id below</p>
+                  {filteredCatalog.map((m) => (
+                    <option key={m.marketId} value={m.marketId}>
+                      {marketLabel(m, { max: 72 })}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              {selectedMarket && (
+                <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[11px]">
+                  <span className="rounded border border-cyan-400/30 bg-cyan-400/10 px-1.5 py-0.5 font-medium uppercase tracking-wide text-cyan-300">
+                    {selectedMarket.phase || "—"}
+                  </span>
+                  <span className="text-zinc-500">Ends</span>
+                  <span className="font-num text-zinc-300">
+                    {formatEndShort(selectedMarket.endTime)} IST
+                  </span>
+                </div>
               )}
             </>
           )}
-          <input
-            value={marketId}
-            onChange={(e) => setMarketId(e.target.value)}
-            placeholder="Or paste marketId"
-            aria-label="Market ID"
-            className={`${inputCls} font-num`}
-          />
         </div>
-
-        {selectedMarket && (
-          <div className={`rounded-md border border-[#1f1f23] bg-[#0a0a0b] px-3 py-2.5 ${compact ? "" : "sm:col-span-2"}`}>
-            <div className="flex flex-wrap items-center gap-2 text-[11px]">
-              <span className="rounded border border-cyan-400/30 bg-cyan-400/10 px-1.5 py-0.5 font-medium uppercase tracking-wide text-cyan-300">
-                {selectedMarket.phase || "—"}
-              </span>
-              <span className="text-zinc-500">Ends</span>
-              <span className="font-num text-zinc-300">{formatEndShort(selectedMarket.endTime)} IST</span>
-              {selectedMarket.category ? (
-                <span className="rounded border border-[#1f1f23] px-1.5 py-0.5 text-zinc-500">
-                  {selectedMarket.category}
-                </span>
-              ) : null}
-            </div>
-          </div>
-        )}
 
         <div>
           <div className="text-[11px] text-zinc-400">Side</div>
@@ -572,16 +596,7 @@ export function PrimaryBuyPanel({
             className={`${inputCls} font-num`}
           />
         </label>
-        {!compact && (
-          <label className="block text-[11px] text-zinc-400 sm:col-span-2">
-            Attribution userId (optional)
-            <input
-              value={userId}
-              onChange={(e) => setUserId(e.target.value)}
-              className={inputCls}
-            />
-          </label>
-        )}
+
       </div>
 
       {quote && (
@@ -729,6 +744,29 @@ export function PrimaryBuyPanel({
           Advanced / raw
         </summary>
         <div className={`grid gap-2 border-t border-[#1f1f23] p-2.5 ${compact ? "" : "lg:grid-cols-2"}`}>
+          {!compact && (
+            <div className="space-y-2 lg:col-span-2">
+              <label className="block text-[11px] text-zinc-400">
+                Paste market ID
+                <input
+                  value={marketId}
+                  onChange={(e) => setMarketId(e.target.value)}
+                  placeholder="Market public key"
+                  aria-label="Paste market ID"
+                  className={`${inputCls} font-num`}
+                />
+              </label>
+              <label className="block text-[11px] text-zinc-400">
+                Partner ref (optional)
+                <input
+                  value={userId}
+                  onChange={(e) => setUserId(e.target.value)}
+                  placeholder="Optional attribution tag"
+                  className={inputCls}
+                />
+              </label>
+            </div>
+          )}
           <div>
             <div className="mb-1.5 text-[10px] uppercase tracking-wide text-zinc-700">
               Desk log

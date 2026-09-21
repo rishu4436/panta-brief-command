@@ -1,5 +1,5 @@
 import type { BriefTone, CatalogTradeRow, MarketCatalogItem } from "./types";
-import { formatOddsPct, formatVolumeUsdc, impliedSide } from "./format";
+import { formatFriendlyIst, formatOddsPct, formatVolumeUsdc, impliedSide } from "./format";
 
 export type { BriefTone };
 
@@ -123,7 +123,7 @@ export function buildTemplateBrief(
     "- Quote sessions expire quickly — sign/broadcast promptly after build.",
     "- Resolution disputes and oracle lag can reprice outcomes after the window.",
     "",
-    `_Generated ${new Date().toISOString()} · tone=${tone} · Powered by Panta_`,
+    `_Generated ${formatFriendlyIst(new Date())} · ${tone} · Powered by Panta_`,
   ].join("\n");
 }
 

@@ -9,6 +9,7 @@ import {
   impliedSide,
   marketLabel,
   shortAddr,
+  shouldShowCategoryChip,
 } from "@/lib/format";
 import type {
   CatalogTradeRow,
@@ -202,9 +203,11 @@ export function MarketDetail({ marketId }: { marketId: string }) {
                 <span className="text-[9px] uppercase tracking-wide text-amber-400/80">Ends</span>
                 {formatEnd(market.endTime)} IST
               </span>
-              <span className="rounded border border-[#1f1f23] px-1.5 py-0.5">
-                {market.category || "—"}
-              </span>
+              {shouldShowCategoryChip(market.category, market.title, market.description) ? (
+                <span className="rounded border border-[#1f1f23] px-1.5 py-0.5">
+                  {market.category}
+                </span>
+              ) : null}
               <span className="font-num">{shortAddr(market.marketId, 6)}</span>
               <span>·</span>
               <span className="font-num">{formatVolumeUsdc(market.volumeUsdc)}</span>
@@ -301,10 +304,10 @@ export function MarketDetail({ marketId }: { marketId: string }) {
           <Panel title="Probability">
             <DualSideHero yes={yes} no={no} />
             <p className="mt-3 text-[10px] text-zinc-600">
-              Primary/spot from detail fields · nulls mean open for spot
+              Live spot · blank means not priced yet
             </p>
           </Panel>
-          <TapeSparkline items={tape} busy={tapeBusy} />
+          <TapeSparkline items={tape} busy={tapeBusy} spotYes={yes != null && yes !== "" ? Number(yes) : null} />
           <TradeTape items={tape} busy={tapeBusy} />
         </div>
 

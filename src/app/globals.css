@@ -52,7 +52,9 @@ body {
   letter-spacing: -0.02em;
 }
 
-/* Wallet adapter — match terminal chrome, kill purple clash */
+/* Wallet adapter — match terminal chrome, kill purple clash
+   Library: .wallet-adapter-modal = fullscreen overlay;
+   .wallet-adapter-modal-wrapper = card. Do NOT invert these. */
 .wallet-adapter-button {
   font-family: var(--font-sans) !important;
   height: 32px !important;
@@ -73,15 +75,26 @@ body {
 .wallet-adapter-button-trigger {
   background: #161618 !important;
 }
-.wallet-adapter-modal-wrapper {
-  background: rgba(10, 10, 11, 0.85) !important;
-  backdrop-filter: blur(8px);
-}
+/* Overlay: translucent dim + blur (fullscreen) */
 .wallet-adapter-modal {
-  background: #111113 !important;
-  border: 1px solid #1f1f23 !important;
-  border-radius: 12px !important;
+  background: rgba(10, 10, 11, 0.62) !important;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: none !important;
+  border-radius: 0 !important;
   font-family: var(--font-sans) !important;
+}
+.wallet-adapter-modal-overlay {
+  background: transparent !important;
+}
+/* Card: opaque elevated surface */
+.wallet-adapter-modal-wrapper {
+  background: #111113 !important;
+  border: 1px solid #2a2a2e !important;
+  border-radius: 14px !important;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(255, 255, 255, 0.03) !important;
+  font-family: var(--font-sans) !important;
+  backdrop-filter: none !important;
 }
 .wallet-adapter-modal-title {
   color: #fafafa !important;
@@ -94,6 +107,16 @@ body {
 }
 .wallet-adapter-modal-list li:hover {
   background: #1c1c1f !important;
+}
+.wallet-adapter-modal-button-close {
+  background: #161618 !important;
+  border: 1px solid #2a2a2e !important;
+}
+.wallet-adapter-modal-button-close:hover svg {
+  fill: #fafafa !important;
+}
+.wallet-adapter-modal-button-close svg {
+  fill: #b4b4bc !important;
 }
 
 ::-webkit-scrollbar {
@@ -123,8 +146,12 @@ body {
 .skeleton {
   background: linear-gradient(90deg, #161618 0%, #1c1c1f 50%, #161618 100%);
   background-size: 200% 100%;
-  animation: pulse-soft 1.4s ease-in-out infinite;
+  animation: skeleton-shimmer 1.6s ease-in-out infinite;
   border-radius: 6px;
+}
+@keyframes skeleton-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
 }
 
 /* Live pill pulse */
@@ -173,9 +200,12 @@ a.active\:scale-\[0\.98\]:active {
   .animate-fade-in,
   .skeleton,
   .live-dot,
-  .step-chip {
+  .step-chip,
+  .stagger-in {
     animation: none !important;
     transition: none !important;
+    opacity: 1 !important;
+    transform: none !important;
   }
   .live-dot {
     box-shadow: none !important;

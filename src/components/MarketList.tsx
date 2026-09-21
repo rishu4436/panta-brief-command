@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { pantaFetch } from "@/lib/api";
 import { describeErr } from "@/lib/errors";
-import { formatVolumeUsdc, impliedSide, marketLabel } from "@/lib/format";
+import { formatVolumeUsdc, impliedSide, marketLabel, shouldShowCategoryChip } from "@/lib/format";
 import { notifyStorage, pushRecent } from "@/lib/storage";
 import type {
   CategoriesResponse,
@@ -411,26 +411,8 @@ export function MarketList() {
             Markets
           </h1>
           <p className="mt-0.5 text-[12px] text-zinc-400">
-            USDC catalog ·{" "}
-            <kbd className="rounded border border-[#1f1f23] px-1 font-num text-[10px] text-zinc-500">
-              j
-            </kbd>
-            /
-            <kbd className="rounded border border-[#1f1f23] px-1 font-num text-[10px] text-zinc-500">
-              k
-            </kbd>{" "}
-            ·{" "}
-            <kbd className="rounded border border-[#1f1f23] px-1 font-num text-[10px] text-zinc-500">
-              Enter
-            </kbd>{" "}
-            ·{" "}
-            <kbd className="rounded border border-[#1f1f23] px-1 font-num text-[10px] text-zinc-500">
-              /
-            </kbd>{" "}
-            ·{" "}
-            <kbd className="rounded border border-[#1f1f23] px-1 font-num text-[10px] text-zinc-500">
-              ⌘K
-            </kbd>
+            Live USDC catalog
+            <span className="text-zinc-600"> · arrows / search to navigate</span>
             {updatedAt ? (
               <span className="ml-2 font-num text-zinc-600">
                 · Updated {formatUpdated(updatedAt)} IST
@@ -608,7 +590,8 @@ export function MarketList() {
                       key={m.marketId}
                       data-hi={hi ? "1" : undefined}
                       onMouseEnter={() => setHighlight(idx)}
-                      className={`relative overflow-hidden rounded-lg border bg-[#0a0a0b] transition ${hi ? "border-cyan-400/45 ring-1 ring-cyan-400/25" : "border-[#1f1f23] hover:border-[#2a2a2e]"}`}
+                      style={{ animationDelay: `${Math.min(idx, 11) * 30}ms` }}
+                      className={`stagger-in relative overflow-hidden rounded-lg border bg-[#0a0a0b] transition ${hi ? "border-cyan-400/45 ring-1 ring-cyan-400/25" : "border-[#1f1f23] hover:border-[#2a2a2e]"}`}
                     >
                       <div className="absolute right-2 top-2 z-10">
                         <WatchStar marketId={m.marketId} size="sm" />
@@ -636,9 +619,11 @@ export function MarketList() {
                         </div>
                         <div className="flex flex-wrap items-center gap-1.5">
                           <PhaseBadge phase={m.phase} />
-                          <span className="rounded border border-[#1f1f23] px-1 py-px text-[10px] text-zinc-500">
-                            {m.category || "—"}
-                          </span>
+                          {shouldShowCategoryChip(m.category, m.title, m.description) ? (
+                            <span className="rounded border border-[#1f1f23] px-1 py-px text-[10px] text-zinc-500">
+                              {m.category}
+                            </span>
+                          ) : null}
                         </div>
                         <ProbBar yes={yes} no={no} size="sm" showLabels />
                         <div className="mt-auto flex justify-between font-num text-[10px] text-zinc-500">
@@ -689,7 +674,8 @@ export function MarketList() {
                       key={m.marketId}
                       data-hi={hi ? "1" : undefined}
                       onMouseEnter={() => setHighlight(idx)}
-                      className={`flex items-stretch gap-1 transition-colors ${hi ? "bg-cyan-400/[0.06] ring-1 ring-inset ring-cyan-400/30" : "hover:bg-[#161618]"}`}
+                      style={{ animationDelay: `${Math.min(idx, 11) * 30}ms` }}
+                      className={`stagger-in flex items-stretch gap-1 transition-colors ${hi ? "bg-cyan-400/[0.06] ring-1 ring-inset ring-cyan-400/30" : "hover:bg-[#161618]"}`}
                     >
                       <div className="flex items-center pl-3">
                         <WatchStar marketId={m.marketId} size="sm" />

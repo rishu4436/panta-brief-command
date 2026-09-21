@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
+import { useWalletModal } from "@solana/wallet-adapter-react-ui";
 import { pantaFetch } from "@/lib/api";
 import { describeErr } from "@/lib/errors";
 import { impliedSide, shortAddr } from "@/lib/format";
@@ -22,6 +23,7 @@ type ClaimMode = "win" | "creator-fees";
 export function BookPanel() {
   const { publicKey, signTransaction, connected } = useWallet();
   const { connection } = useConnection();
+  const { setVisible } = useWalletModal();
   const ticketRef = useRef<HTMLDivElement>(null);
 
   const [positions, setPositions] = useState<PositionRow[]>([]);
@@ -175,16 +177,34 @@ export function BookPanel() {
           }
         >
           {!connected && (
-            <p className="px-3.5 py-4 text-sm text-amber-400/90">
-              Connect a wallet to query positions.
-            </p>
+            <div className="flex flex-col items-start gap-3 px-3.5 py-8">
+              <p className="text-sm text-zinc-400">
+                Connect a wallet to query positions.
+              </p>
+              <button
+                type="button"
+                onClick={() => setVisible(true)}
+                className="rounded-md bg-cyan-400 px-3.5 py-2 text-[12px] font-semibold text-[#0a0a0b] transition hover:bg-cyan-300 active:scale-[0.98]"
+              >
+                Connect wallet
+              </button>
+            </div>
           )}
           {error && (
             <div className="mx-3.5 mt-3 rounded-md border border-rose-500/25 bg-rose-500/10 px-3 py-2 text-sm text-rose-200">
               {error}
             </div>
           )}
+          {connected && busy && positions.length === 0 && (
+            <div className="space-y-2 p-3.5">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <div key={i} className="skeleton h-10 w-full" />
+              ))}
+            </div>
+          )}
+          {connected && (positions.length > 0 || (!busy && positions.length === 0)) ? (
           <div className="overflow-x-auto">
+            {positions.length > 0 ? (
             <table className="w-full text-left text-sm">
               <thead className="text-[10px] uppercase tracking-wider text-zinc-600">
                 <tr className="border-b border-[#1f1f23]">
@@ -302,28 +322,24 @@ export function BookPanel() {
                     </tr>
                   );
                 })}
-                {positions.length === 0 && connected && !busy && (
-                  <tr>
-                    <td
-                      colSpan={7}
-                      className="px-3.5 py-12 text-center text-sm text-zinc-600"
-                    >
-                      <p className="text-zinc-400">No positions yet</p>
-                      <p className="mt-1 text-[11px] text-zinc-500">
-                        Primary buys land here after attribute
-                      </p>
-                      <Link
-                        href="/desk"
-                        className="mt-3 inline-flex items-center rounded-md bg-cyan-400 px-3 py-1.5 text-[12px] font-semibold text-[#0a0a0b] transition hover:bg-cyan-300"
-                      >
-                        Browse desk →
-                      </Link>
-                    </td>
-                  </tr>
-                )}
               </tbody>
             </table>
+            ) : !busy ? (
+              <div className="px-3.5 py-12 text-center text-sm text-zinc-600">
+                <p className="text-zinc-400">No positions yet</p>
+                <p className="mt-1 text-[11px] text-zinc-500">
+                  Primary buys land here after attribute
+                </p>
+                <Link
+                  href="/desk"
+                  className="mt-3 inline-flex items-center rounded-md bg-cyan-400 px-3 py-1.5 text-[12px] font-semibold text-[#0a0a0b] transition hover:bg-cyan-300"
+                >
+                  Browse desk →
+                </Link>
+              </div>
+            ) : null}
           </div>
+          ) : null}
         </Panel>
       </div>
 
@@ -385,11 +401,19 @@ export function BookPanel() {
           )}
           <button
             type="button"
-            disabled={claimBusy || !connected}
+            disabled={claimBusy || !connected || !claimMarketId.trim()}
             onClick={() => void runClaim()}
-            className="mt-4 w-full rounded-md bg-cyan-400 py-2.5 text-sm font-semibold text-[#0a0a0b] transition hover:bg-cyan-300 active:scale-[0.98] disabled:opacity-40"
+            className={`mt-4 w-full rounded-md py-2.5 text-sm font-semibold transition active:scale-[0.98] ${
+              claimBusy || !connected || !claimMarketId.trim()
+                ? "cursor-not-allowed border border-[#1f1f23] bg-[#161618] text-zinc-500"
+                : "bg-cyan-400 text-[#0a0a0b] hover:bg-cyan-300"
+            }`}
           >
-            {claimBusy ? "Building…" : "Build · sign · broadcast"}
+            {!connected
+              ? "Connect wallet to claim"
+              : claimBusy
+                ? "Building…"
+                : "Build · sign · broadcast"}
           </button>
         </Panel>
       </div>

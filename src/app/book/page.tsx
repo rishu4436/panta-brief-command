@@ -9,7 +9,7 @@ export default function BookPage() {
           Book
         </h1>
         <p className="mt-0.5 text-[12px] text-zinc-500">
-          Positions · claims · attributed activity (GET /account/trades/)
+          Positions · claims · attributed activity
         </p>
       </div>
       <BookPanel />

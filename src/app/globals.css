@@ -264,17 +264,6 @@ a.active\:scale-\[0\.98\]:active {
   background-size: 48px 48px;
   mask-image: radial-gradient(ellipse at center, black 20%, transparent 70%);
 }
-.landing-cursor-glow {
-  pointer-events: none;
-  position: fixed;
-  z-index: 30;
-  width: 420px;
-  height: 420px;
-  border-radius: 9999px;
-  background: radial-gradient(circle, rgba(34, 211, 238, 0.09), transparent 65%);
-  transform: translate(-50%, -50%);
-  mix-blend-mode: screen;
-}
 .landing-progress {
   position: fixed;
   top: 0;
@@ -283,7 +272,7 @@ a.active\:scale-\[0\.98\]:active {
   height: 2px;
   z-index: 50;
   transform-origin: 0% 50%;
-  background: linear-gradient(90deg, #10b981, #22d3ee, #f43f5e);
+  background: #22d3ee;
 }
 .landing-haptic {
   transition: transform 0.12s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.2s ease;
@@ -293,14 +282,9 @@ a.active\:scale-\[0\.98\]:active {
 }
 @media (prefers-reduced-motion: reduce) {
   .landing-grid,
-  .landing-cursor-glow,
-  .landing-progress,
-  .landing-particle {
+  .landing-progress {
     animation: none !important;
     transition: none !important;
-  }
-  .landing-cursor-glow {
-    display: none !important;
   }
   .landing-haptic:active {
     transform: none;

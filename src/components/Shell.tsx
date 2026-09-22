@@ -147,7 +147,10 @@ export function Shell({ children }: { children: ReactNode }) {
                 >
                   Open desk
                 </Link>
-                <WalletMultiButton />
+                {/* Wallet available but visually demoted vs primary Open desk */}
+                <div className="landing-wallet-ghost opacity-55 transition hover:opacity-90 [&_.wallet-adapter-button]:!h-7 [&_.wallet-adapter-button]:!border-transparent [&_.wallet-adapter-button]:!bg-transparent [&_.wallet-adapter-button]:!px-2 [&_.wallet-adapter-button]:!text-[11px] [&_.wallet-adapter-button]:!font-normal [&_.wallet-adapter-button]:!text-zinc-500">
+                  <WalletMultiButton />
+                </div>
               </>
             ) : (
               <WalletMultiButton />

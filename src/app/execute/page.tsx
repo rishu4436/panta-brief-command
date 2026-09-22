@@ -12,10 +12,8 @@ function ExecuteInner() {
   return (
     <div className="space-y-3 animate-fade-in">
       <div>
-        <h1 className="text-lg font-semibold tracking-tight text-zinc-50">
-          Execute
-        </h1>
-        <p className="mt-0.5 text-[12px] text-zinc-500">
+        <h1 className="type-page">Execute</h1>
+        <p className="type-lede">
           Guided primary buy · quote through attribute · live activity
         </p>
       </div>

@@ -22,9 +22,7 @@ export function Panel({
       {(title || action) && (
         <div className="flex items-center justify-between gap-3 border-b border-[#1f1f23] px-3.5 py-2.5">
           {title ? (
-            <h2 className="text-[11px] font-medium uppercase tracking-[0.12em] text-zinc-400">
-              {title}
-            </h2>
+            <h2 className="type-section">{title}</h2>
           ) : (
             <span />
           )}

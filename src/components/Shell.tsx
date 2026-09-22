@@ -88,9 +88,7 @@ export function Shell({ children }: { children: ReactNode }) {
             <Link href="/" className="flex items-center gap-2.5">
               <BrandMark className="h-6 w-6 shrink-0" />
               <span className="flex flex-col leading-none">
-                <span className="text-[13px] font-semibold tracking-tight text-zinc-50">
-                  Brief Command
-                </span>
+                <span className="type-nav font-semibold text-zinc-50">Brief Command</span>
               </span>
             </Link>
             <nav className="hidden items-center gap-0.5 md:flex" aria-label="Primary">
@@ -101,7 +99,7 @@ export function Shell({ children }: { children: ReactNode }) {
                     key={item.href}
                     href={item.href}
                     aria-current={active ? "page" : undefined}
-                    className={`rounded-md px-2.5 py-1 text-[13px] transition-colors ${
+                    className={`type-nav rounded-md px-2.5 py-1 transition-colors ${
                       active
                         ? "bg-cyan-400/10 text-cyan-300 ring-1 ring-inset ring-cyan-400/35"
                         : "text-zinc-400 hover:bg-[#161618] hover:text-zinc-100"
@@ -162,7 +160,7 @@ export function Shell({ children }: { children: ReactNode }) {
           <Link
             href="/"
             aria-current={isLanding ? "page" : undefined}
-            className={`flex-1 rounded-md px-2 py-1.5 text-center text-xs ${
+            className={`type-nav flex-1 rounded-md px-2 py-1.5 text-center ${
               isLanding
                 ? "bg-cyan-400/10 text-cyan-300 ring-1 ring-inset ring-cyan-400/35"
                 : "text-zinc-500 hover:bg-[#161618] hover:text-zinc-200"
@@ -177,7 +175,7 @@ export function Shell({ children }: { children: ReactNode }) {
                 key={item.href}
                 href={item.href}
                 aria-current={active ? "page" : undefined}
-                className={`flex-1 rounded-md px-2 py-1.5 text-center text-xs ${
+                className={`type-nav flex-1 rounded-md px-2 py-1.5 text-center ${
                   active
                     ? "bg-cyan-400/10 text-cyan-300 ring-1 ring-inset ring-cyan-400/35"
                     : "text-zinc-500 hover:bg-[#161618] hover:text-zinc-200"

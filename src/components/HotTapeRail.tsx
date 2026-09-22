@@ -173,8 +173,8 @@ export function HotTapeRail({
         )}
         {!busy && skipped && hits.length === 0 && (
           <div className="px-3.5 py-8 text-center">
-            <div className="text-[12px] text-zinc-400">Tape quiet</div>
-            <p className="mt-1 text-[10px] leading-relaxed text-zinc-600">
+            <div className="type-body text-zinc-400">Tape quiet</div>
+            <p className="type-meta mt-1 leading-relaxed">
               {skipped}
             </p>
             <p className="mt-2 text-[10px] text-zinc-700">
@@ -195,18 +195,26 @@ export function HotTapeRail({
               <Link
                 key={`${h.marketId}-${h.trade.signature || h.trade.id || i}`}
                 href={`/markets/${encodeURIComponent(h.marketId)}`}
-                className="block px-3.5 py-2 transition hover:bg-[#161618] focus-visible:bg-[#161618]"
+                className="block px-3 py-1.5 transition hover:bg-[#161618] focus-visible:bg-[#161618]"
               >
                 <div className="flex items-center justify-between gap-2">
-                  <span className={`font-num text-[11px] font-semibold ${sideColor}`}>
+                  <span className={`font-num text-[11px] font-semibold tabular-nums ${sideColor}`}>
                     {side}
                   </span>
-                  <span className="font-num text-[10px] text-zinc-500">
+                  <span className="font-num text-[10px] tabular-nums text-zinc-500">
                     {formatRelativeTime(h.trade.blockTime, now)}
                   </span>
                 </div>
-                <div className="mt-0.5 truncate text-[11px] text-zinc-300">{h.label}</div>
-                <div className="mt-0.5 flex justify-between font-num text-[10px] text-zinc-600">
+                <div
+                  className={`mt-0.5 truncate text-[12px] leading-snug ${
+                    h.label === "Untitled market" || h.label.startsWith("Untitled")
+                      ? "italic text-zinc-500"
+                      : "font-medium text-zinc-200"
+                  }`}
+                >
+                  {h.label}
+                </div>
+                <div className="market-sub mt-0.5 flex justify-between font-num">
                   <span>{formatTapeSize(h.trade)}</span>
                   <span>{shortAddr(h.trade.wallet, 3)}</span>
                 </div>

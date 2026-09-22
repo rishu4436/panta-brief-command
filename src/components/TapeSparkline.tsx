@@ -192,8 +192,8 @@ export function TapeSparkline({
         <div className="skeleton h-[72px] w-full" />
       ) : !enough ? (
         <div className="flex h-[72px] flex-col items-center justify-center rounded-md border border-dashed border-[#1f1f23] bg-[#0a0a0b]/60 px-3 text-center">
-          <div className="text-[12px] text-zinc-400">No tape series yet</div>
-          <p className="mt-0.5 text-[10px] text-zinc-500">
+          <div className="type-body text-zinc-400">No tape series yet</div>
+          <p className="type-meta mt-0.5">
             Needs ≥2 timed prints with size — no invented OHLC
             {items.length > 0 && timedCount < 2
               ? ` · ${items.length} tape row${items.length === 1 ? "" : "s"} lack timestamps`

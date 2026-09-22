@@ -34,10 +34,11 @@ function formatEnd(ts?: number | null): string {
   if (!ts) return "—";
   return new Date(ts * 1000).toLocaleString("en-IN", {
     timeZone: "Asia/Calcutta",
-    month: "short",
     day: "numeric",
+    month: "short",
     hour: "2-digit",
     minute: "2-digit",
+    hour12: false,
   });
 }
 
@@ -461,7 +462,7 @@ export function MarketList() {
   }, [filtered, highlight, router]);
 
   const chipCls = (active: boolean) =>
-    `shrink-0 rounded-full border px-3 py-1.5 text-[12px] transition active:scale-[0.98] ${
+    `shrink-0 rounded-full border px-2.5 py-1 text-[12px] capitalize transition active:scale-[0.98] ${
       active
         ? "border-cyan-400/40 bg-cyan-400/10 text-cyan-300"
         : "border-[#1f1f23] bg-[#0a0a0b] text-zinc-400 hover:border-[#2a2a2e] hover:text-zinc-200"
@@ -471,14 +472,12 @@ export function MarketList() {
     <div className="space-y-3 animate-fade-in">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-lg font-semibold tracking-tight text-zinc-50">
-            Markets
-          </h1>
-          <p className="mt-0.5 text-[12px] text-zinc-400">
+          <h1 className="type-page">Markets</h1>
+          <p className="type-lede">
             Live USDC catalog
             <span className="text-zinc-600"> · phase ≠ liquidity · arrows / search</span>
             {updatedAt ? (
-              <span className="ml-2 font-num text-zinc-600">
+              <span className="ml-1.5 font-num text-zinc-600">
                 · Updated {formatUpdated(updatedAt)} IST
               </span>
             ) : null}
@@ -524,9 +523,7 @@ export function MarketList() {
 
       {recentIds.length > 0 && (
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-[10px] font-medium uppercase tracking-wider text-zinc-500">
-            Recent
-          </span>
+          <span className="type-section">Recent</span>
           {recentMarkets.map((m) => (
             <Link
               key={m.marketId}
@@ -576,10 +573,10 @@ export function MarketList() {
               className="rounded-md border border-[#1f1f23] bg-[#0a0a0b] px-3 py-2 text-sm text-zinc-300"
             >
               <option value="">All phases</option>
-              <option value="primary">primary (open)</option>
-              <option value="secondary">secondary</option>
-              <option value="resolved">resolved</option>
-              <option value="cancelled">cancelled</option>
+              <option value="primary">Primary (open)</option>
+              <option value="secondary">Secondary</option>
+              <option value="resolved">Resolved</option>
+              <option value="cancelled">Cancelled</option>
             </select>
           </div>
 
@@ -679,18 +676,14 @@ export function MarketList() {
                       )}
                       <div className="flex flex-1 flex-col gap-2 p-3">
                         <div
-                          className={`line-clamp-2 text-[13px] font-medium group-hover:text-white ${
-                            isUntitledMarket(m)
-                              ? "italic text-zinc-500"
-                              : "text-zinc-100"
+                          className={`market-title market-title--link ${
+                            isUntitledMarket(m) ? "market-title--untitled" : ""
                           }`}
                         >
                           {marketLabel(m)}
                         </div>
                         {isUntitledMarket(m) ? (
-                          <div className="font-num text-[10px] text-zinc-600">
-                            {marketSubtitle(m)}
-                          </div>
+                          <div className="market-sub font-num">{marketSubtitle(m)}</div>
                         ) : null}
                         <div className="flex flex-wrap items-center gap-1.5">
                           <PhaseBadge phase={m.phase} />
@@ -733,7 +726,7 @@ export function MarketList() {
               </div>
             ) : (
               <div className="divide-y divide-[#1f1f23]">
-                <div className="hidden grid-cols-[1fr_88px_100px_110px] gap-3 px-4 py-2 text-[10px] font-medium uppercase tracking-wider text-zinc-600 sm:grid lg:grid-cols-[1fr_88px_100px_100px_110px]">
+                <div className="type-col hidden grid-cols-[1fr_88px_96px_110px] gap-3 px-4 py-1.5 sm:grid lg:grid-cols-[1fr_88px_96px_96px_110px]">
                   <span>Market</span>
                   <span>Phase</span>
                   <span className="hidden lg:inline">Volume</span>
@@ -759,7 +752,7 @@ export function MarketList() {
                       <Link
                         href={`/markets/${encodeURIComponent(m.marketId)}`}
                         onClick={() => openMarket(m.marketId)}
-                        className="group grid min-h-[44px] flex-1 grid-cols-1 items-center gap-3 px-3 py-3.5 transition-colors sm:grid-cols-[1fr_88px_100px_110px] lg:grid-cols-[1fr_88px_100px_100px_110px]"
+                        className="group desk-row grid flex-1 grid-cols-1 items-center gap-3 px-3 desk-row-pad transition-colors sm:grid-cols-[1fr_88px_96px_110px] lg:grid-cols-[1fr_88px_96px_96px_110px]"
                       >
                       <div className="flex min-w-0 items-center gap-3">
                         {thumb ? (
@@ -772,28 +765,18 @@ export function MarketList() {
                         ) : null}
                         <div className="min-w-0">
                           <div
-                            className={`truncate text-[13px] font-medium group-hover:text-white ${
-                              isUntitledMarket(m)
-                                ? "italic text-zinc-500"
-                                : "text-zinc-100"
+                            className={`market-title market-title--link ${
+                              isUntitledMarket(m) ? "market-title--untitled" : ""
                             }`}
                           >
-                            {marketLabel(m, { max: 96 })}
+                            {marketLabel(m, { max: 120 })}
                           </div>
-                          <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px] text-zinc-600">
+                          <div className="market-sub">
                             {shouldShowCategoryChip(m.category, m.title, m.description) ? (
-                              <span className="rounded border border-[#1f1f23] px-1 py-px text-zinc-500">
-                                {m.category}
-                              </span>
-                            ) : (
-                              <span className="rounded border border-[#1f1f23] px-1 py-px text-zinc-600">
-                                —
-                              </span>
-                            )}
-                            <span className="font-num text-zinc-600">
-                              {marketSubtitle(m)}
-                            </span>
-                            <span className="font-num text-zinc-500 lg:hidden">
+                              <span className="cat-chip">{m.category}</span>
+                            ) : null}
+                            <span className="font-num">{marketSubtitle(m)}</span>
+                            <span className="font-num lg:hidden">
                               · {formatVolumeUsdc(catalogVolume(m))}
                             </span>
                           </div>
@@ -802,10 +785,10 @@ export function MarketList() {
                       <div>
                         <PhaseBadge phase={m.phase} />
                       </div>
-                      <div className="hidden font-num text-[12px] text-zinc-400 lg:block">
+                      <div className="hidden font-num text-[12px] tabular-nums text-zinc-400 lg:block">
                         {formatVolumeUsdc(catalogVolume(m))}
                       </div>
-                      <div className="hidden text-right font-num text-[11px] text-zinc-500 sm:block">
+                      <div className="hidden whitespace-nowrap text-right font-num text-[11px] tabular-nums text-zinc-500 sm:block">
                         {formatEnd(m.endTime)}
                       </div>
                       <div className="sm:text-right">
@@ -841,9 +824,7 @@ export function MarketList() {
 
             {missingWatch.length > 0 && (
               <div className="border-t border-[#1f1f23] px-3.5 py-3">
-                <div className="mb-2 text-[10px] uppercase tracking-wider text-zinc-500">
-                  Watched · not on this page
-                </div>
+                <div className="type-section mb-2">Watched · not on this page</div>
                 <div className="flex flex-wrap gap-2">
                   {missingWatch.map((id) => (
                     <div key={id} className="flex items-center gap-1">

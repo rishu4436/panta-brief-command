@@ -57,6 +57,28 @@ export function ProbBar({
 
   const primary = y ?? 100 - (n as number);
 
+  if (size === "sm") {
+    return (
+      <div className="ml-auto flex w-[110px] min-w-0 flex-col items-end gap-1">
+        <div className="font-num text-[13px] font-semibold tabular-nums tracking-tight text-zinc-50">
+          {formatOddsPct(primary / 100)}
+        </div>
+        {showLabels && (
+          <div className="flex h-1 w-full overflow-hidden rounded-full bg-[#1f1f23]">
+            <div
+              className="h-full bg-emerald-500 transition-all duration-300"
+              style={{ width: `${yW}%` }}
+            />
+            <div
+              className="h-full bg-rose-500 transition-all duration-300"
+              style={{ width: `${nW}%` }}
+            />
+          </div>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="min-w-0">
       <div className={`font-num font-semibold tracking-tight text-zinc-50 ${hero}`}>
@@ -74,7 +96,7 @@ export function ProbBar({
           />
         </div>
       )}
-      {showLabels && size !== "sm" && (
+      {showLabels && (
         <div className="mt-1 flex justify-between font-num text-[10px]">
           <span className="text-emerald-400">YES {y !== null ? `${y.toFixed(0)}¢` : "—"}</span>
           <span className="text-rose-400">NO {n !== null ? `${n.toFixed(0)}¢` : "—"}</span>
@@ -100,7 +122,7 @@ export function DualSideHero({
     <div>
       <div className="grid grid-cols-2 gap-3">
         <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/[0.07] p-4 transition-all duration-300">
-          <div className="text-[10px] font-medium uppercase tracking-wider text-emerald-400/80">
+          <div className="type-section text-emerald-400/80">
             Yes
           </div>
           <div
@@ -114,7 +136,7 @@ export function DualSideHero({
           </div>
         </div>
         <div className="rounded-lg border border-rose-500/20 bg-rose-500/[0.07] p-4 transition-all duration-300">
-          <div className="text-[10px] font-medium uppercase tracking-wider text-rose-400/80">
+          <div className="type-section text-rose-400/80">
             No
           </div>
           <div

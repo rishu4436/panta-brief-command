@@ -33,7 +33,7 @@ export function TradeTape({
         )}
 
         {!busy || items.length > 0 ? (
-          <div className="sticky top-0 z-10 grid grid-cols-[52px_1fr_88px_72px] gap-2 border-b border-[#1f1f23] bg-[#111113]/95 px-3.5 py-1.5 text-[9px] font-medium uppercase tracking-wider text-zinc-600 backdrop-blur-sm sm:grid-cols-[52px_1fr_100px_88px_72px]">
+          <div className="type-col sticky top-0 z-10 grid grid-cols-[52px_1fr_88px_72px] gap-2 border-b border-[#1f1f23] bg-[#111113]/95 px-3.5 py-1.5 backdrop-blur-sm sm:grid-cols-[52px_1fr_100px_88px_72px]">
             <span>Side</span>
             <span>Size</span>
             <span className="hidden sm:inline">Wallet</span>
@@ -90,8 +90,8 @@ export function TradeTape({
         </div>
         {!busy && items.length === 0 && (
           <div className="px-4 py-10 text-center">
-            <div className="text-sm text-zinc-500">No prints yet</div>
-            <p className="mt-1 text-[11px] text-zinc-600">
+            <div className="type-body text-zinc-500">No prints yet</div>
+            <p className="type-meta mt-1">
               Quiet book — tape stays empty until a real fill lands. No invented prints.
             </p>
           </div>

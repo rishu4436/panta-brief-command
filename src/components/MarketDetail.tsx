@@ -32,11 +32,12 @@ function formatEnd(ts?: number | null): string {
   if (!ts) return "—";
   return new Date(ts * 1000).toLocaleString("en-IN", {
     timeZone: "Asia/Calcutta",
-    month: "short",
     day: "numeric",
+    month: "short",
     year: "numeric",
     hour: "2-digit",
     minute: "2-digit",
+    hour12: false,
   });
 }
 
@@ -168,20 +169,15 @@ export function MarketDetail({ marketId }: { marketId: string }) {
   return (
     <div className="space-y-4 animate-fade-in">
       <div>
-        <Link
-          href="/desk"
-          className="text-[11px] uppercase tracking-wide text-zinc-500 transition hover:text-cyan-400"
-        >
+        <Link href="/desk" className="type-back transition">
           ← Desk
         </Link>
-        <div className="mt-1.5 flex flex-wrap items-start justify-between gap-3">
+        <div className="mt-2 flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
             <div className="flex items-start gap-2">
               <h1
-                className={`min-w-0 flex-1 break-words text-xl font-semibold leading-snug tracking-tight md:text-2xl ${
-                  isUntitledMarket(market)
-                    ? "italic text-zinc-500"
-                    : "text-zinc-50"
+                className={`type-display min-w-0 flex-1 break-words ${
+                  isUntitledMarket(market) ? "market-title--untitled" : ""
                 }`}
               >
                 {heading}
@@ -199,44 +195,49 @@ export function MarketDetail({ marketId }: { marketId: string }) {
                     /* ignore */
                   }
                 }}
-                className="min-h-[36px] shrink-0 rounded-md border border-[#1f1f23] bg-[#111113] px-2.5 py-1.5 text-[11px] text-zinc-400 transition hover:border-cyan-400/30 hover:text-cyan-300 active:scale-[0.98]"
+                className="min-h-[32px] shrink-0 rounded-md border border-[#1f1f23] bg-[#111113] px-2.5 py-1 text-[11px] text-zinc-400 transition hover:border-cyan-400/30 hover:text-cyan-300 active:scale-[0.98]"
                 aria-label="Copy link to market"
               >
                 {copied ? "Copied" : "Copy link"}
               </button>
             </div>
-            <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-zinc-400">
+            {/* Primary meta: phase + ends + volume — keep calm */}
+            <div className="mt-2.5 flex flex-wrap items-center gap-2">
               <PhaseBadge phase={market.phase} />
-              <span className="inline-flex items-center gap-1 rounded-md border border-amber-400/25 bg-amber-400/10 px-2 py-1 font-num text-[11px] text-amber-200">
-                <span className="text-[9px] uppercase tracking-wide text-amber-400/80">Ends</span>
+              <span className="inline-flex items-center gap-1.5 rounded-md border border-amber-400/20 bg-amber-400/[0.07] px-2 py-0.5 font-num text-[11px] tabular-nums text-amber-200/90">
+                <span className="text-[10px] font-medium text-amber-400/70">Ends</span>
                 {formatEnd(market.endTime)} IST
               </span>
               {shouldShowCategoryChip(market.category, market.title, market.description) ? (
-                <span className="rounded border border-[#1f1f23] px-1.5 py-0.5">
+                <span className="cat-chip rounded border border-[#1f1f23] px-1.5 py-0.5 text-[10px] capitalize text-zinc-500">
                   {market.category}
                 </span>
               ) : null}
-              <span className="font-num">{shortAddr(market.marketId, 6)}</span>
-              <span>·</span>
-              <span className="font-num">{formatVolumeUsdc(catalogVolume(market))}</span>
+              <span className="font-num text-[12px] tabular-nums text-zinc-400">
+                {formatVolumeUsdc(catalogVolume(market))}
+              </span>
+            </div>
+            {/* Secondary meta: hashes / oracle / resolution — quieter line */}
+            <div className="type-meta mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 font-num">
+              <span title={market.marketId}>{shortAddr(market.marketId, 5)}</span>
               {market.oracle ? (
                 <>
-                  <span>·</span>
-                  <span title={market.oracle} className="max-w-[180px] truncate">
-                    Oracle {market.oracle}
+                  <span className="text-zinc-700">·</span>
+                  <span title={market.oracle} className="max-w-[140px] truncate">
+                    Oracle {shortAddr(market.oracle, 4)}
                   </span>
                 </>
               ) : null}
               {market.resolutionTime ? (
                 <>
-                  <span>·</span>
-                  <span>Resolution {formatEnd(market.resolutionTime)} IST</span>
+                  <span className="text-zinc-700">·</span>
+                  <span>Resolves {formatEnd(market.resolutionTime)} IST</span>
                 </>
               ) : null}
               {updatedAt ? (
                 <>
-                  <span>·</span>
-                  <span className="font-num">Updated {formatUpdated(updatedAt)} IST</span>
+                  <span className="text-zinc-700">·</span>
+                  <span>Updated {formatUpdated(updatedAt)} IST</span>
                 </>
               ) : null}
             </div>
@@ -250,7 +251,7 @@ export function MarketDetail({ marketId }: { marketId: string }) {
             {showDesc ? (
               <div>
                 <p
-                  className={`text-[13px] leading-relaxed text-zinc-300 ${
+                  className={`type-body ${
                     descOpen ? "" : "line-clamp-4"
                   }`}
                 >
@@ -267,13 +268,13 @@ export function MarketDetail({ marketId }: { marketId: string }) {
                 )}
               </div>
             ) : (
-              <p className="text-[13px] text-zinc-600">
+              <p className="type-body text-zinc-600">
                 {descIsDupe
                   ? "See headline above for the market question."
                   : "No additional context on file."}
               </p>
             )}
-            <dl className="mt-4 space-y-2 border-t border-[#1f1f23] pt-3 text-[11px]">
+            <dl className="type-meta mt-3 space-y-1.5 border-t border-[#1f1f23] pt-3">
               <div className="flex justify-between gap-2">
                 <dt className="text-zinc-600">Region</dt>
                 <dd className="text-zinc-400">{market.region || "—"}</dd>
@@ -311,9 +312,7 @@ export function MarketDetail({ marketId }: { marketId: string }) {
         <div className="space-y-3 lg:col-span-5">
           <Panel title="Probability">
             <DualSideHero yes={yes} no={no} />
-            <p className="mt-3 text-[10px] text-zinc-600">
-              Live spot · blank means not priced yet
-            </p>
+            <p className="type-meta mt-3">Live spot · blank means not priced yet</p>
           </Panel>
           <TapeSparkline items={tape} busy={tapeBusy} spotYes={yes != null && yes !== "" ? Number(yes) : null} />
           <TradeTape items={tape} busy={tapeBusy} />

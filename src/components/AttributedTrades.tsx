@@ -125,7 +125,7 @@ export function AttributedTrades({
       }
     >
       <div className="border-b border-[#1f1f23] px-3.5 py-2">
-        <p className="text-[10px] text-zinc-600">
+        <p className="type-meta">
           GET /account/trades/ · partner attribution for this API key
         </p>
         {summary && (
@@ -160,7 +160,7 @@ export function AttributedTrades({
 
       <div className="overflow-x-auto">
         <table className="w-full text-left text-sm">
-          <thead className="text-[10px] uppercase tracking-wider text-zinc-600">
+          <thead className="type-col">
             <tr className="border-b border-[#1f1f23]">
               <th scope="col" className="px-3.5 py-2 font-medium">
                 Kind

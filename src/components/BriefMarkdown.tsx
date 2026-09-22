@@ -7,7 +7,7 @@ export function BriefMarkdown({ source }: { source: string }) {
   const blocks = source.replace(/\r\n/g, "\n").split(/\n{2,}/);
 
   return (
-    <div className="space-y-2.5 text-[12px] leading-relaxed text-zinc-300">
+    <div className="type-body space-y-2.5">
       {blocks.map((block, i) => {
         const lines = block.split("\n");
         const first = lines[0] || "";
@@ -15,7 +15,7 @@ export function BriefMarkdown({ source }: { source: string }) {
         if (first.startsWith("### ")) {
           return (
             <div key={i}>
-              <h4 className="text-[11px] font-semibold uppercase tracking-wide text-zinc-400">
+              <h4 className="type-section">
                 {inline(first.slice(4))}
               </h4>
               {lines.slice(1).map((l, j) => (
@@ -29,7 +29,7 @@ export function BriefMarkdown({ source }: { source: string }) {
         if (first.startsWith("## ")) {
           return (
             <div key={i}>
-              <h3 className="text-[13px] font-semibold text-zinc-100">
+              <h3 className="text-[13px] font-semibold tracking-tight text-zinc-100">
                 {inline(first.slice(3))}
               </h3>
               {lines.slice(1).map((l, j) => (

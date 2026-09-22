@@ -127,10 +127,10 @@ export function AiBrief({
               <div className="skeleton h-3 w-full" />
               <div className="skeleton h-3 w-5/6" />
               <div className="skeleton h-3 w-4/6" />
-              <p className="pt-1 text-[12px] text-zinc-500">Generating desk narrative…</p>
+              <p className="type-lede pt-1">Generating desk narrative…</p>
             </>
           ) : (
-            <p className="text-[12px] leading-relaxed text-zinc-500">
+            <p className="type-body text-zinc-500">
               Desk narrative from live prices + tape. Pick Bull / Neutral / Bear, then generate.
             </p>
           )}
@@ -138,7 +138,7 @@ export function AiBrief({
       )}
       {brief && (
         <div className="animate-fade-in">
-          <div className="mb-2 flex flex-wrap items-center gap-2 text-[10px] text-zinc-600">
+          <div className="type-meta mb-2 flex flex-wrap items-center gap-2">
             <span
               className={`rounded border px-1.5 py-0.5 ${
                 brief.source === "openai"

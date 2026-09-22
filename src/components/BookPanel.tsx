@@ -206,7 +206,7 @@ export function BookPanel() {
           <div className="overflow-x-auto">
             {positions.length > 0 ? (
             <table className="w-full text-left text-sm">
-              <thead className="text-[10px] uppercase tracking-wider text-zinc-600">
+              <thead className="type-col">
                 <tr className="border-b border-[#1f1f23]">
                   <th scope="col" className="px-3.5 py-2 font-medium">
                     Market

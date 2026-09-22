@@ -5,8 +5,10 @@ import Link from "next/link";
 import { pantaFetch } from "@/lib/api";
 import { describeErr } from "@/lib/errors";
 import {
+  catalogVolume,
   formatVolumeUsdc,
   impliedSide,
+  isUntitledMarket,
   marketLabel,
   shortAddr,
   shouldShowCategoryChip,
@@ -175,7 +177,13 @@ export function MarketDetail({ marketId }: { marketId: string }) {
         <div className="mt-1.5 flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
             <div className="flex items-start gap-2">
-              <h1 className="min-w-0 flex-1 break-words text-xl font-semibold leading-snug tracking-tight text-zinc-50 md:text-2xl">
+              <h1
+                className={`min-w-0 flex-1 break-words text-xl font-semibold leading-snug tracking-tight md:text-2xl ${
+                  isUntitledMarket(market)
+                    ? "italic text-zinc-500"
+                    : "text-zinc-50"
+                }`}
+              >
                 {heading}
               </h1>
               <WatchStar marketId={market.marketId} />
@@ -210,7 +218,7 @@ export function MarketDetail({ marketId }: { marketId: string }) {
               ) : null}
               <span className="font-num">{shortAddr(market.marketId, 6)}</span>
               <span>·</span>
-              <span className="font-num">{formatVolumeUsdc(market.volumeUsdc)}</span>
+              <span className="font-num">{formatVolumeUsdc(catalogVolume(market))}</span>
               {market.oracle ? (
                 <>
                   <span>·</span>

@@ -20,7 +20,31 @@ export function formatVolumeUsdc(
   if (v === undefined || v === null || v === "") return "—";
   const n = typeof v === "string" ? Number(v) : v;
   if (!Number.isFinite(n)) return `${v} USDC`;
+  // Cold-start honesty: bare 0 is not a traded book — don't paint "0 USDC"
+  if (n === 0) return "—";
   return `${n.toLocaleString(undefined, { maximumFractionDigits: 2 })} USDC`;
+}
+
+/** Prefer volumeUsdc, then totalVolumeUsdc; zero → empty. */
+export function catalogVolume(
+  m: {
+    volumeUsdc?: string | number | null;
+    totalVolumeUsdc?: string | number | null;
+    volumeUsdcBase?: string | number | null;
+    totalVolumeUsdcBase?: string | number | null;
+  },
+): string | number | null {
+  const primary = m.volumeUsdc ?? m.totalVolumeUsdc;
+  if (primary !== undefined && primary !== null && primary !== "") {
+    const n = typeof primary === "string" ? Number(primary) : primary;
+    if (Number.isFinite(n) && n > 0) return primary;
+  }
+  const base = m.volumeUsdcBase ?? m.totalVolumeUsdcBase;
+  if (base !== undefined && base !== null && base !== "") {
+    const u = fromUsdcBase(base);
+    if (u != null && u > 0) return u;
+  }
+  return null;
 }
 
 /** USDC mint uses 6 decimals — convert raw base units when clearly base-scale. */
@@ -43,11 +67,12 @@ export function formatTapeSize(t: {
   noAmount?: string | number | null;
 }): string {
   if (t.amountUsdc != null && t.amountUsdc !== "") {
-    return formatVolumeUsdc(t.amountUsdc);
+    const n = typeof t.amountUsdc === "string" ? Number(t.amountUsdc) : t.amountUsdc;
+    if (Number.isFinite(n) && n > 0) return formatVolumeUsdc(n);
   }
   if (t.amountUsdcBase != null && t.amountUsdcBase !== "") {
     const u = fromUsdcBase(t.amountUsdcBase);
-    if (u != null) return formatVolumeUsdc(u);
+    if (u != null && u > 0) return formatVolumeUsdc(u);
   }
   const yRaw = t.yesAmount;
   const nRaw = t.noAmount;
@@ -147,6 +172,14 @@ export function impliedSide(market: {
   return { yes, no };
 }
 
+/** True when API gave no human question/title. */
+export function isUntitledMarket(market: {
+  title?: string | null;
+  description?: string | null;
+}): boolean {
+  return !(market.title || "").trim() && !(market.description || "").trim();
+}
+
 /** Prefer human title/description; never lead with opaque id alone. */
 export function marketLabel(
   market: {
@@ -161,8 +194,31 @@ export function marketLabel(
   if (title) return opts?.max ? truncate(title, opts.max) : title;
   const desc = (market.description || "").trim();
   if (desc) return opts?.max ? truncate(desc, opts.max) : desc;
-  // Never lead with opaque id as the headline — explicit untitled cue
-  return "Untitled · open detail";
+  // Honest untitled — short id lives in the subtitle, not the headline
+  return "Untitled market";
+}
+
+/** Secondary line under the headline: short id · never duplicates the label. */
+export function marketSubtitle(
+  market: {
+    title?: string | null;
+    description?: string | null;
+    marketId?: string | null;
+    category?: string | null;
+  },
+): string {
+  const id = (market.marketId || "").trim();
+  if (!id) return "";
+  return shortAddr(id, 4);
+}
+
+/** Spot present (not null/empty). Zero is a real resolved outcome — keep it. */
+export function hasSpotPrice(
+  price: string | number | null | undefined,
+): boolean {
+  if (price === undefined || price === null || price === "") return false;
+  const n = typeof price === "string" ? Number(price) : price;
+  return Number.isFinite(n);
 }
 
 function truncate(s: string, max: number): string {

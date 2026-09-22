@@ -3,7 +3,13 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { pantaFetch } from "@/lib/api";
-import { formatBlockTime, formatVolumeUsdc, marketLabel, shortAddr } from "@/lib/format";
+import {
+  catalogVolume,
+  formatRelativeTime,
+  formatTapeSize,
+  marketLabel,
+  shortAddr,
+} from "@/lib/format";
 import type { CatalogTradeRow, MarketCatalogItem, MarketTradesResponse } from "@/lib/types";
 import { Panel } from "./Panel";
 
@@ -25,14 +31,24 @@ function tradeSide(t: CatalogTradeRow): string {
   return "—";
 }
 
-function tradeSize(t: CatalogTradeRow): string {
-  if (t.amountUsdc) return formatVolumeUsdc(t.amountUsdc);
-  return `Y${t.yesAmount ?? "—"}/N${t.noAmount ?? "—"}`;
+function activityScore(m: MarketCatalogItem): number {
+  const vol = catalogVolume(m);
+  const volN =
+    vol == null ? 0 : typeof vol === "string" ? Number(vol) : Number(vol);
+  const hasLabel =
+    Boolean((m.title || "").trim()) || Boolean((m.description || "").trim())
+      ? 50
+      : 0;
+  const phase = (m.phase || "").toLowerCase();
+  const phaseBoost =
+    phase === "primary" ? 20 : phase === "secondary" ? 10 : phase === "resolved" ? 2 : 0;
+  return (Number.isFinite(volN) ? volN : 0) + hasLabel + phaseBoost;
 }
 
 /**
  * Lite cross-market tape for currently visible/watched ids.
  * Hard-caps parallel /trades/ fetches at 3 to stay rate-limit safe.
+ * Prefers books with volume / human labels so the rail doesn't look dead.
  */
 export function HotTapeRail({
   markets,
@@ -45,6 +61,8 @@ export function HotTapeRail({
     const byId = new Map(markets.map((m) => [m.marketId, m]));
     const ordered: MarketCatalogItem[] = [];
     const seen = new Set<string>();
+
+    // Watched first (operator intent), then activity-ranked visible set
     for (const id of watchIds) {
       if (seen.has(id)) continue;
       const m = byId.get(id);
@@ -54,8 +72,12 @@ export function HotTapeRail({
       }
       if (ordered.length >= MAX_PARALLEL) break;
     }
-    for (const m of markets) {
-      if (seen.has(m.marketId)) continue;
+
+    const ranked = [...markets]
+      .filter((m) => !seen.has(m.marketId))
+      .sort((a, b) => activityScore(b) - activityScore(a));
+
+    for (const m of ranked) {
       ordered.push(m);
       seen.add(m.marketId);
       if (ordered.length >= MAX_PARALLEL) break;
@@ -67,11 +89,13 @@ export function HotTapeRail({
   const [hits, setHits] = useState<TapeHit[]>([]);
   const [busy, setBusy] = useState(false);
   const [skipped, setSkipped] = useState<string | null>(null);
+  const [scanned, setScanned] = useState(0);
 
   useEffect(() => {
     if (targets.length === 0) {
       setHits([]);
-      setSkipped("No visible markets to fan-out yet.");
+      setScanned(0);
+      setSkipped("No visible markets to scan yet.");
       return;
     }
     let cancelled = false;
@@ -103,12 +127,16 @@ export function HotTapeRail({
           .sort((a, b) => (b.trade.blockTime ?? 0) - (a.trade.blockTime ?? 0))
           .slice(0, MAX_ROWS);
         setHits(merged);
+        setScanned(targets.length);
         if (merged.length === 0) {
-          setSkipped("No recent prints on watched/visible set (≤3 markets).");
+          setSkipped(
+            `Quiet on ${targets.length} scanned book${targets.length === 1 ? "" : "s"} — no recent prints yet.`,
+          );
         }
       } catch {
         if (!cancelled) {
           setHits([]);
+          setScanned(0);
           setSkipped("Hot tape skipped — trade fan-out unavailable.");
         }
       } finally {
@@ -122,11 +150,16 @@ export function HotTapeRail({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [targetKey]);
 
+  const now = Date.now();
+
   return (
     <Panel
       title="Hot tape"
       action={
-        <span className="font-num text-[9px] text-zinc-600">≤{MAX_PARALLEL} mkts</span>
+        <span className="font-num text-[9px] text-zinc-600">
+          ≤{MAX_PARALLEL} mkts
+          {scanned > 0 ? ` · ${scanned} scanned` : ""}
+        </span>
       }
       flush
     >
@@ -140,8 +173,13 @@ export function HotTapeRail({
         )}
         {!busy && skipped && hits.length === 0 && (
           <div className="px-3.5 py-8 text-center">
-            <div className="text-[12px] text-zinc-500">Tape quiet</div>
-            <p className="mt-1 text-[10px] leading-relaxed text-zinc-600">{skipped}</p>
+            <div className="text-[12px] text-zinc-400">Tape quiet</div>
+            <p className="mt-1 text-[10px] leading-relaxed text-zinc-600">
+              {skipped}
+            </p>
+            <p className="mt-2 text-[10px] text-zinc-700">
+              No invented prints — open a market with volume to watch live flow.
+            </p>
           </div>
         )}
         <div className="divide-y divide-[#1f1f23]">
@@ -164,12 +202,12 @@ export function HotTapeRail({
                     {side}
                   </span>
                   <span className="font-num text-[10px] text-zinc-500">
-                    {formatBlockTime(h.trade.blockTime)}
+                    {formatRelativeTime(h.trade.blockTime, now)}
                   </span>
                 </div>
                 <div className="mt-0.5 truncate text-[11px] text-zinc-300">{h.label}</div>
                 <div className="mt-0.5 flex justify-between font-num text-[10px] text-zinc-600">
-                  <span>{tradeSize(h.trade)}</span>
+                  <span>{formatTapeSize(h.trade)}</span>
                   <span>{shortAddr(h.trade.wallet, 3)}</span>
                 </div>
               </Link>

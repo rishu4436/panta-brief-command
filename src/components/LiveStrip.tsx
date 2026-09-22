@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { pantaFetch } from "@/lib/api";
-import { formatVolumeUsdc, impliedSide, marketActivityRank, marketLabel } from "@/lib/format";
+import { catalogVolume, formatVolumeUsdc, impliedSide, isUntitledMarket, marketActivityRank, marketLabel } from "@/lib/format";
 import type { MarketCatalogItem, MarketsListResponse } from "@/lib/types";
 import { ProbBar } from "./ProbBar";
 import { PhaseBadge } from "./PhaseBadge";
@@ -147,12 +147,16 @@ export function LiveStrip() {
                 className="group flex min-h-[44px] items-center gap-3 px-4 py-3 transition-colors hover:bg-[#161618] active:scale-[0.995]"
               >
                 <div className="min-w-0 flex-1">
-                  <div className="truncate text-[13px] font-medium text-zinc-50 group-hover:text-white">
+                  <div
+                    className={`truncate text-[13px] font-medium group-hover:text-white ${
+                      isUntitledMarket(m) ? "italic text-zinc-500" : "text-zinc-50"
+                    }`}
+                  >
                     {marketLabel(m)}
                   </div>
                   <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[10px] text-zinc-500">
                     <PhaseBadge phase={m.phase} />
-                    <span className="font-num">{formatVolumeUsdc(m.volumeUsdc)}</span>
+                    <span className="font-num">{formatVolumeUsdc(catalogVolume(m))}</span>
                   </div>
                 </div>
                 <div className="w-24 shrink-0 text-right sm:w-28">

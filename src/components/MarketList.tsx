@@ -5,7 +5,15 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { pantaFetch } from "@/lib/api";
 import { describeErr } from "@/lib/errors";
-import { formatVolumeUsdc, impliedSide, marketLabel, shouldShowCategoryChip } from "@/lib/format";
+import {
+  catalogVolume,
+  formatVolumeUsdc,
+  impliedSide,
+  isUntitledMarket,
+  marketLabel,
+  marketSubtitle,
+  shouldShowCategoryChip,
+} from "@/lib/format";
 import { notifyStorage, pushRecent } from "@/lib/storage";
 import type {
   CategoriesResponse,
@@ -61,9 +69,42 @@ function isApiKeyError(msg: string): boolean {
 }
 
 function volumeNum(m: MarketCatalogItem): number {
-  const v = m.volumeUsdc ?? m.totalVolumeUsdc ?? 0;
+  const v = catalogVolume(m);
+  if (v == null) return 0;
   const n = typeof v === "string" ? Number(v) : Number(v);
   return Number.isFinite(n) ? n : 0;
+}
+
+function hasHumanLabel(m: MarketCatalogItem): boolean {
+  return !isUntitledMarket(m);
+}
+
+function hasAnySpot(m: MarketCatalogItem): boolean {
+  const { yes, no } = impliedSide(m);
+  if (yes !== null && yes !== undefined && yes !== "") {
+    const n = typeof yes === "string" ? Number(yes) : yes;
+    if (Number.isFinite(n)) return true;
+  }
+  if (no !== null && no !== undefined && no !== "") {
+    const n = typeof no === "string" ? Number(no) : no;
+    if (Number.isFinite(n)) return true;
+  }
+  return false;
+}
+
+function phaseMatches(m: MarketCatalogItem, phase: string): boolean {
+  if (!phase) return true;
+  const want = phase.toLowerCase();
+  const p = (m.phase || "").toLowerCase();
+  const s = (m.status || "").toLowerCase();
+  if (want === "primary") {
+    // API status=primary often mixes cancelled/resolved — keep chip honest
+    return p === "primary" || s === "primary" || s === "open";
+  }
+  if (want === "secondary") {
+    return p === "secondary" || s === "secondary" || s === "secondary_active";
+  }
+  return p === want || s === want;
 }
 
 function SkeletonRows() {
@@ -138,7 +179,7 @@ export function MarketList() {
   const [items, setItems] = useState<MarketCatalogItem[]>([]);
   const [categories, setCategories] = useState<string[]>([]);
   const [category, setCategory] = useState("");
-  const [phase, setPhase] = useState("primary");
+  const [phase, setPhase] = useState(""); // All — API status=primary often ships thin/untitled
   const [sort, setSort] = useState<SortMode>("default");
   const [view, setView] = useState<ViewMode>("rows");
   const [nextCursor, setNextCursor] = useState<string | null>(null);
@@ -162,11 +203,19 @@ export function MarketList() {
   }, []);
 
   const hydrateTitles = useCallback(async (batch: MarketCatalogItem[]) => {
-    // Fetch detail when title empty (description alone still hydrates for a real title)
-    const need = batch.filter((m) => !(m.title || "").trim());
+    // List endpoint often ships empty title; detail may carry a longer description.
+    // Prefer rows missing any human label, then thin descriptions.
+    const need = batch.filter((m) => {
+      const title = (m.title || "").trim();
+      const desc = (m.description || "").trim();
+      return !title || desc.length < 24;
+    });
     if (need.length === 0) return;
-    // Priority queue: primary markets first, then higher volume
+    // Priority: visible primary + labeled/volume books first so first paint recovers fast
     const ranked = [...need].sort((a, b) => {
+      const aLabel = hasHumanLabel(a) ? 0 : 1;
+      const bLabel = hasHumanLabel(b) ? 0 : 1;
+      if (aLabel !== bLabel) return aLabel - bLabel;
       const ap = (a.phase || "").toLowerCase() === "primary" ? 0 : 1;
       const bp = (b.phase || "").toLowerCase() === "primary" ? 0 : 1;
       if (ap !== bp) return ap - bp;
@@ -182,15 +231,20 @@ export function MarketList() {
           const { data } = await pantaFetch<MarketCatalogItem>(
             `/markets/${encodeURIComponent(m.marketId)}/`,
           );
-          const title = (data.title || "").trim();
+          const title = (data.title || "").trim() || (m.title || "").trim();
+          const listDesc = (m.description || "").trim();
+          const detailDesc = (data.description || "").trim();
+          // Keep the longer human question — detail sometimes truncates less
           const description =
-            (data.description || "").trim() || (m.description || "").trim();
+            detailDesc.length >= listDesc.length ? detailDesc || listDesc : listDesc || detailDesc;
           if (!title && !description) continue;
+          // ?? keeps list spot/volume when detail is thinner (common on cold catalog)
           const patch: Partial<MarketCatalogItem> = {
             title: title || undefined,
-            description: description || data.description,
+            description: description || undefined,
             oracle: data.oracle ?? m.oracle,
             volumeUsdc: data.volumeUsdc ?? m.volumeUsdc,
+            totalVolumeUsdc: data.totalVolumeUsdc ?? m.totalVolumeUsdc,
             yesPrice: data.yesPrice ?? m.yesPrice,
             noPrice: data.noPrice ?? m.noPrice,
             primaryYesPrice: data.primaryYesPrice ?? m.primaryYesPrice,
@@ -198,7 +252,9 @@ export function MarketList() {
             secondaryYesPrice: data.secondaryYesPrice ?? m.secondaryYesPrice,
             secondaryNoPrice: data.secondaryNoPrice ?? m.secondaryNoPrice,
             images: data.images?.length ? data.images : m.images,
-            phase: data.phase || m.phase,
+            // Prefer list phase — detail can disagree on cold rows
+            phase: m.phase || data.phase,
+            status: m.status || data.status,
           };
           // Progressive paint so first-screen rows fill in early
           setItems((prev) =>
@@ -284,13 +340,15 @@ export function MarketList() {
     const qq = q.trim().toLowerCase();
     let list = items.filter((m) => {
       if (watchOnly && !watchIds.includes(m.marketId)) return false;
+      if (!phaseMatches(m, phase)) return false;
       if (!qq) return true;
       const label = marketLabel(m).toLowerCase();
       return (
         label.includes(qq) ||
         m.marketId.toLowerCase().includes(qq) ||
         (m.category || "").toLowerCase().includes(qq) ||
-        (m.title || "").toLowerCase().includes(qq)
+        (m.title || "").toLowerCase().includes(qq) ||
+        (m.description || "").toLowerCase().includes(qq)
       );
     });
 
@@ -316,15 +374,21 @@ export function MarketList() {
         (a, b) => phaseRank(a.phase) - phaseRank(b.phase),
       );
     } else {
-      // Default: active phases first, then volume
+      // Default: labeled + priced + active first so cold catalog doesn't look dead
       list = [...list].sort((a, b) => {
+        const al = hasHumanLabel(a) ? 0 : 1;
+        const bl = hasHumanLabel(b) ? 0 : 1;
+        if (al !== bl) return al - bl;
+        const ap = hasAnySpot(a) ? 0 : 1;
+        const bp = hasAnySpot(b) ? 0 : 1;
+        if (ap !== bp) return ap - bp;
         const pr = phaseRank(a.phase) - phaseRank(b.phase);
         if (pr !== 0) return pr;
         return volumeNum(b) - volumeNum(a);
       });
     }
     return list;
-  }, [items, q, sort, watchOnly, watchIds]);
+  }, [items, q, sort, watchOnly, watchIds, phase]);
 
   const showSetup = Boolean(error && items.length === 0);
   const showSkeleton = busy && items.length === 0 && !error;
@@ -412,7 +476,7 @@ export function MarketList() {
           </h1>
           <p className="mt-0.5 text-[12px] text-zinc-400">
             Live USDC catalog
-            <span className="text-zinc-600"> · arrows / search to navigate</span>
+            <span className="text-zinc-600"> · phase ≠ liquidity · arrows / search</span>
             {updatedAt ? (
               <span className="ml-2 font-num text-zinc-600">
                 · Updated {formatUpdated(updatedAt)} IST
@@ -512,7 +576,7 @@ export function MarketList() {
               className="rounded-md border border-[#1f1f23] bg-[#0a0a0b] px-3 py-2 text-sm text-zinc-300"
             >
               <option value="">All phases</option>
-              <option value="primary">primary</option>
+              <option value="primary">primary (open)</option>
               <option value="secondary">secondary</option>
               <option value="resolved">resolved</option>
               <option value="cancelled">cancelled</option>
@@ -610,13 +674,24 @@ export function MarketList() {
                         />
                       ) : (
                         <div className="flex h-16 items-center justify-center bg-[#161618] text-[10px] uppercase tracking-wider text-zinc-700">
-                          no image
+                          {isUntitledMarket(m) ? "Untitled" : "No image"}
                         </div>
                       )}
                       <div className="flex flex-1 flex-col gap-2 p-3">
-                        <div className="line-clamp-2 text-[13px] font-medium text-zinc-100 group-hover:text-white">
+                        <div
+                          className={`line-clamp-2 text-[13px] font-medium group-hover:text-white ${
+                            isUntitledMarket(m)
+                              ? "italic text-zinc-500"
+                              : "text-zinc-100"
+                          }`}
+                        >
                           {marketLabel(m)}
                         </div>
+                        {isUntitledMarket(m) ? (
+                          <div className="font-num text-[10px] text-zinc-600">
+                            {marketSubtitle(m)}
+                          </div>
+                        ) : null}
                         <div className="flex flex-wrap items-center gap-1.5">
                           <PhaseBadge phase={m.phase} />
                           {shouldShowCategoryChip(m.category, m.title, m.description) ? (
@@ -627,7 +702,7 @@ export function MarketList() {
                         </div>
                         <ProbBar yes={yes} no={no} size="sm" showLabels />
                         <div className="mt-auto flex justify-between font-num text-[10px] text-zinc-500">
-                          <span>{formatVolumeUsdc(m.volumeUsdc)}</span>
+                          <span>{formatVolumeUsdc(catalogVolume(m))}</span>
                           <span>Ends {formatEnd(m.endTime)}</span>
                         </div>
                       </div>
@@ -639,7 +714,7 @@ export function MarketList() {
                   <div className="col-span-full px-4 py-14 text-center">
                     <div className="text-sm text-zinc-400">No markets match</div>
                     <p className="mt-1 text-[11px] text-zinc-600">
-                      Adjust filters, clear watchlist filter, or refresh the catalog
+                      Clear search, phase, or watchlist — sparse catalogs are common on cold books
                     </p>
                     <button
                       type="button"
@@ -647,10 +722,11 @@ export function MarketList() {
                         setQ("");
                         setWatchOnly(false);
                         setCategory("");
+                        setPhase("");
                       }}
                       className="mt-3 rounded-md border border-[#1f1f23] px-3 py-1.5 text-[11px] text-zinc-400 hover:text-zinc-200"
                     >
-                      Reset filters
+                      Clear filters
                     </button>
                   </div>
                 )}
@@ -695,24 +771,30 @@ export function MarketList() {
                           />
                         ) : null}
                         <div className="min-w-0">
-                          <div className="truncate text-[13px] font-medium text-zinc-100 group-hover:text-white">
+                          <div
+                            className={`truncate text-[13px] font-medium group-hover:text-white ${
+                              isUntitledMarket(m)
+                                ? "italic text-zinc-500"
+                                : "text-zinc-100"
+                            }`}
+                          >
                             {marketLabel(m, { max: 96 })}
                           </div>
                           <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px] text-zinc-600">
-                            <span className="rounded border border-[#1f1f23] px-1 py-px text-zinc-500">
-                              {m.category || "—"}
-                            </span>
-                            {!(m.title || "").trim() && (m.description || "").trim() ? (
-                              <span className="max-w-[220px] truncate text-zinc-500">
-                                {(m.description || "").trim()}
+                            {shouldShowCategoryChip(m.category, m.title, m.description) ? (
+                              <span className="rounded border border-[#1f1f23] px-1 py-px text-zinc-500">
+                                {m.category}
                               </span>
                             ) : (
-                              <span className="font-num text-zinc-600">
-                                {m.marketId.slice(0, 8)}…
+                              <span className="rounded border border-[#1f1f23] px-1 py-px text-zinc-600">
+                                —
                               </span>
                             )}
+                            <span className="font-num text-zinc-600">
+                              {marketSubtitle(m)}
+                            </span>
                             <span className="font-num text-zinc-500 lg:hidden">
-                              · {formatVolumeUsdc(m.volumeUsdc)}
+                              · {formatVolumeUsdc(catalogVolume(m))}
                             </span>
                           </div>
                         </div>
@@ -721,7 +803,7 @@ export function MarketList() {
                         <PhaseBadge phase={m.phase} />
                       </div>
                       <div className="hidden font-num text-[12px] text-zinc-400 lg:block">
-                        {formatVolumeUsdc(m.volumeUsdc)}
+                        {formatVolumeUsdc(catalogVolume(m))}
                       </div>
                       <div className="hidden text-right font-num text-[11px] text-zinc-500 sm:block">
                         {formatEnd(m.endTime)}
@@ -738,7 +820,7 @@ export function MarketList() {
                   <div className="px-4 py-14 text-center">
                     <div className="text-sm text-zinc-400">No markets match</div>
                     <p className="mt-1 text-[11px] text-zinc-600">
-                      Adjust filters, clear watchlist filter, or refresh the catalog
+                      Clear search, phase, or watchlist — sparse catalogs are common on cold books
                     </p>
                     <button
                       type="button"
@@ -746,10 +828,11 @@ export function MarketList() {
                         setQ("");
                         setWatchOnly(false);
                         setCategory("");
+                        setPhase("");
                       }}
                       className="mt-3 rounded-md border border-[#1f1f23] px-3 py-1.5 text-[11px] text-zinc-400 hover:text-zinc-200"
                     >
-                      Reset filters
+                      Clear filters
                     </button>
                   </div>
                 )}

@@ -37,13 +37,19 @@ export function ProbBar({
     return (
       <div
         className={`font-num text-zinc-600 ${size === "sm" ? "text-[11px]" : hero}`}
-        title="Spot fills on market open"
+        title="No spot price from API yet"
       >
-        <span className="tracking-widest">···</span>
-        {size !== "sm" && (
-          <div className="mt-0.5 text-[10px] font-sans tracking-normal text-zinc-600">
-            Open for spot
-          </div>
+        {size === "sm" ? (
+          <span className="font-sans text-[10px] tracking-normal text-zinc-600">
+            No price yet
+          </span>
+        ) : (
+          <>
+            <span className="tracking-widest">···</span>
+            <div className="mt-0.5 text-[10px] font-sans tracking-normal text-zinc-600">
+              No price yet
+            </div>
+          </>
         )}
       </div>
     );
@@ -104,7 +110,7 @@ export function DualSideHero({
             {y !== null ? `${y.toFixed(1)}%` : "···"}
           </div>
           <div className="mt-0.5 font-num text-[11px] text-emerald-400/50">
-            {yes != null && yes !== "" ? Number(yes).toFixed(4) : "Open for spot"}
+            {yes != null && yes !== "" ? Number(yes).toFixed(4) : "No price yet"}
           </div>
         </div>
         <div className="rounded-lg border border-rose-500/20 bg-rose-500/[0.07] p-4 transition-all duration-300">
@@ -118,7 +124,7 @@ export function DualSideHero({
             {n !== null ? `${n.toFixed(1)}%` : "···"}
           </div>
           <div className="mt-0.5 font-num text-[11px] text-rose-400/50">
-            {no != null && no !== "" ? Number(no).toFixed(4) : "Open for spot"}
+            {no != null && no !== "" ? Number(no).toFixed(4) : "No price yet"}
           </div>
         </div>
       </div>

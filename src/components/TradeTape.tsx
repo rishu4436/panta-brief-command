@@ -90,9 +90,9 @@ export function TradeTape({
         </div>
         {!busy && items.length === 0 && (
           <div className="px-4 py-10 text-center">
-            <div className="text-sm text-zinc-600">No prints yet</div>
-            <p className="mt-1 text-[11px] text-zinc-700">
-              Tape fills as primary / secondary flow
+            <div className="text-sm text-zinc-500">No prints yet</div>
+            <p className="mt-1 text-[11px] text-zinc-600">
+              Quiet book — tape stays empty until a real fill lands. No invented prints.
             </p>
           </div>
         )}

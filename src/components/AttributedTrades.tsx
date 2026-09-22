@@ -143,7 +143,7 @@ export function AttributedTrades({
                 Claims {claims}
               </span>
             )}
-            {vol != null && vol !== "" && (
+            {vol != null && vol !== "" && Number(vol) > 0 && (
               <span className="rounded border border-[#1f1f23] bg-[#0a0a0b] px-2 py-0.5 font-num text-[10px] text-zinc-400">
                 Vol {formatVolumeUsdc(vol)}
               </span>
@@ -253,11 +253,11 @@ export function AttributedTrades({
                   className="px-3.5 py-12 text-center text-sm text-zinc-600"
                 >
                   <p className="text-zinc-400">
-                    No attributed fills for this API key yet
+                    Book is calm — no attributed fills yet
                   </p>
                   <p className="mt-1 text-[11px] text-zinc-500">
-                    Run guided execute through Finish attribution (POST /trades/)
-                    — buys and claims land here.
+                    Guided execute → Finish attribution (POST /trades/) lands buys
+                    and claims here. Empty is honest until a live fill.
                   </p>
                   <Link
                     href="/execute"

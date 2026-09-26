@@ -33,7 +33,7 @@ const PATH = [
     step: "02",
     title: "Brief",
     href: "/desk",
-    body: "One-click desk narrative from detail prices and trade prints. Templated or OpenAI.",
+    body: "Deterministic signals from live price and tape: flow split, price vs flow, risk flags, data quality. An LLM or template interprets them in Desk read, Flow, Risk, or Catalysts mode, with no buy/sell calls.",
     mock: "brief" as const,
   },
   {

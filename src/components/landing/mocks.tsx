@@ -197,62 +197,70 @@ export function MockCatalogChrome({ stagger = false }: { stagger?: boolean }) {
 /** AI brief panel matching AiBrief tone chips + narrative lines. */
 export function MockBriefPanel({ reveal = false }: { reveal?: boolean }) {
   const reduce = useReducedMotion();
-  const lines = [
-    "Tape leans YES after two primary prints at 57–59¢.",
-    "Edge: spot SOL momentum vs week-end resolution window.",
-    "Risk: overnight gap if macro prints hit before Fri close.",
+  // Illustrative only — the live card renders these rows from computed signals.
+  const rows: { k: string; v: string }[] = [
+    { k: "Flow", v: "YES 71% · NO 29% · 14 recent prints" },
+    { k: "Signal", v: "YES flow materially outweighs NO over the last 14 prints." },
+    { k: "Price", v: "Market 58% vs recent flow 71% · +13 pts" },
+    { k: "Risk", v: "Concentrated flow · resolution in under 24h" },
+    { k: "Execution", v: "Primary YES available · quote required before sizing" },
   ];
   return (
     <TiltCard>
-      <MockFrame title="desk · AI brief">
+      <MockFrame title="desk · AI market brief">
         <div className="space-y-3 p-4" aria-hidden>
-          <div className="flex flex-wrap items-center gap-1.5">
-            <span className="rounded bg-cyan-400/15 px-1.5 py-0.5 font-num text-[9px] text-cyan-300">
-              BRIEF
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400">
+              AI Market Brief
             </span>
-            <span className="rounded border border-[#1f1f23] px-1.5 py-0.5 text-[9px] text-zinc-500">
-              Template
+            <span className="rounded border border-cyan-400/40 bg-cyan-400/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-cyan-300">
+              High
             </span>
-            {(["Bull", "Neutral", "Bear"] as const).map((t) => (
+          </div>
+          <div className="grid grid-cols-4 gap-1 rounded-md bg-[#0c0c0e] p-1">
+            {(["Desk read", "Flow", "Risk", "Catalysts"] as const).map((t) => (
               <span
                 key={t}
-                className={`rounded-full border px-2 py-0.5 text-[9px] font-medium ${
-                  t === "Neutral"
-                    ? "border-cyan-400/40 bg-cyan-400/10 text-cyan-300"
-                    : "border-[#1f1f23] bg-[#0a0a0b] text-zinc-600"
+                className={`rounded px-1 py-1 text-center text-[9px] font-medium ${
+                  t === "Desk read"
+                    ? "bg-cyan-400/10 text-cyan-300 ring-1 ring-inset ring-cyan-400/35"
+                    : "text-zinc-600"
                 }`}
               >
                 {t}
               </span>
             ))}
           </div>
-          <div className="space-y-2">
-            {lines.map((line, i) => (
-              <motion.p
-                key={line}
-                className="text-[12px] leading-relaxed text-zinc-300"
+          <div className="grid grid-cols-2 gap-2">
+            <div className="rounded-md border border-emerald-500/20 bg-emerald-500/[0.05] px-2.5 py-2">
+              <div className="text-[9px] font-semibold tracking-wider text-emerald-400/80">YES</div>
+              <div className="font-num text-[20px] font-semibold leading-none text-emerald-300">58%</div>
+            </div>
+            <div className="rounded-md border border-rose-500/20 bg-rose-500/[0.05] px-2.5 py-2">
+              <div className="text-[9px] font-semibold tracking-wider text-rose-400/80">NO</div>
+              <div className="font-num text-[20px] font-semibold leading-none text-rose-300">42%</div>
+            </div>
+          </div>
+          <div className="divide-y divide-[#1a1a1e] rounded-md border border-[#1a1a1e] bg-[#0c0c0e]">
+            {rows.map((r, i) => (
+              <motion.div
+                key={r.k}
+                className="grid grid-cols-[62px_1fr] gap-2 px-2.5 py-1.5"
                 initial={reveal && !reduce ? { opacity: 0, y: 6 } : false}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{
                   duration: 0.35,
-                  delay: reveal && !reduce ? 0.12 + i * 0.12 : 0,
+                  delay: reveal && !reduce ? 0.12 + i * 0.1 : 0,
                 }}
               >
-                {line}
-              </motion.p>
+                <span className="text-[9px] uppercase tracking-wider text-zinc-600">{r.k}</span>
+                <span className="text-[11px] leading-snug text-zinc-300">{r.v}</span>
+              </motion.div>
             ))}
           </div>
-          <div className="rounded-md border border-[#1f1f23] bg-[#111113] p-3">
-            <div className="text-[10px] uppercase tracking-wider text-zinc-500">
-              Edge hypothesis
-            </div>
-            <p className="mt-1.5 text-[11px] leading-relaxed text-zinc-400">
-              Primary YES underprices weekend carry if SOL holds $240+.
-            </p>
-          </div>
-          <div className="flex h-8 items-center justify-center rounded-md bg-cyan-400/90 text-[11px] font-semibold text-[#0a0a0b]">
-            Generate brief
-          </div>
+          <p className="text-[10px] leading-relaxed text-zinc-500">
+            Interpretation below · descriptive, never a buy/sell call
+          </p>
         </div>
       </MockFrame>
     </TiltCard>

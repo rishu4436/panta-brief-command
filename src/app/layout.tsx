@@ -22,11 +22,11 @@ export const metadata: Metadata = {
     template: "%s | Brief Command",
   },
   description:
-    "Brief Command — Solana prediction desk powered by Panta. Market intel, AI briefs, primary buys, and book claims.",
+    "Brief Command — Solana prediction desk powered by Panta. Market intel, signal-based AI market briefs, primary buys, and book claims.",
   openGraph: {
     title: "Brief Command",
     description:
-      "Solana prediction desk powered by Panta — intel, AI briefs, primary buys.",
+      "Solana prediction desk powered by Panta — intel, signal-based market briefs, primary buys.",
     siteName: "Brief Command",
     type: "website",
   },
@@ -34,7 +34,7 @@ export const metadata: Metadata = {
     card: "summary",
     title: "Brief Command",
     description:
-      "Solana prediction desk powered by Panta — intel, AI briefs, primary buys.",
+      "Solana prediction desk powered by Panta — intel, signal-based market briefs, primary buys.",
   },
 };
 

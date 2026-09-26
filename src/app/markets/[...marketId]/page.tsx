@@ -1,8 +1,7 @@
 import type { Metadata } from "next";
 import { MarketDetail } from "@/components/MarketDetail";
 import { marketLabel } from "@/lib/format";
-import { pantaServerGet } from "@/lib/panta-server";
-import type { MarketCatalogItem } from "@/lib/types";
+import { getMarketServerSoft } from "@/lib/panta/server";
 
 type Props = { params: Promise<{ marketId: string[] }> };
 
@@ -22,9 +21,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { marketId: parts } = await params;
   const marketId = resolveId(parts);
   const market = marketId
-    ? await pantaServerGet<MarketCatalogItem>(
-        `/markets/${encodeURIComponent(marketId)}/`,
-      )
+    ? await getMarketServerSoft(marketId)
     : null;
 
   const label = market

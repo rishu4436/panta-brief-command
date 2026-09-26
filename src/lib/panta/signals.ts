@@ -11,8 +11,8 @@
  * probability change across the window is not derivable today.
  */
 
-import type { CatalogTradeRow, MarketCatalogItem } from "@/lib/types";
-import { humanAmount, marketVolumeUsdc, normalizePantaTrade } from "./normalize";
+import type { Market, Trade } from "./domain";
+import { humanAmount, marketVolumeUsdc } from "./normalize";
 
 export const SIGNALS_VERSION = 1;
 
@@ -126,7 +126,7 @@ function ageLabel(minutes: number): string {
   return `${Math.round(minutes / 1440)}d`;
 }
 
-function resolveProbability(m: MarketCatalogItem, resolved: boolean) {
+function resolveProbability(m: Market, resolved: boolean) {
   // Detail yesPrice/noPrice are spot (docs markets/get). After resolution they
   // are the settlement (0/1). secondary* prices are skipped: live API returns
   // them in a different scale (e.g. "500832640"), so they are not probabilities.
@@ -148,7 +148,7 @@ function resolveProbability(m: MarketCatalogItem, resolved: boolean) {
 }
 
 /** Catalog text usable for catalysts: description, else the resolution rule. */
-export function catalogText(m: MarketCatalogItem): { kind: "description" | "resolution rule"; text: string } | null {
+export function catalogText(m: Market): { kind: "description" | "resolution rule"; text: string } | null {
   const d = (m.description || "").trim();
   if (d) return { kind: "description", text: d };
   const r = (m.resolutionRule || "").trim();
@@ -157,8 +157,8 @@ export function catalogText(m: MarketCatalogItem): { kind: "description" | "reso
 }
 
 export function computeMarketSignals(
-  market: MarketCatalogItem,
-  tapeRaw: CatalogTradeRow[],
+  market: Market,
+  tape: Trade[],
   nowMs: number = Date.now(),
   opts: { partialDetail?: boolean } = {},
 ): MarketSignals {
@@ -174,7 +174,6 @@ export function computeMarketSignals(
     resolved && probability.yes === 1 ? "yes" : resolved && probability.yes === 0 ? "no" : null;
 
   // --- Tape
-  const tape = tapeRaw.map(normalizePantaTrade);
   const count = tape.length;
   let yesPrints = 0;
   let noPrints = 0;
@@ -336,7 +335,8 @@ export function computeMarketSignals(
     );
   }
   if (cancelled) add("cancelled", "Market cancelled — no trading");
-  if (opts.partialDetail) add("partial_detail", "Panta returned a partial market record (no title or price)");
+  const partialDetail = opts.partialDetail ?? market.partial === true;
+  if (partialDetail) add("partial_detail", "Panta returned a partial market record (no title or price)");
   if (probability.yes == null) add("no_price", "No live price — odds unavailable");
   if (count === 0) add("no_tape", "No recent prints in the tape window");
   else if (count < T.thinTapePrints) add("thin_tape", `Thin tape — ${count} print${count === 1 ? "" : "s"}`);
@@ -391,7 +391,7 @@ export function computeMarketSignals(
     level = Math.min(level, max);
     reasons.push(reason);
   };
-  if (opts.partialDetail) cap(1, "Partial market record from Panta");
+  if (partialDetail) cap(1, "Partial market record from Panta");
   if (probability.yes == null) cap(1, "No market price");
   if (count === 0) cap(1, "No prints in the tape window");
   else if (count < T.thinTapePrints) cap(1, `Only ${count} print(s)`);

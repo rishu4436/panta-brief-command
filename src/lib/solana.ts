@@ -10,7 +10,7 @@ import {
   TransactionMessage,
   VersionedTransaction,
 } from "@solana/web3.js";
-import type { BuiltInstruction } from "./types";
+import type { BuiltInstruction } from "./panta/domain";
 
 if (
   typeof window !== "undefined" &&

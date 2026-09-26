@@ -1,5 +1,5 @@
-import { marketVolumeUsdc, normalizePantaTrade } from "./panta/normalize";
-import type { CatalogTradeRow } from "./types";
+import { marketVolumeUsdc } from "./panta/normalize";
+import type { Trade } from "./panta/domain";
 
 export function formatPrice(price: string | number | null | undefined): string {
   if (price === undefined || price === null || price === "") return "—";
@@ -49,11 +49,10 @@ export function catalogVolume(
 }
 
 /**
- * Human tape size via normalizePantaTrade(): USDC paid when the row carries it,
+ * Human tape size from a normalized Trade: USDC paid when the row carries it,
  * else shares received (labelled by side). Never infers units from magnitude.
  */
-export function formatTapeSize(t: CatalogTradeRow): string {
-  const n = normalizePantaTrade(t);
+export function formatTapeSize(n: Trade): string {
   if (n.amountUsdc != null) return formatVolumeUsdc(n.amountUsdc);
   if (n.shares != null) {
     const qty = n.shares.toLocaleString(undefined, { maximumFractionDigits: 2 });
@@ -128,16 +127,11 @@ export function impliedSide(market: {
   noPrice?: string | null;
   primaryYesPrice?: string | null;
   primaryNoPrice?: string | null;
-  secondaryYesPrice?: string | null;
-  secondaryNoPrice?: string | null;
 }): { yes: string | null; no: string | null } {
-  const yes =
-    market.yesPrice ??
-    market.primaryYesPrice ??
-    market.secondaryYesPrice ??
-    null;
-  const no =
-    market.noPrice ?? market.primaryNoPrice ?? market.secondaryNoPrice ?? null;
+  // secondary*Price is deliberately ignored: the live API returns it on a
+  // different scale (e.g. "500832640"), so it is not a probability.
+  const yes = market.yesPrice ?? market.primaryYesPrice ?? null;
+  const no = market.noPrice ?? market.primaryNoPrice ?? null;
   return { yes, no };
 }
 

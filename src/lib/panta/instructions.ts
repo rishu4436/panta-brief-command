@@ -9,7 +9,7 @@
 
 import { Buffer } from "buffer";
 import { PublicKey, type VersionedTransaction } from "@solana/web3.js";
-import type { BuiltInstruction } from "@/lib/types";
+import type { BuiltInstruction } from "./domain";
 
 /**
  * Panta USDC markets program (instructions `primary_order_usdc`,

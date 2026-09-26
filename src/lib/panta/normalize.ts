@@ -17,18 +17,44 @@
  *                    log for the same signature (see normalizePantaTrade).
  */
 
-import type {
-  AccountTradeItem,
-  CatalogTradeRow,
-  MarketCatalogItem,
-  PositionRow,
-  PrimaryQuoteResponse,
-} from "@/lib/types";
+import type { AccountTrade, Market, Side, Trade } from "./domain";
+
+type Numish = string | number | null | undefined;
+
+/** Raw tape row as Panta sends it (docs table + live extras shares/sharesBase). */
+export type RawTradeRow = {
+  id?: string | number | null;
+  marketId?: string | null;
+  wallet?: string | null;
+  isPrimary?: boolean | null;
+  yesAmount?: Numish;
+  noAmount?: Numish;
+  feePaid?: Numish;
+  blockTime?: number | null;
+  signature?: string | null;
+  kind?: string | null;
+  side?: string | null;
+  amountUsdc?: Numish;
+  amountUsdcBase?: Numish;
+  shares?: Numish;
+  sharesBase?: Numish;
+};
+
+/** Raw attribution row (GET /account/trades/). */
+export type RawAccountTrade = {
+  signature: string;
+  wallet?: string | null;
+  marketId?: string | null;
+  side?: string | null;
+  kind?: string | null;
+  amountUsdc?: Numish;
+  amountUsdcBase?: Numish;
+  status?: string | null;
+  createdAt?: string | null;
+};
 
 export const PANTA_DECIMALS = 6;
 const BASE = 10 ** PANTA_DECIMALS;
-
-type Numish = string | number | null | undefined;
 
 /** Parse a human-readable decimal field. No unit conversion. */
 export function humanAmount(v: Numish): number | null {
@@ -43,9 +69,9 @@ export function fromBaseUnits(v: Numish): number | null {
   return n == null ? null : n / BASE;
 }
 
-export type PantaSide = "yes" | "no";
+export type PantaSide = Side;
 
-function parseSide(v: unknown): PantaSide | null {
+function parseSide(v: unknown): Side | null {
   const s = String(v ?? "").toLowerCase();
   if (s === "yes" || s === "y") return "yes";
   if (s === "no" || s === "n") return "no";
@@ -56,29 +82,11 @@ function parseSide(v: unknown): PantaSide | null {
 // Trades (catalog tape: GET /markets/{id}/trades/)
 // ---------------------------------------------------------------------------
 
-export type NormalizedTrade = {
-  id: string | null;
-  marketId: string | null;
-  wallet: string | null;
-  signature: string | null;
-  blockTime: number | null;
-  isPrimary: boolean | null;
-  kind: string | null;
-  side: PantaSide | null;
-  /** Shares received, human units. null when the row carries no share size. */
-  shares: number | null;
-  /** USDC paid, human units. null when the row carries no USDC size. */
-  amountUsdc: number | null;
-};
+/** @deprecated use Trade from ./domain */
+export type NormalizedTrade = Trade;
 
-/** Extra fields the live API returns on tape rows (not in docs table). */
-type TradeRowLive = CatalogTradeRow & {
-  shares?: string | number | null;
-  sharesBase?: string | number | null;
-};
-
-export function normalizePantaTrade(raw: CatalogTradeRow): NormalizedTrade {
-  const t = raw as TradeRowLive;
+export function normalizePantaTrade(raw: RawTradeRow): Trade {
+  const t = raw;
 
   // shares: human decimal string; sharesBase: 6-dec base units. [live] Both are
   // returned by GET /markets/{id}/trades/ (e.g. shares "48.647771",
@@ -106,12 +114,12 @@ export function normalizePantaTrade(raw: CatalogTradeRow): NormalizedTrade {
 
   return {
     id: t.id != null ? String(t.id) : null,
-    marketId: t.marketId ?? null,
-    wallet: t.wallet ?? null,
-    signature: t.signature ?? null,
+    marketId: t.marketId || null,
+    wallet: t.wallet || null,
+    signature: t.signature || null,
     blockTime: typeof t.blockTime === "number" ? t.blockTime : null,
     isPrimary: typeof t.isPrimary === "boolean" ? t.isPrimary : null,
-    kind: t.kind ?? null,
+    kind: t.kind ? t.kind.toLowerCase() : null,
     side,
     shares: shares != null && shares > 0 ? shares : null,
     amountUsdc: amountUsdc != null && amountUsdc > 0 ? amountUsdc : null,
@@ -122,65 +130,24 @@ export function normalizePantaTrade(raw: CatalogTradeRow): NormalizedTrade {
 // Attribution rows (GET /account/trades/)
 // ---------------------------------------------------------------------------
 
-export type NormalizedAccountTrade = {
-  signature: string;
-  marketId: string | null;
-  side: PantaSide | null;
-  kind: string | null;
-  status: string | null;
-  amountUsdc: number | null;
-};
-
-export function normalizeAccountTrade(t: AccountTradeItem): NormalizedAccountTrade {
+export function normalizeAccountTrade(t: RawAccountTrade): AccountTrade {
   return {
     signature: t.signature,
-    marketId: t.marketId ?? null,
+    wallet: t.wallet || null,
+    marketId: t.marketId || null,
     side: parseSide(t.side),
-    kind: t.kind ?? null,
-    status: t.status ?? null,
+    kind: t.kind ? t.kind.toLowerCase() : null,
+    status: t.status || null,
+    createdAt: t.createdAt || null,
     // [docs-acct] "amountUsdc (human decimal), amountUsdcBase" (base units).
     amountUsdc: humanAmount(t.amountUsdc) ?? fromBaseUnits(t.amountUsdcBase),
   };
 }
 
-// ---------------------------------------------------------------------------
-// Positions (GET /positions/)
-// ---------------------------------------------------------------------------
-
-export type NormalizedPosition = PositionRow & { sharesNum: number | null };
-
-export function normalizePantaPosition(p: PositionRow): NormalizedPosition {
-  // [docs-positions] `shares`: "Human-readable share quantity".
-  return { ...p, sharesNum: humanAmount(p.shares) };
-}
-
-// ---------------------------------------------------------------------------
-// Primary quote (POST /primaryorderquote/)
-// ---------------------------------------------------------------------------
-
-export type NormalizedQuote = {
-  quoteId: string;
-  side: PantaSide | null;
-  amountUsdc: number | null;
-  shares: number | null;
-  avgPrice: number | null;
-  feeUsdc: number | null;
-  expiresAt: string | null;
-};
-
-export function normalizePantaQuote(q: PrimaryQuoteResponse): NormalizedQuote {
-  // [docs-orders] "Amounts are human-readable decimal USDC strings (for example
-  // "20.00"), not base units" — amountUsdc, feeUsdc, shares, avgPrice as-is.
-  return {
-    quoteId: q.quoteId,
-    side: parseSide(q.side),
-    amountUsdc: humanAmount(q.amountUsdc),
-    shares: humanAmount(q.shares),
-    avgPrice: humanAmount(q.avgPrice),
-    feeUsdc: humanAmount(q.feeUsdc),
-    expiresAt: q.expiresAt ?? null,
-  };
-}
+// Positions: [docs-positions] `shares` is a "Human-readable share quantity"
+// (see positions.ts). Primary quotes: [docs-orders] "Amounts are
+// human-readable decimal USDC strings (for example "20.00"), not base units"
+// (see orders.ts).
 
 // NOTE: POST /primaryorderverify/ documents `amountUsdc: 20000000` (an integer
 // in base units despite the plain name). We never display that field; only
@@ -193,7 +160,7 @@ export function normalizePantaQuote(q: PrimaryQuoteResponse): NormalizedQuote {
 /** Human USDC volume: prefer human fields, else ÷1e6 of `*Base`. */
 export function marketVolumeUsdc(
   m: Pick<
-    MarketCatalogItem,
+    Market,
     "volumeUsdc" | "totalVolumeUsdc" | "volumeUsdcBase" | "totalVolumeUsdcBase"
   >,
 ): number | null {

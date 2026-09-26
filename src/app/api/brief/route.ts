@@ -1,52 +1,32 @@
 import { NextRequest, NextResponse } from "next/server";
 import { maybeOpenAIBrief } from "@/lib/brief";
-import { BRIEF_MODE_IDS, isBriefMode } from "@/lib/brief-modes";
+import { BRIEF_MODE_IDS, BRIEF_RATE_LIMIT, isBriefMode } from "@/lib/brief-modes";
 import { BASE58_PUBKEY_RE } from "@/lib/panta/routes";
 import { sanitizeMarket, sanitizeTape } from "@/lib/panta/sanitize";
+import { getMarketServer, getMarketTradesServer, UpstreamError } from "@/lib/panta/server";
 import { computeMarketSignals } from "@/lib/panta/signals";
 import { clientIp, rateLimit, TtlCache } from "@/lib/rate-limit";
-import type {
-  BriefMode,
-  BriefPayload,
-  MarketCatalogItem,
-  MarketTradesResponse,
-} from "@/lib/types";
+import type { BriefMode, BriefPayload } from "@/lib/types";
 
 /**
  * POST /api/brief  { marketId, mode }
  *
  * The browser supplies only a market id and an analytical mode. Evidence
  * (market detail + tape) is fetched here from Panta with the server key,
- * normalized into deterministic signals (src/lib/panta/signals.ts), and only
- * then interpreted by the LLM or the template. Clients cannot inject data.
+ * parsed by the adapter layer (zod), normalized into deterministic signals
+ * (src/lib/panta/signals.ts), and only then interpreted by the LLM or the
+ * template. Clients cannot inject data.
  */
 
-const UPSTREAM =
-  process.env.PANTA_API_BASE_URL?.replace(/\/$/, "") ||
-  "https://live-api.panta.market/api/v1";
-
 const MAX_BODY_BYTES = 2 * 1024;
-const RATE_LIMIT = 5;
 const RATE_WINDOW_MS = 60_000;
+/** Repeat clicks within 60s are served from cache (no model re-billing). */
 const CACHE_TTL_MS = 60_000;
-const UPSTREAM_TIMEOUT_MS = 10_000;
 const ALLOWED_KEYS = new Set(["marketId", "mode"]);
 /** Tape rows used for signals (Panta caps at 200); the prompt never sees raw rows. */
 const SIGNAL_TAPE_ROWS = 50;
-const DETAIL_RETRY_MS = [400, 900] as const;
 
-type BriefResult = BriefPayload;
-
-const cache = new TtlCache<BriefResult>(CACHE_TTL_MS);
-
-class UpstreamError extends Error {
-  constructor(
-    public status: number,
-    public code: string,
-  ) {
-    super(code);
-  }
-}
+const cache = new TtlCache<BriefPayload>(CACHE_TTL_MS);
 
 function fail(status: number, code: string, detail?: string, headers?: HeadersInit) {
   return NextResponse.json(
@@ -55,70 +35,18 @@ function fail(status: number, code: string, detail?: string, headers?: HeadersIn
   );
 }
 
-async function pantaGet<T>(path: string): Promise<T> {
-  const key = process.env.PANTA_API_KEY?.trim();
-  if (!key) throw new UpstreamError(503, "SERVER_KEY_MISSING");
-  let res: Response;
-  try {
-    res = await fetch(`${UPSTREAM}${path}`, {
-      headers: { Accept: "application/json", "X-Api-Key": key },
-      cache: "no-store",
-      signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
-    });
-  } catch {
-    throw new UpstreamError(502, "PANTA_UNREACHABLE");
-  }
-  if (!res.ok) {
-    let code = `PANTA_HTTP_${res.status}`;
-    try {
-      const body = (await res.json()) as { code?: unknown };
-      if (typeof body?.code === "string") code = body.code.slice(0, 64);
-    } catch {
-      /* non-JSON error */
-    }
-    throw new UpstreamError(res.status === 404 ? 404 : 502, code);
-  }
-  return (await res.json()) as T;
-}
-
-/**
- * The live detail endpoint intermittently returns a partial record (no title,
- * question or prices; ~41 fields instead of ~89). Retry briefly; if it stays
- * partial, signals carry a `partial_detail` flag instead of guessing values.
- */
-function isPartialDetail(raw: MarketCatalogItem & { question?: unknown }): boolean {
-  const hasText = Boolean(String(raw.title || raw.question || "").trim());
-  const hasPrice = raw.yesPrice != null || raw.noPrice != null;
-  return !hasText && !hasPrice;
-}
-
-async function fetchDetail(id: string): Promise<{ raw: MarketCatalogItem; partial: boolean }> {
-  let raw = await pantaGet<MarketCatalogItem>(`/markets/${id}/`);
-  for (const delay of DETAIL_RETRY_MS) {
-    if (!isPartialDetail(raw)) return { raw, partial: false };
-    await new Promise((r) => setTimeout(r, delay));
-    raw = await pantaGet<MarketCatalogItem>(`/markets/${id}/`);
-  }
-  return { raw, partial: isPartialDetail(raw) };
-}
-
-async function buildBrief(marketId: string, mode: BriefMode): Promise<BriefResult> {
-  const id = encodeURIComponent(marketId);
-  const [{ raw: marketRaw, partial }, tradesRaw] = await Promise.all([
-    fetchDetail(id),
-    pantaGet<MarketTradesResponse>(`/markets/${id}/trades/?limit=${SIGNAL_TAPE_ROWS}`).catch(
-      () => null,
-    ),
+async function buildBrief(marketId: string, mode: BriefMode): Promise<BriefPayload> {
+  const [detail, trades] = await Promise.all([
+    getMarketServer(marketId),
+    getMarketTradesServer(marketId, SIGNAL_TAPE_ROWS).catch(() => []),
   ]);
-  const market = sanitizeMarket(marketRaw);
-  if (!market.marketId) throw new UpstreamError(404, "MARKET_NOT_FOUND");
-  const rawRows = Array.isArray(tradesRaw?.items) ? tradesRaw.items.slice(0, SIGNAL_TAPE_ROWS) : [];
-  const signals = computeMarketSignals(market, rawRows, Date.now(), { partialDetail: partial });
-  const tape = sanitizeTape(rawRows);
+  if (!detail) throw new UpstreamError(404, "MARKET_NOT_FOUND");
+  const market = sanitizeMarket(detail);
+  const signals = computeMarketSignals(market, trades.slice(0, SIGNAL_TAPE_ROWS));
   const { narrative, source } = await maybeOpenAIBrief(market, signals, mode);
   return {
     market,
-    tape,
+    tape: sanitizeTape(trades),
     signals,
     narrative,
     source,
@@ -135,9 +63,9 @@ export async function POST(req: NextRequest) {
   }
 
   // 2) Per-IP rate limit (in-memory, per instance).
-  const rl = rateLimit(`brief:${clientIp(req.headers)}`, RATE_LIMIT, RATE_WINDOW_MS);
+  const rl = rateLimit(`brief:${clientIp(req.headers)}`, BRIEF_RATE_LIMIT, RATE_WINDOW_MS);
   if (!rl.ok) {
-    return fail(429, "RATE_LIMITED", `Max ${RATE_LIMIT} briefs per minute`, {
+    return fail(429, "RATE_LIMITED", `Max ${BRIEF_RATE_LIMIT} briefs per minute`, {
       "Retry-After": String(rl.retryAfterSec),
     });
   }

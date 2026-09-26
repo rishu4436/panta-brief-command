@@ -1,3 +1,5 @@
+import "server-only";
+
 /**
  * Brief narrative = interpretation of precomputed signals.
  *
@@ -9,7 +11,7 @@
 
 import { catalogText, type MarketSignals } from "./panta/signals";
 import { BRIEF_MODES } from "./brief-modes";
-import type { BriefMode, MarketCatalogItem } from "./types";
+import type { BriefMode, Market } from "./types";
 
 const SECTION_HEADERS = [
   "### Observation",
@@ -63,7 +65,7 @@ function sourceLabel(s: MarketSignals["probability"]["source"]): string {
   return "unpriced";
 }
 
-function question(m: MarketCatalogItem): string {
+function question(m: Market): string {
   return (m.title || "").trim() || "Untitled market";
 }
 
@@ -132,7 +134,7 @@ const FLOW_FLAGS = new Set([
 ]);
 
 export function buildTemplateBrief(
-  market: MarketCatalogItem,
+  market: Market,
   s: MarketSignals,
   mode: BriefMode = "desk",
 ): string {
@@ -231,7 +233,7 @@ const SYSTEM_PROMPT = [
 ].join("\n");
 
 export async function maybeOpenAIBrief(
-  market: MarketCatalogItem,
+  market: Market,
   signals: MarketSignals,
   mode: BriefMode = "desk",
 ): Promise<{ narrative: string; source: "openai" | "template" }> {

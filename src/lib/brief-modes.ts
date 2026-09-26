@@ -13,3 +13,6 @@ export const BRIEF_MODE_IDS = BRIEF_MODES.map((m) => m.id) as readonly BriefMode
 export function isBriefMode(v: unknown): v is BriefMode {
   return typeof v === "string" && (BRIEF_MODE_IDS as readonly string[]).includes(v);
 }
+
+/** /api/brief requests per IP per minute. */
+export const BRIEF_RATE_LIMIT = 5;

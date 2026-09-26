@@ -4,8 +4,8 @@
  * and stripped of control characters before it reaches a prompt.
  */
 
-import type { CatalogTradeRow, MarketCatalogItem } from "@/lib/types";
-import { normalizePantaTrade } from "./normalize";
+import "server-only";
+import type { Market, Trade } from "./domain";
 
 export const BRIEF_LIMITS = {
   /** Max UTF-8 bytes of market description. */
@@ -47,14 +47,14 @@ function priceStr(v: unknown): string | null {
   return Number.isFinite(Number(s)) ? s : null;
 }
 
-export function sanitizeMarket(raw: MarketCatalogItem): MarketCatalogItem {
+/** Re-emit a parsed Market with capped, control-char-free text fields. */
+export function sanitizeMarket(raw: Market): Market {
   const description = cleanStr(raw.description, BRIEF_LIMITS.descriptionBytes * 4);
   const resolutionRule = cleanStr(raw.resolutionRule, BRIEF_LIMITS.descriptionBytes * 4);
   return {
     marketId: cleanStr(raw.marketId, 64) || "",
     category: cleanStr(raw.category) || "",
-    // Detail responses carry `question` too; use it when `title` is blank.
-    title: cleanStr(raw.title) || cleanStr((raw as { question?: unknown }).question) || "",
+    title: cleanStr(raw.title) || "",
     description: description ? capBytes(description, BRIEF_LIMITS.descriptionBytes) : undefined,
     resolutionRule: resolutionRule ? capBytes(resolutionRule, BRIEF_LIMITS.descriptionBytes) : undefined,
     phase: cleanStr(raw.phase, 32) || "",
@@ -74,28 +74,22 @@ export function sanitizeMarket(raw: MarketCatalogItem): MarketCatalogItem {
     secondaryYesPrice: priceStr(raw.secondaryYesPrice),
     secondaryNoPrice: priceStr(raw.secondaryNoPrice),
     oracle: cleanStr(raw.oracle) ?? null,
+    partial: raw.partial || undefined,
   };
 }
 
-/**
- * Cap to BRIEF_LIMITS.tapeRows and rebuild each row from normalized fields only
- * (side, shares, USDC, time). Unknown upstream fields are dropped.
- */
-export function sanitizeTape(raw: unknown): CatalogTradeRow[] {
-  if (!Array.isArray(raw)) return [];
-  return raw.slice(0, BRIEF_LIMITS.tapeRows).map((row) => {
-    const n = normalizePantaTrade((row || {}) as CatalogTradeRow);
-    const out: CatalogTradeRow & { shares?: string } = {
-      marketId: cleanStr(n.marketId, 64),
-      wallet: cleanStr(n.wallet, 64),
-      signature: cleanStr(n.signature, 100),
-      blockTime: n.blockTime,
-      isPrimary: n.isPrimary ?? undefined,
-      kind: cleanStr(n.kind, 32),
-      side: n.side ?? undefined,
-      amountUsdc: n.amountUsdc != null ? String(n.amountUsdc) : undefined,
-      shares: n.shares != null ? String(n.shares) : undefined,
-    };
-    return out;
-  });
+/** Cap to BRIEF_LIMITS.tapeRows and clean the string fields of parsed trades. */
+export function sanitizeTape(trades: Trade[]): Trade[] {
+  return trades.slice(0, BRIEF_LIMITS.tapeRows).map((t) => ({
+    id: cleanStr(t.id, 64) ?? null,
+    marketId: cleanStr(t.marketId, 64) ?? null,
+    wallet: cleanStr(t.wallet, 64) ?? null,
+    signature: cleanStr(t.signature, 100) ?? null,
+    blockTime: numOrNull(t.blockTime),
+    isPrimary: t.isPrimary,
+    kind: cleanStr(t.kind, 32) ?? null,
+    side: t.side,
+    shares: t.shares,
+    amountUsdc: t.amountUsdc,
+  }));
 }

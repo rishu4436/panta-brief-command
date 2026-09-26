@@ -4,6 +4,7 @@ import {
   matchProxyRoute,
   type ProxyMethod,
 } from "@/lib/panta/routes";
+import { PANTA_UPSTREAM, serverApiKey } from "@/lib/panta/server";
 
 /**
  * Allowlisted server proxy: browser → /api/panta/<route> → Panta live API.
@@ -11,10 +12,6 @@ import {
  * only credential ever sent upstream; client-supplied X-Api-Key /
  * Authorization headers are ignored.
  */
-
-const UPSTREAM =
-  process.env.PANTA_API_BASE_URL?.replace(/\/$/, "") ||
-  "https://live-api.panta.market/api/v1";
 
 /** Max JSON body accepted from the browser (Panta write bodies are < 1 KB). */
 const MAX_BODY_BYTES = 16 * 1024;
@@ -54,13 +51,13 @@ async function forward(req: NextRequest, ctx: Ctx, method: ProxyMethod) {
     });
   }
 
-  const apiKey = process.env.PANTA_API_KEY?.trim();
+  const apiKey = serverApiKey();
   if (!apiKey) {
     return deny(401, "UNAUTHORIZED", "PANTA_API_KEY is not configured on the server");
   }
 
   // --- Query: only keys documented for this route, bounded length.
-  const url = new URL(`${UPSTREAM}/${normalized}/`);
+  const url = new URL(`${PANTA_UPSTREAM}/${normalized}/`);
   for (const key of route.query || []) {
     const v = req.nextUrl.searchParams.get(key);
     if (v == null || v === "") continue;

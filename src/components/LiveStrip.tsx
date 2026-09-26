@@ -10,7 +10,7 @@ import { PhaseBadge } from "./PhaseBadge";
 
 function SkeletonStrip() {
   return (
-    <div className="divide-y divide-[#1f1f23]">
+    <div className="divide-y divide-line">
       {Array.from({ length: 4 }).map((_, i) => (
         <div key={i} className="flex items-center gap-3 px-4 py-3">
           <div className="min-w-0 flex-1 space-y-2">
@@ -26,7 +26,7 @@ function SkeletonStrip() {
 
 function StaticPreview() {
   return (
-    <div className="grid divide-y divide-[#1f1f23] md:grid-cols-3 md:divide-x md:divide-y-0">
+    <div className="grid divide-y divide-line md:grid-cols-3 md:divide-x md:divide-y-0">
       {[
         { label: "YES", hint: "live %", color: "text-emerald-400" },
         { label: "Volume", hint: "USDC", color: "text-zinc-200" },
@@ -40,7 +40,7 @@ function StaticPreview() {
             ···
           </div>
           <div className="mt-1 text-[10px] text-zinc-500">{cell.hint}</div>
-          <div className="mt-3 h-1 w-full overflow-hidden rounded-full bg-[#1f1f23]">
+          <div className="mt-3 h-1 w-full overflow-hidden rounded-full bg-line">
             <div className="h-full w-1/2 rounded-full bg-current opacity-20 text-zinc-500" />
           </div>
         </div>
@@ -71,11 +71,11 @@ export function LiveStrip() {
   const showPreview = !busy && (failed || items.length === 0);
 
   return (
-    <div className="relative mx-auto mt-8 max-w-4xl overflow-hidden rounded-xl border border-cyan-400/15 bg-[#111113] shadow-2xl shadow-cyan-500/5">
-      <div className="flex items-center gap-2 border-b border-[#1f1f23] px-4 py-2.5">
-        <span className="h-2 w-2 rounded-full bg-[#2a2a2e]" />
-        <span className="h-2 w-2 rounded-full bg-[#2a2a2e]" />
-        <span className="h-2 w-2 rounded-full bg-[#2a2a2e]" />
+    <div className="relative mx-auto mt-8 max-w-4xl overflow-hidden rounded-xl border border-cyan-400/15 bg-surface shadow-2xl shadow-cyan-500/5">
+      <div className="flex items-center gap-2 border-b border-line px-4 py-2.5">
+        <span className="h-2 w-2 rounded-full bg-line-strong" />
+        <span className="h-2 w-2 rounded-full bg-line-strong" />
+        <span className="h-2 w-2 rounded-full bg-line-strong" />
         <span className="ml-2 font-num text-[10px] text-zinc-500">
           {showLive
             ? "live strip · primary first"
@@ -96,14 +96,14 @@ export function LiveStrip() {
       {showPreview && <StaticPreview />}
 
       {showLive && (
-        <div className="divide-y divide-[#1f1f23]">
+        <div className="divide-y divide-line">
           {items.map((m) => {
             const { yes, no } = impliedSide(m);
             return (
               <Link
                 key={m.marketId}
                 href={`/markets/${encodeURIComponent(m.marketId)}`}
-                className="group flex min-h-[44px] items-center gap-3 px-4 py-3 transition-colors hover:bg-[#161618] active:scale-[0.995]"
+                className="group flex min-h-[44px] items-center gap-3 px-4 py-3 transition-colors hover:bg-elevated active:scale-[0.995]"
               >
                 <div className="min-w-0 flex-1">
                   <div

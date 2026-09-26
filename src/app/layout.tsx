@@ -1,12 +1,12 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Geist_Mono, Inter } from "next/font/google";
 import { Providers } from "@/components/Providers";
-import { Shell } from "@/components/Shell";
+import { AppShell } from "@/components/AppShell";
 import "./globals.css";
 
-const geistSans = Geist({
+const inter = Inter({
   subsets: ["latin"],
-  variable: "--font-geist-sans",
+  variable: "--font-inter",
   display: "swap",
 });
 
@@ -22,7 +22,7 @@ export const metadata: Metadata = {
     template: "%s | Brief Command",
   },
   description:
-    "Brief Command — Solana prediction desk powered by Panta. Market intel, signal-based AI market briefs, primary buys, and book claims.",
+    "Brief Command — an AI-native prediction-market desk on Panta API + Solana. Discover markets, read evidence-based briefs, execute with your wallet, and track positions.",
   openGraph: {
     title: "Brief Command",
     description:
@@ -44,10 +44,10 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={`${geistSans.variable} ${geistMono.variable}`}>
+    <html lang="en" className={`${inter.variable} ${geistMono.variable}`}>
       <body className="font-sans antialiased">
         <Providers>
-          <Shell>{children}</Shell>
+          <AppShell>{children}</AppShell>
         </Providers>
       </body>
     </html>

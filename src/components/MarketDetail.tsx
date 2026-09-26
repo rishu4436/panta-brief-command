@@ -163,7 +163,7 @@ export function MarketDetail({ marketId }: { marketId: string }) {
                     /* ignore */
                   }
                 }}
-                className="min-h-[32px] shrink-0 rounded-md border border-[#1f1f23] bg-[#111113] px-2.5 py-1 text-[11px] text-zinc-400 transition hover:border-cyan-400/30 hover:text-cyan-300 active:scale-[0.98]"
+                className="min-h-[32px] shrink-0 rounded-md border border-line bg-surface px-2.5 py-1 text-[11px] text-zinc-400 transition hover:border-cyan-400/30 hover:text-cyan-300 active:scale-[0.98]"
                 aria-label="Copy link to market"
               >
                 {copied ? "Copied" : "Copy link"}
@@ -177,7 +177,7 @@ export function MarketDetail({ marketId }: { marketId: string }) {
                 {formatEnd(market.endTime)} IST
               </span>
               {shouldShowCategoryChip(market.category, market.title, market.description) ? (
-                <span className="cat-chip rounded border border-[#1f1f23] px-1.5 py-0.5 text-[10px] capitalize text-zinc-500">
+                <span className="cat-chip rounded border border-line px-1.5 py-0.5 text-[10px] capitalize text-zinc-500">
                   {market.category}
                 </span>
               ) : null}
@@ -242,7 +242,7 @@ export function MarketDetail({ marketId }: { marketId: string }) {
                   : "No additional context on file."}
               </p>
             )}
-            <dl className="type-meta mt-3 space-y-1.5 border-t border-[#1f1f23] pt-3">
+            <dl className="type-meta mt-3 space-y-1.5 border-t border-line pt-3">
               <div className="flex justify-between gap-2">
                 <dt className="text-zinc-600">Region</dt>
                 <dd className="text-zinc-400">{market.region || "—"}</dd>

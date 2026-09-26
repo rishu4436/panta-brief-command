@@ -64,7 +64,7 @@ export function ProbBar({
           {formatOddsPct(primary / 100)}
         </div>
         {showLabels && (
-          <div className="flex h-1 w-full overflow-hidden rounded-full bg-[#1f1f23]">
+          <div className="flex h-1 w-full overflow-hidden rounded-full bg-line">
             <div
               className="h-full bg-emerald-500 transition-all duration-300"
               style={{ width: `${yW}%` }}
@@ -85,7 +85,7 @@ export function ProbBar({
         {formatOddsPct(primary / 100)}
       </div>
       {showLabels && (
-        <div className="mt-1.5 flex h-1.5 w-full overflow-hidden rounded-full bg-[#1f1f23]">
+        <div className="mt-1.5 flex h-1.5 w-full overflow-hidden rounded-full bg-line">
           <div
             className="h-full bg-emerald-500 transition-all duration-300"
             style={{ width: `${yW}%` }}
@@ -150,7 +150,7 @@ export function DualSideHero({
           </div>
         </div>
       </div>
-      <div className="mt-3 flex h-2 w-full overflow-hidden rounded-full bg-[#1f1f23]">
+      <div className="mt-3 flex h-2 w-full overflow-hidden rounded-full bg-line">
         <div
           className="h-full bg-emerald-500 transition-all duration-500"
           style={{ width: `${yW}%` }}

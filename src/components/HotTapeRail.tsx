@@ -137,7 +137,7 @@ export function HotTapeRail({
             </p>
           </div>
         )}
-        <div className="divide-y divide-[#1f1f23]">
+        <div className="divide-y divide-line">
           {hits.map((h, i) => {
             const side = tradeSide(h.trade);
             const sideColor =
@@ -150,7 +150,7 @@ export function HotTapeRail({
               <Link
                 key={`${h.marketId}-${h.trade.signature || h.trade.id || i}`}
                 href={`/markets/${encodeURIComponent(h.marketId)}`}
-                className="block px-3 py-1.5 transition hover:bg-[#161618] focus-visible:bg-[#161618]"
+                className="block px-3 py-1.5 transition hover:bg-elevated focus-visible:bg-elevated"
               >
                 <div className="flex items-center justify-between gap-2">
                   <span className={`font-num text-[11px] font-semibold tabular-nums ${sideColor}`}>

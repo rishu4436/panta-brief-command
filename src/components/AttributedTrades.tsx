@@ -24,7 +24,7 @@ function kindCls(kind?: string | null): string {
   const k = (kind || "").toLowerCase();
   if (k === "buy") return "border-cyan-400/30 bg-cyan-400/10 text-cyan-300";
   if (k === "claim") return "border-emerald-400/30 bg-emerald-400/10 text-emerald-300";
-  return "border-[#1f1f23] text-zinc-500";
+  return "border-line text-zinc-500";
 }
 
 function sideCls(side?: string | null): string {
@@ -66,7 +66,7 @@ export function AttributedTrades({
       flush
       action={
         <div className="mr-3.5 flex items-center gap-1.5">
-          <div className="inline-flex rounded-md border border-[#1f1f23] bg-[#0a0a0b] p-0.5">
+          <div className="inline-flex rounded-md border border-line bg-inset p-0.5">
             {(
               [
                 ["", "All"],
@@ -80,7 +80,7 @@ export function AttributedTrades({
                 aria-pressed={kind === v}
                 onClick={() => setKind(v)}
                 className={`rounded px-2 py-0.5 text-[10px] ${
-                  kind === v ? "bg-[#161618] text-zinc-100" : "text-zinc-500"
+                  kind === v ? "bg-elevated text-zinc-100" : "text-zinc-500"
                 }`}
               >
                 {label}
@@ -91,20 +91,20 @@ export function AttributedTrades({
             type="button"
             disabled={busy}
             onClick={load}
-            className="rounded-md border border-[#1f1f23] bg-[#0a0a0b] px-2 py-1 text-[11px] text-zinc-400 hover:text-zinc-200 active:scale-[0.98] disabled:opacity-40"
+            className="rounded-md border border-line bg-inset px-2 py-1 text-[11px] text-zinc-400 hover:text-zinc-200 active:scale-[0.98] disabled:opacity-40"
           >
             {busy ? "…" : "Refresh"}
           </button>
         </div>
       }
     >
-      <div className="border-b border-[#1f1f23] px-3.5 py-2">
+      <div className="border-b border-line px-3.5 py-2">
         <p className="type-meta">
           GET /account/trades/ · partner attribution for this API key
         </p>
         {summary && (
           <div className="mt-2 flex flex-wrap gap-1.5">
-            <span className="rounded border border-[#1f1f23] bg-[#0a0a0b] px-2 py-0.5 font-num text-[10px] text-zinc-400">
+            <span className="rounded border border-line bg-inset px-2 py-0.5 font-num text-[10px] text-zinc-400">
               Total {total ?? 0}
             </span>
             {buys != null && (
@@ -118,7 +118,7 @@ export function AttributedTrades({
               </span>
             )}
             {vol != null && vol !== "" && Number(vol) > 0 && (
-              <span className="rounded border border-[#1f1f23] bg-[#0a0a0b] px-2 py-0.5 font-num text-[10px] text-zinc-400">
+              <span className="rounded border border-line bg-inset px-2 py-0.5 font-num text-[10px] text-zinc-400">
                 Vol {formatVolumeUsdc(vol)}
               </span>
             )}
@@ -135,7 +135,7 @@ export function AttributedTrades({
       <div className="overflow-x-auto">
         <table className="w-full text-left text-sm">
           <thead className="type-col">
-            <tr className="border-b border-[#1f1f23]">
+            <tr className="border-b border-line">
               <th scope="col" className="px-3.5 py-2 font-medium">
                 Kind
               </th>
@@ -162,7 +162,7 @@ export function AttributedTrades({
             {items.map((row, i) => (
               <tr
                 key={`${row.signature}-${i}`}
-                className="border-t border-[#1f1f23] transition-colors hover:bg-[#161618]"
+                className="border-t border-line transition-colors hover:bg-elevated"
               >
                 <td className="px-3.5 py-2.5">
                   <span
@@ -235,7 +235,7 @@ export function AttributedTrades({
                   </p>
                   <Link
                     href="/execute"
-                    className="mt-3 inline-flex items-center rounded-md bg-cyan-400 px-3 py-1.5 text-[12px] font-semibold text-[#0a0a0b] transition hover:bg-cyan-300"
+                    className="mt-3 inline-flex items-center rounded-md bg-cyan-400 px-3 py-1.5 text-[12px] font-semibold text-bg transition hover:bg-cyan-300"
                   >
                     Open execute →
                   </Link>

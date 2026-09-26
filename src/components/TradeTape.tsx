@@ -29,7 +29,7 @@ export function TradeTape({
         )}
 
         {!busy || items.length > 0 ? (
-          <div className="type-col sticky top-0 z-10 grid grid-cols-[52px_1fr_88px_72px] gap-2 border-b border-[#1f1f23] bg-[#111113]/95 px-3.5 py-1.5 backdrop-blur-sm sm:grid-cols-[52px_1fr_100px_88px_72px]">
+          <div className="type-col sticky top-0 z-10 grid grid-cols-[52px_1fr_88px_72px] gap-2 border-b border-line bg-surface/95 px-3.5 py-1.5 backdrop-blur-sm sm:grid-cols-[52px_1fr_100px_88px_72px]">
             <span>Side</span>
             <span>Size</span>
             <span className="hidden sm:inline">Wallet</span>
@@ -38,7 +38,7 @@ export function TradeTape({
           </div>
         ) : null}
 
-        <div className="divide-y divide-[#1f1f23]">
+        <div className="divide-y divide-line">
           {items.map((t, i) => {
             const side = rowSide(t);
             const sideColor =
@@ -50,7 +50,7 @@ export function TradeTape({
             return (
               <div
                 key={`${t.signature || t.id || i}`}
-                className="grid grid-cols-[52px_1fr_88px_72px] items-center gap-2 px-3.5 py-1.5 text-[11px] transition-colors hover:bg-[#161618] sm:grid-cols-[52px_1fr_100px_88px_72px]"
+                className="grid grid-cols-[52px_1fr_88px_72px] items-center gap-2 px-3.5 py-1.5 text-[11px] transition-colors hover:bg-elevated sm:grid-cols-[52px_1fr_100px_88px_72px]"
                 title={
                   t.blockTime
                     ? new Date(t.blockTime * 1000).toLocaleString("en-IN", {

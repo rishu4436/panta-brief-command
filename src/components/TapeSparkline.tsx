@@ -91,7 +91,7 @@ export function TapeSparkline({ items, busy }: { items: Trade[]; busy?: boolean 
       {busy && items.length === 0 ? (
         <div className="skeleton h-[72px] w-full" />
       ) : !enough || !path ? (
-        <div className="flex h-[72px] flex-col items-center justify-center rounded-md border border-dashed border-[#1f1f23] bg-[#0a0a0b]/60 px-3 text-center">
+        <div className="flex h-[72px] flex-col items-center justify-center rounded-md border border-dashed border-line bg-inset/60 px-3 text-center">
           <div className="type-body text-zinc-400">No flow series yet</div>
           <p className="type-meta mt-0.5">Needs ≥2 timed prints with a side · nothing invented</p>
         </div>

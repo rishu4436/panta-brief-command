@@ -107,7 +107,7 @@ function phaseMatches(m: Market, phase: string): boolean {
 
 function SkeletonRows() {
   return (
-    <div className="divide-y divide-[#1f1f23]">
+    <div className="divide-y divide-line">
       {Array.from({ length: 6 }).map((_, i) => (
         <div key={i} className="flex items-center gap-4 px-4 py-4">
           <div className="min-w-0 flex-1 space-y-2">
@@ -129,7 +129,7 @@ function SetupPanel({ error }: { error: string }) {
   const auth = isApiKeyError(error);
   return (
     <div className="flex flex-col items-center justify-center px-6 py-16 text-center animate-fade-in">
-      <span className="flex h-12 w-12 items-center justify-center rounded-xl bg-cyan-400 text-lg font-black text-[#0a0a0b]">
+      <span className="flex h-12 w-12 items-center justify-center rounded-xl bg-cyan-400 text-lg font-black text-bg">
         P
       </span>
       <h2 className="mt-4 text-lg font-semibold tracking-tight text-zinc-50">
@@ -141,7 +141,7 @@ function SetupPanel({ error }: { error: string }) {
           : "Live catalog could not load. Check the proxy and try again."}
       </p>
       {auth && (
-        <code className="mt-4 rounded-md border border-[#1f1f23] bg-[#0a0a0b] px-3 py-2 font-num text-[12px] text-cyan-300">
+        <code className="mt-4 rounded-md border border-line bg-inset px-3 py-2 font-num text-[12px] text-cyan-300">
           PANTA_API_KEY=pk_…
         </code>
       )}
@@ -160,7 +160,7 @@ function SetupPanel({ error }: { error: string }) {
         href="https://docs.panta.market/"
         target="_blank"
         rel="noreferrer"
-        className="mt-6 inline-flex items-center rounded-md bg-cyan-400 px-4 py-2 text-sm font-semibold text-[#0a0a0b] transition hover:bg-cyan-300 active:scale-[0.98]"
+        className="mt-6 inline-flex items-center rounded-md bg-cyan-400 px-4 py-2 text-sm font-semibold text-bg transition hover:bg-cyan-300 active:scale-[0.98]"
       >
         {auth ? "Get API key →" : "API docs →"}
       </a>
@@ -355,7 +355,7 @@ export function MarketList() {
     `shrink-0 rounded-full border px-2.5 py-1 text-[12px] capitalize transition active:scale-[0.98] ${
       active
         ? "border-cyan-400/40 bg-cyan-400/10 text-cyan-300"
-        : "border-[#1f1f23] bg-[#0a0a0b] text-zinc-400 hover:border-[#2a2a2e] hover:text-zinc-200"
+        : "border-line bg-inset text-zinc-400 hover:border-line-strong hover:text-zinc-200"
     }`;
 
   return (
@@ -374,14 +374,14 @@ export function MarketList() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <div className="inline-flex rounded-md border border-[#1f1f23] bg-[#0a0a0b] p-0.5">
+          <div className="inline-flex rounded-md border border-line bg-inset p-0.5">
             <button
               type="button"
               aria-pressed={view === "rows"}
               onClick={() => setView("rows")}
               className={`rounded px-2.5 py-1 text-[11px] transition ${
                 view === "rows"
-                  ? "bg-[#161618] text-zinc-100"
+                  ? "bg-elevated text-zinc-100"
                   : "text-zinc-500 hover:text-zinc-300"
               }`}
             >
@@ -393,7 +393,7 @@ export function MarketList() {
               onClick={() => setView("cards")}
               className={`rounded px-2.5 py-1 text-[11px] transition ${
                 view === "cards"
-                  ? "bg-[#161618] text-zinc-100"
+                  ? "bg-elevated text-zinc-100"
                   : "text-zinc-500 hover:text-zinc-300"
               }`}
             >
@@ -403,7 +403,7 @@ export function MarketList() {
           <button
             type="button"
             onClick={() => void catalog.refetch()}
-            className="rounded-md border border-[#1f1f23] bg-[#111113] px-2.5 py-1.5 text-[11px] text-zinc-400 transition hover:border-[#2a2a2e] hover:text-zinc-200 active:scale-[0.98]"
+            className="rounded-md border border-line bg-surface px-2.5 py-1.5 text-[11px] text-zinc-400 transition hover:border-line-strong hover:text-zinc-200 active:scale-[0.98]"
             disabled={busy}
           >
             {busy ? "Syncing…" : "Refresh"}
@@ -419,7 +419,7 @@ export function MarketList() {
               key={m.marketId}
               href={`/markets/${encodeURIComponent(m.marketId)}`}
               onClick={() => openMarket(m.marketId)}
-              className="max-w-[180px] truncate rounded-full border border-[#1f1f23] bg-[#111113] px-2.5 py-1 text-[11px] text-zinc-300 transition hover:border-cyan-400/30 hover:text-cyan-300"
+              className="max-w-[180px] truncate rounded-full border border-line bg-surface px-2.5 py-1 text-[11px] text-zinc-300 transition hover:border-cyan-400/30 hover:text-cyan-300"
               title={marketLabel(m)}
             >
               {marketLabel(m)}
@@ -430,7 +430,7 @@ export function MarketList() {
 
       <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_260px] lg:items-start">
       <Panel flush>
-        <div className="space-y-2.5 border-b border-[#1f1f23] px-3.5 py-3">
+        <div className="space-y-2.5 border-b border-line px-3.5 py-3">
           <div className="flex flex-wrap gap-2">
             <div className="relative min-w-[200px] flex-1">
               <input
@@ -439,7 +439,7 @@ export function MarketList() {
                 onChange={(e) => setQ(e.target.value)}
                 placeholder="Search markets…"
                 aria-label="Search markets"
-                className="w-full rounded-md border border-[#1f1f23] bg-[#0a0a0b] px-3 py-2 pr-8 text-sm text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-cyan-400/40"
+                className="w-full rounded-md border border-line bg-inset px-3 py-2 pr-8 text-sm text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-cyan-400/40"
               />
               <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 font-num text-[10px] text-zinc-600">
                 /
@@ -449,7 +449,7 @@ export function MarketList() {
               value={sort}
               onChange={(e) => setSort(e.target.value as SortMode)}
               aria-label="Sort markets"
-              className="rounded-md border border-[#1f1f23] bg-[#0a0a0b] px-3 py-2 text-sm text-zinc-300"
+              className="rounded-md border border-line bg-inset px-3 py-2 text-sm text-zinc-300"
             >
               <option value="default">Sort: Default</option>
               <option value="volume">Sort: Volume</option>
@@ -460,7 +460,7 @@ export function MarketList() {
               value={phase}
               onChange={(e) => setPhase(e.target.value)}
               aria-label="Filter by phase"
-              className="rounded-md border border-[#1f1f23] bg-[#0a0a0b] px-3 py-2 text-sm text-zinc-300"
+              className="rounded-md border border-line bg-inset px-3 py-2 text-sm text-zinc-300"
             >
               <option value="">All phases</option>
               <option value="primary">Primary (open)</option>
@@ -483,7 +483,7 @@ export function MarketList() {
               className={`shrink-0 rounded-full border px-3 py-1.5 text-[12px] transition active:scale-[0.98] ${
                 watchOnly
                   ? "border-amber-400/40 bg-amber-400/10 text-amber-300"
-                  : "border-[#1f1f23] bg-[#0a0a0b] text-zinc-400 hover:border-[#2a2a2e] hover:text-zinc-200"
+                  : "border-line bg-inset text-zinc-400 hover:border-line-strong hover:text-zinc-200"
               }`}
             >
               ★ Watchlist{watchIds.length ? ` (${watchIds.length})` : ""}
@@ -543,7 +543,7 @@ export function MarketList() {
                       data-hi={hi ? "1" : undefined}
                       onMouseEnter={() => setHighlight(idx)}
                       style={{ animationDelay: `${Math.min(idx, 11) * 30}ms` }}
-                      className={`stagger-in relative overflow-hidden rounded-lg border bg-[#0a0a0b] transition ${hi ? "border-cyan-400/45 ring-1 ring-cyan-400/25" : "border-[#1f1f23] hover:border-[#2a2a2e]"}`}
+                      className={`stagger-in relative overflow-hidden rounded-lg border bg-inset transition ${hi ? "border-cyan-400/45 ring-1 ring-cyan-400/25" : "border-line hover:border-line-strong"}`}
                     >
                       <div className="absolute right-2 top-2 z-10">
                         <WatchStar marketId={m.marketId} size="sm" />
@@ -561,7 +561,7 @@ export function MarketList() {
                           className="h-28 w-full object-cover opacity-90 transition group-hover:opacity-100"
                         />
                       ) : (
-                        <div className="flex h-16 items-center justify-center bg-[#161618] text-[10px] uppercase tracking-wider text-zinc-700">
+                        <div className="flex h-16 items-center justify-center bg-elevated text-[10px] uppercase tracking-wider text-zinc-700">
                           {isUntitledMarket(m) ? "Untitled" : "No image"}
                         </div>
                       )}
@@ -579,7 +579,7 @@ export function MarketList() {
                         <div className="flex flex-wrap items-center gap-1.5">
                           <PhaseBadge phase={m.phase} />
                           {shouldShowCategoryChip(m.category, m.title, m.description) ? (
-                            <span className="rounded border border-[#1f1f23] px-1 py-px text-[10px] text-zinc-500">
+                            <span className="rounded border border-line px-1 py-px text-[10px] text-zinc-500">
                               {m.category}
                             </span>
                           ) : null}
@@ -608,7 +608,7 @@ export function MarketList() {
                         setCategory("");
                         setPhase("");
                       }}
-                      className="mt-3 rounded-md border border-[#1f1f23] px-3 py-1.5 text-[11px] text-zinc-400 hover:text-zinc-200"
+                      className="mt-3 rounded-md border border-line px-3 py-1.5 text-[11px] text-zinc-400 hover:text-zinc-200"
                     >
                       Clear filters
                     </button>
@@ -616,7 +616,7 @@ export function MarketList() {
                 )}
               </div>
             ) : (
-              <div className="divide-y divide-[#1f1f23]">
+              <div className="divide-y divide-line">
                 <div className="type-col hidden grid-cols-[1fr_88px_96px_110px] gap-3 px-4 py-1.5 sm:grid lg:grid-cols-[1fr_88px_96px_96px_110px]">
                   <span>Market</span>
                   <span>Phase</span>
@@ -636,7 +636,7 @@ export function MarketList() {
                       data-hi={hi ? "1" : undefined}
                       onMouseEnter={() => setHighlight(idx)}
                       style={{ animationDelay: `${Math.min(idx, 11) * 30}ms` }}
-                      className={`stagger-in flex items-stretch gap-1 transition-colors ${hi ? "bg-cyan-400/[0.06] ring-1 ring-inset ring-cyan-400/30" : "hover:bg-[#161618]"}`}
+                      className={`stagger-in flex items-stretch gap-1 transition-colors ${hi ? "bg-cyan-400/[0.06] ring-1 ring-inset ring-cyan-400/30" : "hover:bg-elevated"}`}
                     >
                       <div className="flex items-center pl-3">
                         <WatchStar marketId={m.marketId} size="sm" />
@@ -705,7 +705,7 @@ export function MarketList() {
                         setCategory("");
                         setPhase("");
                       }}
-                      className="mt-3 rounded-md border border-[#1f1f23] px-3 py-1.5 text-[11px] text-zinc-400 hover:text-zinc-200"
+                      className="mt-3 rounded-md border border-line px-3 py-1.5 text-[11px] text-zinc-400 hover:text-zinc-200"
                     >
                       Clear filters
                     </button>
@@ -715,7 +715,7 @@ export function MarketList() {
             )}
 
             {missingWatch.length > 0 && (
-              <div className="border-t border-[#1f1f23] px-3.5 py-3">
+              <div className="border-t border-line px-3.5 py-3">
                 <div className="type-section mb-2">Watched · not on this page</div>
                 <div className="flex flex-wrap gap-2">
                   {missingWatch.map((id) => (
@@ -724,7 +724,7 @@ export function MarketList() {
                       <Link
                         href={`/markets/${encodeURIComponent(id)}`}
                         onClick={() => openMarket(id)}
-                        className="rounded-md border border-[#1f1f23] px-2 py-1 font-num text-[11px] text-zinc-400 hover:border-cyan-400/30 hover:text-cyan-300"
+                        className="rounded-md border border-line px-2 py-1 font-num text-[11px] text-zinc-400 hover:border-cyan-400/30 hover:text-cyan-300"
                       >
                         {id.slice(0, 8)}…
                       </Link>
@@ -735,12 +735,12 @@ export function MarketList() {
             )}
 
             {catalog.hasNextPage && !watchOnly && (
-              <div className="flex justify-center border-t border-[#1f1f23] py-3">
+              <div className="flex justify-center border-t border-line py-3">
                 <button
                   type="button"
                   disabled={catalog.isFetchingNextPage}
                   onClick={() => void catalog.fetchNextPage()}
-                  className="rounded-md border border-[#1f1f23] bg-[#0a0a0b] px-4 py-2 text-sm text-zinc-300 transition hover:border-[#2a2a2e] hover:text-zinc-100 active:scale-[0.98] disabled:opacity-40"
+                  className="rounded-md border border-line bg-inset px-4 py-2 text-sm text-zinc-300 transition hover:border-line-strong hover:text-zinc-100 active:scale-[0.98] disabled:opacity-40"
                 >
                   Load more
                 </button>

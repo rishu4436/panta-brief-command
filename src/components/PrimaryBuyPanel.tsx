@@ -504,12 +504,12 @@ export function PrimaryBuyPanel({
   const expiresLabel = quote?.expiresAt ? countdownLabel(quote.expiresAt, now) : null;
 
   const inputCls =
-    "mt-1 w-full rounded-md border border-[#1f1f23] bg-[#0a0a0b] px-3 py-2 text-sm text-zinc-100 outline-none focus:border-cyan-400/40";
+    "mt-1 w-full rounded-md border border-line bg-inset px-3 py-2 text-sm text-zinc-100 outline-none focus:border-cyan-400/40";
   const inputErrCls = "border-rose-500/50 focus:border-rose-400/60";
   const btnPrimary =
-    "min-h-[48px] rounded-md bg-cyan-400 px-3 py-3 text-sm font-semibold text-[#0a0a0b] transition hover:bg-cyan-300 active:scale-[0.98] disabled:opacity-40";
+    "min-h-[48px] rounded-md bg-cyan-400 px-3 py-3 text-sm font-semibold text-bg transition hover:bg-cyan-300 active:scale-[0.98] disabled:opacity-40";
   const btnGhost =
-    "min-h-[44px] rounded-md border border-[#1f1f23] bg-[#0a0a0b] px-3 py-2.5 text-sm text-zinc-300 transition hover:border-[#2a2a2e] hover:text-zinc-100 active:scale-[0.98] disabled:opacity-40";
+    "min-h-[44px] rounded-md border border-line bg-inset px-3 py-2.5 text-sm text-zinc-300 transition hover:border-line-strong hover:text-zinc-100 active:scale-[0.98] disabled:opacity-40";
 
   const copySig = async () => {
     if (!signature) return;
@@ -558,7 +558,7 @@ export function PrimaryBuyPanel({
     active: "border-cyan-400/40 bg-cyan-400/10 text-cyan-300",
     warn: "border-amber-400/30 bg-amber-400/10 text-amber-300",
     bad: "border-rose-500/30 bg-rose-500/10 text-rose-300",
-    idle: "border-[#1f1f23] text-zinc-600",
+    idle: "border-line text-zinc-600",
   };
 
   const statusLabel = guidedPhase
@@ -609,13 +609,13 @@ export function PrimaryBuyPanel({
             </div>
           )}
         </div>
-        <div className="inline-flex rounded-md border border-[#1f1f23] bg-[#0a0a0b] p-0.5">
+        <div className="inline-flex rounded-md border border-line bg-inset p-0.5">
           <button
             type="button"
             aria-pressed={mode === "guided"}
             onClick={() => setMode("guided")}
             className={`rounded px-2 py-0.5 text-[10px] ${
-              mode === "guided" ? "bg-[#161618] text-zinc-100" : "text-zinc-500"
+              mode === "guided" ? "bg-elevated text-zinc-100" : "text-zinc-500"
             }`}
           >
             Guided
@@ -625,7 +625,7 @@ export function PrimaryBuyPanel({
             aria-pressed={mode === "manual"}
             onClick={() => setMode("manual")}
             className={`rounded px-2 py-0.5 text-[10px] ${
-              mode === "manual" ? "bg-[#161618] text-zinc-100" : "text-zinc-500"
+              mode === "manual" ? "bg-elevated text-zinc-100" : "text-zinc-500"
             }`}
           >
             Manual
@@ -637,7 +637,7 @@ export function PrimaryBuyPanel({
         <div className={`block text-[11px] text-zinc-400 ${compact ? "" : "sm:col-span-2"}`}>
           <span>Market</span>
           {compact ? (
-            <div className="mt-1 rounded-md border border-[#1f1f23] bg-[#0a0a0b] px-3 py-2.5">
+            <div className="mt-1 rounded-md border border-line bg-inset px-3 py-2.5">
               <div className="text-[12px] font-medium leading-snug text-zinc-200">
                 {selectedMarket
                   ? marketLabel(selectedMarket, { max: 96 })
@@ -717,7 +717,7 @@ export function PrimaryBuyPanel({
               className={`min-h-[48px] rounded-md border py-2.5 text-sm font-semibold transition active:scale-[0.98] ${
                 side === "yes"
                   ? "border-emerald-400/40 bg-emerald-500/15 text-emerald-300"
-                  : "border-[#1f1f23] text-zinc-500 hover:border-[#2a2a2e]"
+                  : "border-line text-zinc-500 hover:border-line-strong"
               }`}
             >
               YES
@@ -729,7 +729,7 @@ export function PrimaryBuyPanel({
               className={`min-h-[48px] rounded-md border py-2.5 text-sm font-semibold transition active:scale-[0.98] ${
                 side === "no"
                   ? "border-rose-400/40 bg-rose-500/15 text-rose-300"
-                  : "border-[#1f1f23] text-zinc-500 hover:border-[#2a2a2e]"
+                  : "border-line text-zinc-500 hover:border-line-strong"
               }`}
             >
               NO
@@ -768,7 +768,7 @@ export function PrimaryBuyPanel({
                 className={`min-h-[40px] min-w-[44px] rounded border px-3 py-2 font-num text-[12px] transition active:scale-[0.98] ${
                   amountInput === p
                     ? "border-cyan-400/40 bg-cyan-400/10 text-cyan-300"
-                    : "border-[#1f1f23] text-zinc-500 hover:text-zinc-300"
+                    : "border-line text-zinc-500 hover:text-zinc-300"
                 }`}
               >
                 {p}
@@ -777,7 +777,7 @@ export function PrimaryBuyPanel({
             <button
               type="button"
               onClick={() => setAmountInput("")}
-              className="min-h-[40px] rounded border border-[#1f1f23] px-3 py-2 text-[12px] text-zinc-400 hover:text-zinc-300 active:scale-[0.98]"
+              className="min-h-[40px] rounded border border-line px-3 py-2 text-[12px] text-zinc-400 hover:text-zinc-300 active:scale-[0.98]"
               title="Clear amount"
             >
               Clear
@@ -810,12 +810,12 @@ export function PrimaryBuyPanel({
         </div>
 
         <details
-          className={`rounded-md border border-[#1f1f23] bg-[#0a0a0b] ${compact ? "" : "sm:col-span-2"}`}
+          className={`rounded-md border border-line bg-inset ${compact ? "" : "sm:col-span-2"}`}
         >
           <summary className="min-h-[36px] cursor-pointer px-2.5 py-2 text-[10px] uppercase tracking-wide text-zinc-500 hover:text-zinc-300">
             Advanced
           </summary>
-          <div className="border-t border-[#1f1f23] p-2.5">
+          <div className="border-t border-line p-2.5">
             <label className="block text-[11px] text-zinc-400">
               Attribution reference (optional)
               <input
@@ -878,7 +878,7 @@ export function PrimaryBuyPanel({
           className={`mt-2 rounded-md border p-3 text-[12px] ${
             ixCheck?.ok === false
               ? "border-rose-500/30 bg-rose-500/[0.06]"
-              : "border-[#1f1f23] bg-[#0a0a0b]"
+              : "border-line bg-inset"
           }`}
           aria-label="Pre-sign summary"
         >
@@ -944,7 +944,7 @@ export function PrimaryBuyPanel({
 
       {signature && (
         <ul
-          className="mt-2 space-y-1 rounded-md border border-[#1f1f23] bg-[#0a0a0b] px-3 py-2 text-[11px]"
+          className="mt-2 space-y-1 rounded-md border border-line bg-inset px-3 py-2 text-[11px]"
           aria-label="Execution status"
           aria-live="polite"
         >
@@ -1032,7 +1032,7 @@ export function PrimaryBuyPanel({
           <button
             type="button"
             onClick={() => void copySig()}
-            className="rounded border border-[#1f1f23] px-1.5 py-0.5 text-zinc-400 hover:text-zinc-200"
+            className="rounded border border-line px-1.5 py-0.5 text-zinc-400 hover:text-zinc-200"
           >
             Copy
           </button>
@@ -1148,11 +1148,11 @@ export function PrimaryBuyPanel({
         </p>
       )}
 
-      <details className={`mt-3 rounded-md border border-[#1f1f23] bg-[#0a0a0b] open:pb-0 ${compact ? "hidden sm:block" : ""}`}>
+      <details className={`mt-3 rounded-md border border-line bg-inset open:pb-0 ${compact ? "hidden sm:block" : ""}`}>
         <summary className="min-h-[40px] cursor-pointer px-2.5 py-2 text-[10px] uppercase tracking-wide text-zinc-600 hover:text-zinc-400">
           Raw / debug
         </summary>
-        <div className={`grid gap-2 border-t border-[#1f1f23] p-2.5 ${compact ? "" : "lg:grid-cols-2"}`}>
+        <div className={`grid gap-2 border-t border-line p-2.5 ${compact ? "" : "lg:grid-cols-2"}`}>
           {!compact && (
             <div className="space-y-2 lg:col-span-2">
               <label className="block text-[11px] text-zinc-400">

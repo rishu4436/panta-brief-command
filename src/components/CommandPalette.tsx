@@ -107,8 +107,8 @@ export function CommandPalette() {
         if (e.target === e.currentTarget) setOpen(false);
       }}
     >
-      <div className="w-full max-w-lg overflow-hidden rounded-xl border border-[#2a2a2e] bg-[#111113] shadow-2xl shadow-black/50 animate-fade-in">
-        <div className="flex items-center gap-2 border-b border-[#1f1f23] px-3">
+      <div className="w-full max-w-lg overflow-hidden rounded-xl border border-line-strong bg-surface shadow-2xl shadow-black/50 animate-fade-in">
+        <div className="flex items-center gap-2 border-b border-line px-3">
           <span className="text-[12px] text-zinc-500">⌘K</span>
           <input
             autoFocus
@@ -133,7 +133,7 @@ export function CommandPalette() {
               }
             }}
           />
-          <kbd className="hidden rounded border border-[#1f1f23] px-1.5 py-0.5 font-num text-[10px] text-zinc-600 sm:inline">
+          <kbd className="hidden rounded border border-line px-1.5 py-0.5 font-num text-[10px] text-zinc-600 sm:inline">
             esc
           </kbd>
         </div>
@@ -155,7 +155,7 @@ export function CommandPalette() {
                 onMouseEnter={() => setActive(i)}
                 onClick={() => jump(r.marketId)}
                 className={`flex w-full items-start gap-2 px-3 py-2.5 text-left transition ${
-                  i === active ? "bg-[#161618]" : "hover:bg-[#161618]/70"
+                  i === active ? "bg-elevated" : "hover:bg-elevated/70"
                 }`}
               >
                 <div className="min-w-0 flex-1">
@@ -175,7 +175,7 @@ export function CommandPalette() {
             </li>
           ))}
         </ul>
-        <div className="border-t border-[#1f1f23] px-3 py-2 text-[10px] text-zinc-600">
+        <div className="border-t border-line px-3 py-2 text-[10px] text-zinc-600">
           ↑↓ navigate · Enter open · Esc close · Powered by Panta
         </div>
       </div>

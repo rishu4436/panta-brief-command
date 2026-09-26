@@ -1,20 +1,10 @@
-export function PhaseBadge({ phase }: { phase?: string }) {
-  const p = (phase || "—").toLowerCase();
-  const color =
-    p === "primary"
-      ? "bg-cyan-400/10 text-cyan-300 border-cyan-400/25"
-      : p === "secondary"
-        ? "bg-zinc-400/10 text-zinc-300 border-zinc-400/25"
-        : p === "resolved"
-          ? "bg-emerald-400/10 text-emerald-300 border-emerald-400/25"
-          : p === "cancelled"
-            ? "bg-rose-400/10 text-rose-300 border-rose-400/25"
-            : "bg-zinc-500/10 text-zinc-400 border-zinc-500/25";
+import { phaseTone, StatusBadge } from "./ui/StatusBadge";
+
+export function PhaseBadge({ phase, size = "sm" }: { phase?: string; size?: "xs" | "sm" }) {
+  const { tone, label } = phaseTone(phase);
   return (
-    <span
-      className={`inline-flex h-[18px] min-w-[4.5rem] items-center justify-center rounded border px-1.5 text-[10px] font-medium uppercase tracking-[0.06em] ${color}`}
-    >
-      {phase || "—"}
-    </span>
+    <StatusBadge tone={tone} size={size} title={phase ? `Panta phase: ${phase}` : undefined}>
+      {label}
+    </StatusBadge>
   );
 }

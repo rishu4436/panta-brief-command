@@ -69,7 +69,7 @@ export function AiBrief({
 
   return (
     <section
-      className="relative overflow-hidden rounded-lg border border-[#1f1f23] bg-[#111113]"
+      className="relative overflow-hidden rounded-lg border border-line bg-surface"
       aria-label="AI market brief"
       aria-busy={busy}
     >
@@ -78,7 +78,7 @@ export function AiBrief({
         className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-cyan-400/50 to-transparent"
       />
       {/* Header */}
-      <div className="flex items-center justify-between gap-3 border-b border-[#1f1f23] px-3.5 py-2.5">
+      <div className="flex items-center justify-between gap-3 border-b border-line px-3.5 py-2.5">
         <div className="flex items-center gap-2">
           <span className="h-1.5 w-1.5 rounded-full bg-cyan-400 shadow-[0_0_8px_rgba(34,211,238,0.7)]" />
           <h2 className="type-section text-zinc-300">AI Market Brief</h2>
@@ -100,7 +100,7 @@ export function AiBrief({
       <div
         role="tablist"
         aria-label="Brief mode"
-        className="grid grid-cols-4 gap-1 border-b border-[#1f1f23] bg-[#0c0c0e] p-1.5"
+        className="grid grid-cols-4 gap-1 border-b border-line bg-inset p-1.5"
       >
         {BRIEF_MODES.map((m) => {
           const active = mode === m.id;
@@ -121,7 +121,7 @@ export function AiBrief({
               className={`min-h-[32px] rounded-md px-1.5 text-[11px] font-medium transition active:scale-[0.98] ${
                 active
                   ? "bg-cyan-400/10 text-cyan-300 ring-1 ring-inset ring-cyan-400/35"
-                  : "text-zinc-500 hover:bg-[#151518] hover:text-zinc-300"
+                  : "text-zinc-500 hover:bg-elevated hover:text-zinc-300"
               }`}
             >
               {m.label}
@@ -185,7 +185,7 @@ export function AiBrief({
             )}
 
             <ProbabilityBlock s={s} />
-            <div className="mt-3 divide-y divide-[#1a1a1e] rounded-md border border-[#1a1a1e] bg-[#0c0c0e]">
+            <div className="mt-3 divide-y divide-elevated rounded-md border border-elevated bg-inset">
               <FlowRow s={s} />
               <Row label="Signal">
                 <p className="type-body">{s.headline}</p>
@@ -235,7 +235,7 @@ export function AiBrief({
                   className={`rounded border px-1.5 py-0.5 text-[10px] ${
                     brief.source === "openai"
                       ? "border-cyan-400/30 text-cyan-400"
-                      : "border-[#2a2a2e] text-zinc-500"
+                      : "border-line-strong text-zinc-500"
                   }`}
                 >
                   {brief.source === "openai" ? "LLM" : "Template"}
@@ -245,7 +245,7 @@ export function AiBrief({
                   {brief.cached ? " · cached" : ""}
                 </span>
               </div>
-              <div className="rounded-md border border-[#1a1a1e] bg-[#0c0c0e] p-3">
+              <div className="rounded-md border border-elevated bg-inset p-3">
                 <BriefMarkdown source={brief.narrative} />
               </div>
               <p className="type-meta mt-2">
@@ -291,7 +291,7 @@ function ProbabilityBlock({ s }: { s: MarketSignals }) {
         <ProbCell side="NO" value={no} won={s.outcome === "no"} />
       </div>
       {yes != null && (
-        <div className="mt-2 flex h-1 overflow-hidden rounded-full bg-[#1a1a1e]" aria-hidden>
+        <div className="mt-2 flex h-1 overflow-hidden rounded-full bg-elevated" aria-hidden>
           <div className="bg-emerald-400/70" style={{ width: `${yes * 100}%` }} />
           <div className="bg-rose-400/60" style={{ width: `${(no ?? 1 - yes) * 100}%` }} />
         </div>
@@ -357,7 +357,7 @@ function FlowRow({ s }: { s: MarketSignals }) {
           {n} recent print{n === 1 ? "" : "s"} · {basis === "shares" ? "share-weighted" : "print-weighted"}
         </span>
       </div>
-      <div className="mt-1.5 flex h-1 overflow-hidden rounded-full bg-[#1a1a1e]" aria-hidden>
+      <div className="mt-1.5 flex h-1 overflow-hidden rounded-full bg-elevated" aria-hidden>
         <div className="bg-emerald-400/70" style={{ width: `${yesFlowShare * 100}%` }} />
         <div className="bg-rose-400/60" style={{ width: `${(1 - yesFlowShare) * 100}%` }} />
       </div>

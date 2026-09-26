@@ -196,7 +196,7 @@ export function BookPanel() {
               type="button"
               disabled={busy || !connected}
               onClick={load}
-              className="mr-3.5 rounded-md border border-[#1f1f23] bg-[#0a0a0b] px-2 py-1 text-[11px] text-zinc-400 hover:text-zinc-200 active:scale-[0.98] disabled:opacity-40"
+              className="mr-3.5 rounded-md border border-line bg-inset px-2 py-1 text-[11px] text-zinc-400 hover:text-zinc-200 active:scale-[0.98] disabled:opacity-40"
             >
               {busy ? "Loading…" : "Refresh"}
             </button>
@@ -210,7 +210,7 @@ export function BookPanel() {
               <button
                 type="button"
                 onClick={() => setVisible(true)}
-                className="rounded-md bg-cyan-400 px-3.5 py-2 text-[12px] font-semibold text-[#0a0a0b] transition hover:bg-cyan-300 active:scale-[0.98]"
+                className="rounded-md bg-cyan-400 px-3.5 py-2 text-[12px] font-semibold text-bg transition hover:bg-cyan-300 active:scale-[0.98]"
               >
                 Connect wallet
               </button>
@@ -233,7 +233,7 @@ export function BookPanel() {
             {positions.length > 0 ? (
             <table className="w-full text-left text-sm">
               <thead className="type-col">
-                <tr className="border-b border-[#1f1f23]">
+                <tr className="border-b border-line">
                   <th scope="col" className="px-3.5 py-2 font-medium">
                     Market
                   </th>
@@ -267,7 +267,7 @@ export function BookPanel() {
                   return (
                     <tr
                       key={`${p.marketId}-${p.side}-${i}`}
-                      className={`border-t border-[#1f1f23] transition-colors hover:bg-[#161618] ${
+                      className={`border-t border-line transition-colors hover:bg-elevated ${
                         claimable
                           ? "border-l-2 border-l-emerald-400/70 bg-emerald-500/[0.04]"
                           : ""
@@ -352,7 +352,7 @@ export function BookPanel() {
                 </p>
                 <Link
                   href="/desk"
-                  className="mt-3 inline-flex items-center rounded-md bg-cyan-400 px-3 py-1.5 text-[12px] font-semibold text-[#0a0a0b] transition hover:bg-cyan-300"
+                  className="mt-3 inline-flex items-center rounded-md bg-cyan-400 px-3 py-1.5 text-[12px] font-semibold text-bg transition hover:bg-cyan-300"
                 >
                   Browse desk →
                 </Link>
@@ -372,8 +372,8 @@ export function BookPanel() {
               onClick={() => setMode("win")}
               className={`flex-1 rounded-md px-3 py-1.5 text-xs font-semibold transition active:scale-[0.98] ${
                 mode === "win"
-                  ? "bg-cyan-400 text-[#0a0a0b]"
-                  : "border border-[#1f1f23] text-zinc-500 hover:text-zinc-300"
+                  ? "bg-cyan-400 text-bg"
+                  : "border border-line text-zinc-500 hover:text-zinc-300"
               }`}
             >
               Win claim
@@ -384,14 +384,14 @@ export function BookPanel() {
               onClick={() => setMode("creator-fees")}
               className={`flex-1 rounded-md px-3 py-1.5 text-xs font-semibold transition active:scale-[0.98] ${
                 mode === "creator-fees"
-                  ? "bg-cyan-400 text-[#0a0a0b]"
-                  : "border border-[#1f1f23] text-zinc-500 hover:text-zinc-300"
+                  ? "bg-cyan-400 text-bg"
+                  : "border border-line text-zinc-500 hover:text-zinc-300"
               }`}
             >
               Creator fees
             </button>
           </div>
-          <p className="type-meta mb-3 rounded-md border border-[#1f1f23] bg-[#0a0a0b] px-2.5 py-2 leading-relaxed">
+          <p className="type-meta mb-3 rounded-md border border-line bg-inset px-2.5 py-2 leading-relaxed">
             {mode === "win" ? (
               <>
                 <span className="text-zinc-300">Win claims are reported for attribution.</span> After
@@ -413,7 +413,7 @@ export function BookPanel() {
             <input
               value={claimMarketId}
               onChange={(e) => setClaimMarketId(e.target.value)}
-              className="mt-1 w-full rounded-md border border-[#1f1f23] bg-[#0a0a0b] px-3 py-2 text-sm outline-none focus:border-cyan-400/40"
+              className="mt-1 w-full rounded-md border border-line bg-inset px-3 py-2 text-sm outline-none focus:border-cyan-400/40"
             />
           </label>
           {claimError && (
@@ -450,8 +450,8 @@ export function BookPanel() {
             onClick={() => void runClaim()}
             className={`mt-4 w-full rounded-md py-2.5 text-sm font-semibold transition active:scale-[0.98] ${
               claimBusy || !connected || !claimMarketId.trim()
-                ? "cursor-not-allowed border border-[#1f1f23] bg-[#161618] text-zinc-500"
-                : "bg-cyan-400 text-[#0a0a0b] hover:bg-cyan-300"
+                ? "cursor-not-allowed border border-line bg-elevated text-zinc-500"
+                : "bg-cyan-400 text-bg hover:bg-cyan-300"
             }`}
           >
             {!connected

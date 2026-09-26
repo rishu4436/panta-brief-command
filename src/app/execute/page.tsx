@@ -1,7 +1,7 @@
 "use client";
 
 import { useSearchParams } from "next/navigation";
-import { Suspense } from "react";
+import { Suspense, useState } from "react";
 import { PrimaryBuyPanel } from "@/components/PrimaryBuyPanel";
 import { AttributedTrades } from "@/components/AttributedTrades";
 import { Panel } from "@/components/Panel";
@@ -9,6 +9,8 @@ import { Panel } from "@/components/Panel";
 function ExecuteInner() {
   const sp = useSearchParams();
   const marketId = sp.get("marketId") || "";
+  // Bumped after POST /trades/ and when the trade appears in /account/trades/.
+  const [activityKey, setActivityKey] = useState(0);
   return (
     <div className="space-y-3 animate-fade-in">
       <div>
@@ -17,8 +19,11 @@ function ExecuteInner() {
           Guided primary buy · quote through attribute · live activity
         </p>
       </div>
-      <PrimaryBuyPanel initialMarketId={marketId} />
-      <AttributedTrades limit={25} kindFilter="buy" compact />
+      <PrimaryBuyPanel
+        initialMarketId={marketId}
+        onAttributionUpdate={() => setActivityKey((k) => k + 1)}
+      />
+      <AttributedTrades limit={25} kindFilter="buy" compact refreshKey={activityKey} />
     </div>
   );
 }

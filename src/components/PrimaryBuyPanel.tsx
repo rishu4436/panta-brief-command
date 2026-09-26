@@ -1,13 +1,34 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { useWalletModal } from "@solana/wallet-adapter-react-ui";
-import { pantaFetch } from "@/lib/api";
+import { ApiError, pantaFetch } from "@/lib/api";
 import { describeErr } from "@/lib/errors";
 import { marketLabel, shortAddr } from "@/lib/format";
-import { instructionsToVersionedTx } from "@/lib/solana";
+import {
+  assertFeePayer,
+  programLabel,
+  validatePantaInstructions,
+  type InstructionCheck,
+} from "@/lib/panta/instructions";
+import { BASE58_PUBKEY_RE } from "@/lib/panta/routes";
+import {
+  MAX_AMOUNT_USDC,
+  MAX_SLIPPAGE_BPS,
+  validateAmountUsdc,
+  validateAttributionRef,
+  validateSlippageBps,
+} from "@/lib/panta/validate";
+import {
+  checkSignatureOnce,
+  confirmSignature,
+  instructionsToVersionedTx,
+  resolveLastValidBlockHeight,
+  type ConfirmOutcome,
+} from "@/lib/solana";
 import type {
+  AccountTradesResponse,
   Json,
   MarketCatalogItem,
   MarketsListResponse,
@@ -21,12 +42,38 @@ const STEPS = [
   "Quote",
   "Build",
   "Sign",
+  "Confirm",
   "Submit",
   "Verify",
   "Attr",
 ] as const;
+/** Step index = number of completed stages. */
+const S = { quoted: 1, built: 2, broadcast: 3, confirmed: 4, submitted: 5, verified: 6, reported: 7 } as const;
 
 const AMOUNT_PRESETS = ["10", "25", "50", "100"] as const;
+
+/** Verify backoff (ms) — last value repeats until the budget is spent. */
+const VERIFY_BACKOFF_MS = [1000, 2000, 2000, 3000, 5000, 8000] as const;
+const VERIFY_BUDGET_MS = 30_000;
+/**
+ * Terminal statuses from POST /primaryorderverify/ (docs.panta.market
+ * api-reference/orders/verify): built · submitted (pending) · confirmed ·
+ * failed · expired.
+ */
+const VERIFY_SUCCESS = new Set(["confirmed"]);
+const VERIFY_FAILURE = new Set(["failed", "expired"]);
+/** Account-ledger re-checks after POST /trades/ (ms between attempts). */
+const LEDGER_CHECK_DELAYS_MS = [1500, 3000, 5000] as const;
+
+type TxPhase = "idle" | "confirming" | ConfirmOutcome["status"];
+type VerifyPhase = "idle" | "polling" | "confirmed" | "failed" | "timeout";
+type AttrPhase = "idle" | "reporting" | "reported" | "attributed";
+
+type VerifyResponse = { orderId?: string; status?: string; signature?: string };
+
+class StopFlow extends Error {}
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 function countdownLabel(expiresAt: string, now: number): string {
   const end = Date.parse(expiresAt);
@@ -37,22 +84,54 @@ function countdownLabel(expiresAt: string, now: number): string {
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
+/** Cross-check the build against the quote and wallet, then the instruction allowlist. */
+function checkBuild(
+  built: PrimaryBuildResponse,
+  q: PrimaryQuoteResponse | null,
+  wallet: string,
+  walletKey: Parameters<typeof validatePantaInstructions>[1],
+): InstructionCheck {
+  if (built.wallet && built.wallet !== wallet) {
+    return { ok: false, reason: "Build wallet does not match the connected wallet. Signing blocked." };
+  }
+  if (q) {
+    if (built.quoteId && built.quoteId !== q.quoteId) {
+      return { ok: false, reason: "Build does not match the active quote. Signing blocked." };
+    }
+    if (built.marketId && built.marketId !== q.marketId) {
+      return { ok: false, reason: "Build market differs from the quoted market. Signing blocked." };
+    }
+    if (built.side && q.side && built.side.toLowerCase() !== q.side.toLowerCase()) {
+      return { ok: false, reason: "Build side differs from the quoted side. Signing blocked." };
+    }
+  }
+  return validatePantaInstructions(built.instructions, walletKey);
+}
+
 export function PrimaryBuyPanel({
   initialMarketId = "",
   compact = false,
+  onAttributionUpdate,
 }: {
   initialMarketId?: string;
   compact?: boolean;
+  /** Called after POST /trades/ and when the trade shows up in /account/trades/. */
+  onAttributionUpdate?: () => void;
 }) {
   const { publicKey, signTransaction, connected } = useWallet();
   const { connection } = useConnection();
   const { setVisible } = useWalletModal();
 
   const [marketId, setMarketId] = useState(initialMarketId);
+  const [prevInitialMarketId, setPrevInitialMarketId] = useState(initialMarketId);
+  if (initialMarketId !== prevInitialMarketId) {
+    setPrevInitialMarketId(initialMarketId);
+    if (initialMarketId) setMarketId(initialMarketId);
+  }
   const [side, setSide] = useState<"yes" | "no">("yes");
-  const [amountUsdc, setAmountUsdc] = useState("25");
-  const [maxSlippageBps, setMaxSlippageBps] = useState(100);
-  const [userId, setUserId] = useState("");
+  const [amountInput, setAmountInput] = useState("25");
+  const [slippageInput, setSlippageInput] = useState("100");
+  const [attrRefInput, setAttrRefInput] = useState("");
   const [mode, setMode] = useState<"guided" | "manual">("guided");
 
   const [step, setStep] = useState(0);
@@ -67,52 +146,70 @@ export function PrimaryBuyPanel({
 
   const [quote, setQuote] = useState<PrimaryQuoteResponse | null>(null);
   const [build, setBuild] = useState<PrimaryBuildResponse | null>(null);
+  const [ixCheck, setIxCheck] = useState<InstructionCheck | null>(null);
   const [signature, setSignature] = useState<string | null>(null);
+  const [lastValidBlockHeight, setLastValidBlockHeight] = useState<number | null>(null);
+  const [txPhase, setTxPhase] = useState<TxPhase>("idle");
+  const [txMessage, setTxMessage] = useState<string | null>(null);
+  const [verifyPhase, setVerifyPhase] = useState<VerifyPhase>("idle");
+  const [verifyStatus, setVerifyStatus] = useState<string | null>(null);
+  const [attrPhase, setAttrPhase] = useState<AttrPhase>("idle");
+  const [ledgerSeen, setLedgerSeen] = useState(false);
   const [submitRaw, setSubmitRaw] = useState<Json>(null);
   const [verifyRaw, setVerifyRaw] = useState<Json>(null);
   const [tradeRaw, setTradeRaw] = useState<Json>(null);
 
-  useEffect(() => {
-    if (initialMarketId) setMarketId(initialMarketId);
-  }, [initialMarketId]);
+  /** Attribution ref bound at quote time (build/report must not contradict it). */
+  const sessionAttrRef = useRef<string | undefined>(undefined);
 
-  const loadCatalog = useCallback(async () => {
-    try {
-      const { data } = await pantaFetch<MarketsListResponse>("/markets/", {
-        query: { status: "primary", limit: "40" },
-      });
-      const items = (data.items || []).slice(0, 24);
-      setCatalog(items);
-      const need = items.filter((m) => !(m.title || "").trim());
-      const updates = new Map<string, string>();
-      await Promise.all(
-        need.slice(0, 16).map(async (m) => {
-          try {
-            const { data: det } = await pantaFetch<MarketCatalogItem>(
-              `/markets/${encodeURIComponent(m.marketId)}/`,
-            );
-            const title = (det.title || det.description || "").trim();
-            if (title) updates.set(m.marketId, title);
-          } catch {
-            /* ignore */
-          }
-        }),
-      );
-      if (updates.size) {
-        setCatalog((prev) =>
-          prev.map((m) =>
-            updates.has(m.marketId) ? { ...m, title: updates.get(m.marketId)! } : m,
-          ),
+  const amountCheck = validateAmountUsdc(amountInput);
+  const slippageCheck = validateSlippageBps(slippageInput);
+  const attrCheck = validateAttributionRef(attrRefInput);
+  const marketIdValid = BASE58_PUBKEY_RE.test(marketId.trim());
+  const quoteInputsValid = amountCheck.ok && attrCheck.ok && marketIdValid;
+  const allInputsValid = quoteInputsValid && slippageCheck.ok;
+
+  // Picker catalog (live API only).
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data } = await pantaFetch<MarketsListResponse>("/markets/", {
+          query: { status: "primary", limit: "40" },
+        });
+        const items = (data.items || []).slice(0, 24);
+        if (cancelled) return;
+        setCatalog(items);
+        const need = items.filter((m) => !(m.title || "").trim());
+        const updates = new Map<string, string>();
+        await Promise.all(
+          need.slice(0, 16).map(async (m) => {
+            try {
+              const { data: det } = await pantaFetch<MarketCatalogItem>(
+                `/markets/${encodeURIComponent(m.marketId)}/`,
+              );
+              const title = (det.title || det.description || "").trim();
+              if (title) updates.set(m.marketId, title);
+            } catch {
+              /* ignore */
+            }
+          }),
         );
+        if (!cancelled && updates.size) {
+          setCatalog((prev) =>
+            prev.map((m) =>
+              updates.has(m.marketId) ? { ...m, title: updates.get(m.marketId)! } : m,
+            ),
+          );
+        }
+      } catch {
+        /* optional picker */
       }
-    } catch {
-      /* optional picker */
-    }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
-
-  useEffect(() => {
-    void loadCatalog();
-  }, [loadCatalog]);
 
   useEffect(() => {
     if (!quote?.expiresAt) return;
@@ -136,127 +233,253 @@ export function PrimaryBuyPanel({
     if (!signTransaction) throw new Error("Wallet cannot sign transactions");
   };
 
-  const attributionUserId = userId.trim() || undefined;
+  const resetAfterQuote = () => {
+    setBuild(null);
+    setIxCheck(null);
+    setSignature(null);
+    setLastValidBlockHeight(null);
+    setTxPhase("idle");
+    setTxMessage(null);
+    setVerifyPhase("idle");
+    setVerifyStatus(null);
+    setAttrPhase("idle");
+    setLedgerSeen(false);
+    setSubmitRaw(null);
+    setVerifyRaw(null);
+    setTradeRaw(null);
+  };
 
   const runQuote = async () => {
     requireReady();
-    if (!marketId.trim()) throw new Error("marketId required");
+    if (!marketIdValid) throw new Error("Pick a market (valid market id required)");
+    if (!amountCheck.ok) throw new Error(amountCheck.error);
+    if (!attrCheck.ok) throw new Error(`Attribution reference: ${attrCheck.error}`);
+    const ref = attrCheck.value;
     const body: Record<string, string> = {
       wallet: publicKey!.toBase58(),
       marketId: marketId.trim(),
       side,
-      amountUsdc,
+      amountUsdc: amountCheck.value,
     };
-    if (attributionUserId) body.userId = attributionUserId;
+    if (ref) body.userId = ref;
     const { data } = await pantaFetch<PrimaryQuoteResponse>(
       "/primaryorderquote/",
-      { method: "POST", userId: attributionUserId, body },
+      { method: "POST", userId: ref, body },
     );
+    sessionAttrRef.current = ref;
     setQuote(data);
-    setBuild(null);
-    setSignature(null);
-    setSubmitRaw(null);
-    setVerifyRaw(null);
-    setTradeRaw(null);
-    setStep(1);
+    resetAfterQuote();
+    setStep(S.quoted);
     push(
-      `Quoted ${data.side.toUpperCase()} · ${data.shares} shares @ avg ${data.avgPrice} (fee ${data.feeUsdc})`,
+      `Quoted ${String(data.side || side).toUpperCase()} · ${data.shares} shares @ avg ${data.avgPrice} (fee ${data.feeUsdc} USDC)`,
     );
     return data;
   };
 
   const runBuild = async (q?: PrimaryQuoteResponse) => {
     requireReady();
-    const qid = (q || quote)?.quoteId;
-    if (!qid) throw new Error("Quote first");
+    const activeQuote = q || quote;
+    if (!activeQuote?.quoteId) throw new Error("Quote first");
+    if (!slippageCheck.ok) throw new Error(slippageCheck.error);
+    const ref = sessionAttrRef.current;
     const body: Record<string, string | number> = {
-      quoteId: qid,
+      quoteId: activeQuote.quoteId,
       wallet: publicKey!.toBase58(),
-      maxSlippageBps: Number(maxSlippageBps),
+      maxSlippageBps: slippageCheck.value,
     };
-    if (attributionUserId) body.userId = attributionUserId;
+    if (ref) body.userId = ref;
     const { data } = await pantaFetch<PrimaryBuildResponse>(
       "/primaryorderbuild/",
-      { method: "POST", userId: attributionUserId, body },
+      { method: "POST", userId: ref, body },
     );
+    const check = checkBuild(data, activeQuote, publicKey!.toBase58(), publicKey!);
     setBuild(data);
+    setIxCheck(check);
     setSignature(null);
+    setTxPhase("idle");
+    setTxMessage(null);
+    setVerifyPhase("idle");
+    setAttrPhase("idle");
+    setLedgerSeen(false);
     setSubmitRaw(null);
     setVerifyRaw(null);
     setTradeRaw(null);
-    setStep(2);
+    setStep(S.built);
     push(`Built order ${data.orderId} · ${data.instructions?.length || 0} ix`);
+    if (!check.ok) {
+      push(`Pre-sign check failed · ${check.reason}`);
+      throw new StopFlow(check.reason);
+    }
+    push(`Pre-sign check passed · ${check.programs.map(programLabel).join(", ")}`);
     return data;
   };
 
-  const runSignBroadcast = async (b?: PrimaryBuildResponse) => {
+  const applyConfirm = (outcome: ConfirmOutcome) => {
+    setTxPhase(outcome.status);
+    if (outcome.status === "confirmed") {
+      setTxMessage(null);
+      setStep((s) => Math.max(s, S.confirmed));
+      push("Confirmed on-chain (commitment: confirmed)");
+      return true;
+    }
+    setTxMessage(outcome.message);
+    push(
+      outcome.status === "expired"
+        ? "Blockhash expired before confirmation"
+        : outcome.status === "failed"
+          ? "Transaction failed on-chain"
+          : "Confirmation still pending",
+    );
+    return false;
+  };
+
+  const runSignBroadcast = async (b?: PrimaryBuildResponse, q?: PrimaryQuoteResponse) => {
     requireReady();
     const built = b || build;
     if (!built?.instructions?.length || !built.recentBlockhash) {
       throw new Error("Build first");
     }
-    const tx = instructionsToVersionedTx(
-      built.instructions,
-      publicKey!,
-      built.recentBlockhash,
-    );
+    // Re-run the pre-sign check right before signing (defense in depth).
+    const check = checkBuild(built, q || quote, publicKey!.toBase58(), publicKey!);
+    setIxCheck(check);
+    if (!check.ok) throw new StopFlow(check.reason);
+
+    const lvbh = await resolveLastValidBlockHeight(connection, built.lastValidBlockHeight);
+    const tx = instructionsToVersionedTx(built.instructions, publicKey!, built.recentBlockhash);
+    assertFeePayer(tx, publicKey!);
     const signed = await signTransaction!(tx);
     const sig = await connection.sendRawTransaction(signed.serialize(), {
       skipPreflight: false,
       preflightCommitment: "confirmed",
     });
     setSignature(sig);
-    setStep(3);
-    push(`Broadcast ${sig.slice(0, 16)}…`);
+    setLastValidBlockHeight(lvbh);
+    setStep(S.broadcast);
+    push(`Broadcast ${sig.slice(0, 16)}… · awaiting confirmation`);
+    setTxPhase("confirming");
+    setTxMessage(null);
+
+    const outcome = await confirmSignature(connection, sig, built.recentBlockhash, lvbh);
+    if (!applyConfirm(outcome)) {
+      throw new StopFlow(outcome.status === "confirmed" ? "" : outcome.message);
+    }
     return sig;
   };
 
-  const runSubmit = async (opts?: { orderId?: string; sig?: string }) => {
+  const runCheckConfirmation = async (): Promise<boolean> => {
+    if (!signature) throw new Error("No broadcast signature");
+    setTxPhase("confirming");
+    const outcome = await checkSignatureOnce(connection, signature, lastValidBlockHeight);
+    const ok = applyConfirm(outcome);
+    if (!ok) throw new StopFlow(outcome.status === "confirmed" ? "" : outcome.message);
+    return ok;
+  };
+
+  const runSubmit = async (opts?: { orderId?: string; sig?: string; confirmed?: boolean }) => {
     requireReady();
     const orderId = opts?.orderId || build?.orderId;
     const sig = opts?.sig || signature;
-    if (!orderId || !sig) {
-      throw new Error("Need orderId + signature");
+    if (!orderId || !sig) throw new Error("Need orderId + signature");
+    if (!opts?.confirmed && txPhase !== "confirmed") {
+      throw new Error("Wait for on-chain confirmation before submitting to Panta");
     }
-    const { raw } = await pantaFetch<Json>("/primaryordersubmit/", {
+    const { data, raw } = await pantaFetch<{ status?: string }>("/primaryordersubmit/", {
       method: "POST",
-      body: {
-        orderId,
-        signature: sig,
-        wallet: publicKey!.toBase58(),
-      },
+      body: { orderId, signature: sig, wallet: publicKey!.toBase58() },
     });
     setSubmitRaw(raw);
-    setStep(4);
-    push("Submitted signature to Panta");
+    setStep((s) => Math.max(s, S.submitted));
+    push(`Submitted signature to Panta · status ${data?.status || "unknown"}`);
   };
 
+  /**
+   * Poll POST /primaryorderverify/ with backoff (1s, 2s, 2s, 3s, 5s, 8s…)
+   * for up to ~30s. Stops on confirmed / failed / expired.
+   */
   const runVerify = async (opts?: { orderId?: string; sig?: string | null }) => {
     requireReady();
     const orderId = opts?.orderId || build?.orderId;
     const sig = opts?.sig !== undefined ? opts.sig : signature;
     if (!orderId) throw new Error("Build first");
-    const { raw } = await pantaFetch<Json>("/primaryorderverify/", {
-      method: "POST",
-      body: {
-        orderId,
-        signature: sig,
-        wallet: publicKey!.toBase58(),
-      },
-    });
-    setVerifyRaw(raw);
-    setStep((s) => Math.max(s, 5));
-    push("Verify polled");
+    setVerifyPhase("polling");
+    setVerifyStatus(null);
+    push("Verification requested");
+    const started = Date.now();
+    let attempt = 0;
+    let last: string | null = null;
+    for (;;) {
+      try {
+        const { data, raw } = await pantaFetch<VerifyResponse>("/primaryorderverify/", {
+          method: "POST",
+          body: { orderId, ...(sig ? { signature: sig } : {}), wallet: publicKey!.toBase58() },
+        });
+        setVerifyRaw(raw);
+        last = typeof data?.status === "string" ? data.status.toLowerCase() : null;
+        setVerifyStatus(last);
+        if (last && VERIFY_SUCCESS.has(last)) {
+          setVerifyPhase("confirmed");
+          setStep((s) => Math.max(s, S.verified));
+          push("Verified · Panta order status confirmed");
+          return "confirmed" as const;
+        }
+        if (last && VERIFY_FAILURE.has(last)) {
+          setVerifyPhase("failed");
+          push(`Verification failed · Panta order status ${last}`);
+          throw new StopFlow(`Panta verification failed (order status: ${last}).`);
+        }
+      } catch (e) {
+        if (e instanceof StopFlow) throw e;
+        // Transient (rate limit / upstream / network) → keep polling; other API errors are terminal.
+        const transient = !(e instanceof ApiError) || e.status === 429 || e.status >= 500;
+        if (!transient) {
+          setVerifyPhase("failed");
+          push(`Verification failed · ${describeErr(e)}`);
+          throw e;
+        }
+      }
+      const delay = VERIFY_BACKOFF_MS[Math.min(attempt, VERIFY_BACKOFF_MS.length - 1)];
+      if (Date.now() - started + delay > VERIFY_BUDGET_MS) break;
+      attempt += 1;
+      await sleep(delay);
+    }
+    setVerifyPhase("timeout");
+    push(`Still pending after 30s · last Panta status ${last ?? "unknown"}`);
+    return "timeout" as const;
   };
 
-  const runAttribute = async (opts?: {
-    built?: PrimaryBuildResponse;
-    sig?: string;
-  }) => {
+  /** Poll GET /account/trades/ a few times for the signature. */
+  const checkLedger = async (sig: string, alreadyAttributed: boolean) => {
+    for (const delay of LEDGER_CHECK_DELAYS_MS) {
+      await sleep(delay);
+      try {
+        const { data } = await pantaFetch<AccountTradesResponse>("/account/trades/", {
+          query: { limit: "50", kind: "buy" },
+        });
+        if ((data.items || []).some((row) => row.signature === sig)) {
+          setLedgerSeen(true);
+          setAttrPhase("attributed");
+          push("Attributed · visible in GET /account/trades/");
+          if (!alreadyAttributed) setToast(`Attributed · ${shortAddr(sig, 6)}`);
+          onAttributionUpdate?.();
+          return;
+        }
+      } catch {
+        /* keep trying */
+      }
+    }
+    push(
+      alreadyAttributed
+        ? "Not listed in /account/trades/ yet — refresh Activity shortly"
+        : "Reported, not yet in /account/trades/ — refresh Activity shortly",
+    );
+  };
+
+  const runAttribute = async (opts?: { built?: PrimaryBuildResponse; sig?: string }) => {
     requireReady();
     const built = opts?.built || build;
     const sig = opts?.sig || signature;
     if (!sig || !built) throw new Error("Need broadcast signature");
+    const ref = sessionAttrRef.current;
     const body: Record<string, string> = {
       signature: sig,
       wallet: publicKey!.toBase58(),
@@ -264,16 +487,34 @@ export function PrimaryBuyPanel({
       quoteId: built.quoteId,
       clientOrderId: built.orderId,
     };
-    if (attributionUserId) body.userId = attributionUserId;
+    if (ref) body.userId = ref;
+    setAttrPhase("reporting");
     const { data, raw } = await pantaFetch<TradeReportResponse>("/trades/", {
       method: "POST",
-      userId: attributionUserId,
+      userId: ref,
       body,
     });
     setTradeRaw(raw);
-    setStep(6);
-    push(`Attributed trade · status ${data.status}`);
-    setToast(`Attributed · ${shortAddr(sig, 6)}`);
+    setStep(S.reported);
+    const status = String(data?.status || "").toLowerCase();
+    // docs.panta.market trades/report: status `processed` "when attribution is
+    // stored" — the only POST response we treat as definitive.
+    const definitive = status === "processed";
+    if (definitive) {
+      setAttrPhase("attributed");
+      push("Attributed · POST /trades/ status processed");
+      setToast(`Attributed · ${shortAddr(sig, 6)}`);
+    } else {
+      setAttrPhase("reported");
+      push(`Trade reported for attribution · status ${status || "unknown"}`);
+      setToast(`Trade reported for attribution · ${shortAddr(sig, 6)}`);
+    }
+    onAttributionUpdate?.();
+    void checkLedger(sig, definitive);
+  };
+
+  const fail = (e: unknown) => {
+    setError(e instanceof StopFlow ? e.message || null : describeErr(e));
   };
 
   const runGuided = async () => {
@@ -282,42 +523,44 @@ export function PrimaryBuyPanel({
     try {
       setGuidedPhase("Quoting…");
       const q = await runQuote();
-      setGuidedPhase("Building VT…");
+      setGuidedPhase("Building…");
       const b = await runBuild(q);
       setGuidedPhase("Sign in wallet…");
-      const sig = await runSignBroadcast(b);
-      // One-shot finish: Submit → Verify → Attribute
+      const sig = await runSignBroadcast(b, q);
       setGuidedPhase("Submitting…");
-      await runSubmit({ orderId: b.orderId, sig });
+      await runSubmit({ orderId: b.orderId, sig, confirmed: true });
       setGuidedPhase("Verifying…");
       await runVerify({ orderId: b.orderId, sig });
-      setGuidedPhase("Attributing…");
+      setGuidedPhase("Reporting…");
       await runAttribute({ built: b, sig });
-      setGuidedPhase(null);
-      push("Guided path complete · attributed");
+      push("Guided path complete");
     } catch (e) {
-      setError(describeErr(e));
-      setGuidedPhase(null);
+      fail(e);
     } finally {
+      setGuidedPhase(null);
       setBusy(false);
     }
   };
 
+  /** Resume after a broadcast: (re)check confirmation, then Submit → Verify → Report. */
   const runFinishAttribution = async () => {
     setBusy(true);
     setError(null);
     try {
+      if (txPhase !== "confirmed") {
+        setGuidedPhase("Checking confirmation…");
+        await runCheckConfirmation();
+      }
       setGuidedPhase("Submitting…");
-      await runSubmit();
+      await runSubmit({ confirmed: true });
       setGuidedPhase("Verifying…");
       await runVerify();
-      setGuidedPhase("Attributing…");
+      setGuidedPhase("Reporting…");
       await runAttribute();
-      setGuidedPhase(null);
     } catch (e) {
-      setError(describeErr(e));
-      setGuidedPhase(null);
+      fail(e);
     } finally {
+      setGuidedPhase(null);
       setBusy(false);
     }
   };
@@ -328,7 +571,7 @@ export function PrimaryBuyPanel({
     try {
       await fn();
     } catch (e) {
-      setError(describeErr(e));
+      fail(e);
     } finally {
       setBusy(false);
     }
@@ -347,13 +590,11 @@ export function PrimaryBuyPanel({
     });
   }, [catalog, pickerQuery]);
 
-  const expiresLabel = useMemo(
-    () => (quote?.expiresAt ? countdownLabel(quote.expiresAt, now) : null),
-    [quote?.expiresAt, now],
-  );
+  const expiresLabel = quote?.expiresAt ? countdownLabel(quote.expiresAt, now) : null;
 
   const inputCls =
     "mt-1 w-full rounded-md border border-[#1f1f23] bg-[#0a0a0b] px-3 py-2 text-sm text-zinc-100 outline-none focus:border-cyan-400/40";
+  const inputErrCls = "border-rose-500/50 focus:border-rose-400/60";
   const btnPrimary =
     "min-h-[48px] rounded-md bg-cyan-400 px-3 py-3 text-sm font-semibold text-[#0a0a0b] transition hover:bg-cyan-300 active:scale-[0.98] disabled:opacity-40";
   const btnGhost =
@@ -385,6 +626,53 @@ export function PrimaryBuyPanel({
     });
   };
 
+  /** Chip tone per lifecycle stage (honest: pending/failed are not "done"). */
+  const chipTone = (i: number): "done" | "active" | "warn" | "bad" | "idle" => {
+    const label = STEPS[i];
+    if (label === "Confirm") {
+      if (txPhase === "failed" || txPhase === "expired") return "bad";
+      if (txPhase === "pending") return "warn";
+    }
+    if (label === "Verify") {
+      if (verifyPhase === "failed") return "bad";
+      if (verifyPhase === "timeout") return "warn";
+    }
+    if (label === "Attr" && attrPhase === "reported") return "warn";
+    if (step > i) return "done";
+    if (step === i) return "active";
+    return "idle";
+  };
+  const chipCls: Record<ReturnType<typeof chipTone>, string> = {
+    done: "border-emerald-400/30 bg-emerald-500/10 text-emerald-300",
+    active: "border-cyan-400/40 bg-cyan-400/10 text-cyan-300",
+    warn: "border-amber-400/30 bg-amber-400/10 text-amber-300",
+    bad: "border-rose-500/30 bg-rose-500/10 text-rose-300",
+    idle: "border-[#1f1f23] text-zinc-600",
+  };
+
+  const statusLabel = guidedPhase
+    ? guidedPhase
+    : step === 0
+      ? "Ready to quote"
+      : step >= STEPS.length
+        ? attrPhase === "attributed"
+          ? "Attributed"
+          : "Reported for attribution"
+        : STEPS[Math.min(step, STEPS.length - 1)];
+
+  const blockingHint = !marketIdValid
+    ? "Pick a market to quote."
+    : !amountCheck.ok
+      ? `Amount: ${amountCheck.error}`
+      : !slippageCheck.ok
+        ? `Slippage: ${slippageCheck.error}`
+        : !attrCheck.ok
+          ? `Attribution reference (Advanced): ${attrCheck.error}`
+          : null;
+
+  const needsRestart = txPhase === "expired" || txPhase === "failed";
+  const canResume = Boolean(signature) && step >= S.broadcast && step < S.reported && !needsRestart;
+
   return (
     <Panel title={compact ? "Execute ticket" : "Primary buy"}>
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
@@ -392,15 +680,7 @@ export function PrimaryBuyPanel({
           className="flex flex-wrap items-center gap-1.5"
           aria-label="Execute progress"
         >
-          <span className="text-[10px] text-zinc-500">
-            {guidedPhase
-              ? guidedPhase
-              : step === 0
-                ? "Ready to quote"
-                : step >= STEPS.length
-                  ? "Attributed"
-                  : STEPS[Math.min(step, STEPS.length - 1)]}
-          </span>
+          <span className="text-[10px] text-zinc-500">{statusLabel}</span>
           <span className="font-num text-[10px] text-zinc-600">
             {Math.min(step + 1, STEPS.length)}/{STEPS.length}
           </span>
@@ -409,14 +689,8 @@ export function PrimaryBuyPanel({
               {STEPS.map((label, i) => (
                 <span
                   key={label}
-                                    aria-current={step === i ? "step" : undefined}
-                  className={`step-chip rounded border px-1.5 py-0.5 text-[9px] font-medium tracking-wide transition-all duration-300 ${
-                    step > i
-                      ? "border-emerald-400/30 bg-emerald-500/10 text-emerald-300"
-                      : step === i
-                        ? "border-cyan-400/40 bg-cyan-400/10 text-cyan-300"
-                        : "border-[#1f1f23] text-zinc-600"
-                  }`}
+                  aria-current={step === i ? "step" : undefined}
+                  className={`step-chip rounded border px-1.5 py-0.5 text-[9px] font-medium tracking-wide transition-all duration-300 ${chipCls[chipTone(i)]}`}
                 >
                   {label}
                 </span>
@@ -556,19 +830,32 @@ export function PrimaryBuyPanel({
           <label className="block text-[11px] text-zinc-400">
             Amount (USDC)
             <input
-              value={amountUsdc}
-              onChange={(e) => setAmountUsdc(e.target.value)}
-              className={`${inputCls} font-num`}
+              type="text"
+              inputMode="decimal"
+              autoComplete="off"
+              value={amountInput}
+              onChange={(e) => setAmountInput(e.target.value)}
+              aria-invalid={!amountCheck.ok}
+              aria-describedby="amount-help"
+              className={`${inputCls} font-num ${amountCheck.ok ? "" : inputErrCls}`}
             />
           </label>
+          <p
+            id="amount-help"
+            className={`mt-1 text-[10px] ${amountCheck.ok ? "text-zinc-600" : "text-rose-300"}`}
+          >
+            {amountCheck.ok
+              ? `Up to 2 decimals · max ${MAX_AMOUNT_USDC.toLocaleString()} USDC`
+              : amountCheck.error}
+          </p>
           <div className="mt-1.5 flex flex-wrap gap-1">
             {AMOUNT_PRESETS.map((p) => (
               <button
                 key={p}
                 type="button"
-                onClick={() => setAmountUsdc(p)}
+                onClick={() => setAmountInput(p)}
                 className={`min-h-[40px] min-w-[44px] rounded border px-3 py-2 font-num text-[12px] transition active:scale-[0.98] ${
-                  amountUsdc === p
+                  amountInput === p
                     ? "border-cyan-400/40 bg-cyan-400/10 text-cyan-300"
                     : "border-[#1f1f23] text-zinc-500 hover:text-zinc-300"
                 }`}
@@ -578,7 +865,7 @@ export function PrimaryBuyPanel({
             ))}
             <button
               type="button"
-              onClick={() => setAmountUsdc("")}
+              onClick={() => setAmountInput("")}
               className="min-h-[40px] rounded border border-[#1f1f23] px-3 py-2 text-[12px] text-zinc-400 hover:text-zinc-300 active:scale-[0.98]"
               title="Clear amount"
             >
@@ -587,15 +874,60 @@ export function PrimaryBuyPanel({
           </div>
         </div>
 
-        <label className="block text-[11px] text-zinc-400">
-          Max slippage (bps)
-          <input
-            type="number"
-            value={maxSlippageBps}
-            onChange={(e) => setMaxSlippageBps(Number(e.target.value))}
-            className={`${inputCls} font-num`}
-          />
-        </label>
+        <div>
+          <label className="block text-[11px] text-zinc-400">
+            Max slippage (bps)
+            <input
+              type="text"
+              inputMode="numeric"
+              autoComplete="off"
+              value={slippageInput}
+              onChange={(e) => setSlippageInput(e.target.value)}
+              aria-invalid={!slippageCheck.ok}
+              aria-describedby="slippage-help"
+              className={`${inputCls} font-num ${slippageCheck.ok ? "" : inputErrCls}`}
+            />
+          </label>
+          <p
+            id="slippage-help"
+            className={`mt-1 text-[10px] ${slippageCheck.ok ? "text-zinc-600" : "text-rose-300"}`}
+          >
+            {slippageCheck.ok
+              ? `${(slippageCheck.value / 100).toFixed(2)}% · whole bps, 0–${MAX_SLIPPAGE_BPS}`
+              : slippageCheck.error}
+          </p>
+        </div>
+
+        <details
+          className={`rounded-md border border-[#1f1f23] bg-[#0a0a0b] ${compact ? "" : "sm:col-span-2"}`}
+        >
+          <summary className="min-h-[36px] cursor-pointer px-2.5 py-2 text-[10px] uppercase tracking-wide text-zinc-500 hover:text-zinc-300">
+            Advanced
+          </summary>
+          <div className="border-t border-[#1f1f23] p-2.5">
+            <label className="block text-[11px] text-zinc-400">
+              Attribution reference (optional)
+              <input
+                value={attrRefInput}
+                onChange={(e) => setAttrRefInput(e.target.value)}
+                maxLength={128}
+                autoComplete="off"
+                spellCheck={false}
+                placeholder="e.g. campaign_q3"
+                aria-invalid={!attrCheck.ok}
+                aria-describedby="attr-ref-help"
+                className={`${inputCls} font-num ${attrCheck.ok ? "" : inputErrCls}`}
+              />
+            </label>
+            <p id="attr-ref-help" className="mt-1 text-[10px] leading-relaxed text-zinc-600">
+              User-supplied attribution metadata, not an authenticated identity.
+              Sent as Panta <span className="font-num">userId</span> on quote, build, and report.
+            </p>
+            {!attrCheck.ok && (
+              <p className="mt-1 text-[10px] text-rose-300">{attrCheck.error}</p>
+            )}
+          </div>
+        </details>
 
       </div>
 
@@ -604,7 +936,7 @@ export function PrimaryBuyPanel({
           <p className="text-[13px]">
             Pay{" "}
             <span className="font-num font-semibold text-cyan-300">
-              {quote.amountUsdc || amountUsdc} USDC
+              {quote.amountUsdc} USDC
             </span>{" "}
             → ~{quote.shares} {quote.side?.toUpperCase() || side.toUpperCase()} @{" "}
             <span className="font-num">{quote.avgPrice}</span>
@@ -616,7 +948,9 @@ export function PrimaryBuyPanel({
             </div>
             <div>
               <dt className="text-[10px] uppercase tracking-wide text-zinc-500">Slippage</dt>
-              <dd className="mt-0.5 font-num font-medium text-zinc-200">{maxSlippageBps} bps</dd>
+              <dd className="mt-0.5 font-num font-medium text-zinc-200">
+                {slippageCheck.ok ? `${slippageCheck.value} bps` : "—"}
+              </dd>
             </div>
             <div>
               <dt className="text-[10px] uppercase tracking-wide text-zinc-500">Expires</dt>
@@ -626,6 +960,157 @@ export function PrimaryBuyPanel({
             </div>
           </dl>
         </div>
+      )}
+
+      {build && (
+        <div
+          className={`mt-2 rounded-md border p-3 text-[12px] ${
+            ixCheck?.ok === false
+              ? "border-rose-500/30 bg-rose-500/[0.06]"
+              : "border-[#1f1f23] bg-[#0a0a0b]"
+          }`}
+          aria-label="Pre-sign summary"
+        >
+          <div className="mb-2 text-[10px] uppercase tracking-wide text-zinc-500">
+            Pre-sign summary
+          </div>
+          <dl className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-[11px] sm:grid-cols-3">
+            <div>
+              <dt className="text-[10px] text-zinc-500">Wallet</dt>
+              <dd className="font-num text-zinc-200">{shortAddr(publicKey?.toBase58(), 4)}</dd>
+            </div>
+            <div className="col-span-1 sm:col-span-2">
+              <dt className="text-[10px] text-zinc-500">Market</dt>
+              <dd className="truncate text-zinc-200" title={build.marketId}>
+                {selectedMarket && selectedMarket.marketId === build.marketId
+                  ? marketLabel(selectedMarket, { max: 64 })
+                  : shortAddr(build.marketId, 6)}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-[10px] text-zinc-500">Side</dt>
+              <dd
+                className={`font-semibold ${
+                  build.side?.toLowerCase() === "no" ? "text-rose-300" : "text-emerald-300"
+                }`}
+              >
+                {build.side?.toUpperCase() || "—"}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-[10px] text-zinc-500">Amount</dt>
+              <dd className="font-num text-zinc-200">{build.amountUsdc} USDC</dd>
+            </div>
+            <div>
+              <dt className="text-[10px] text-zinc-500">Fee</dt>
+              <dd className="font-num text-zinc-200">{build.feeUsdc} USDC</dd>
+            </div>
+            <div>
+              <dt className="text-[10px] text-zinc-500">Expected shares</dt>
+              <dd className="font-num text-zinc-200">{build.expectedShares}</dd>
+            </div>
+            <div className="col-span-2">
+              <dt className="text-[10px] text-zinc-500">Instructions</dt>
+              <dd className="text-zinc-300">
+                {ixCheck?.ok
+                  ? `${ixCheck.count} ix · ${ixCheck.programs.map(programLabel).join(", ")}`
+                  : `${build.instructions?.length ?? 0} ix`}
+              </dd>
+            </div>
+          </dl>
+          <p
+            className={`mt-2 text-[11px] ${ixCheck?.ok === false ? "text-rose-200" : "text-emerald-300/80"}`}
+            role={ixCheck?.ok === false ? "alert" : undefined}
+          >
+            {ixCheck?.ok === false
+              ? ixCheck.reason
+              : ixCheck?.ok
+                ? "Checked: fee payer and only signer is your wallet; every program is on the allowlist."
+                : "Pending instruction check."}
+          </p>
+        </div>
+      )}
+
+      {signature && (
+        <ul
+          className="mt-2 space-y-1 rounded-md border border-[#1f1f23] bg-[#0a0a0b] px-3 py-2 text-[11px]"
+          aria-label="Execution status"
+          aria-live="polite"
+        >
+          <li className="flex items-start justify-between gap-2">
+            <span className="text-zinc-500">On-chain</span>
+            <span
+              className={`text-right ${
+                txPhase === "confirmed"
+                  ? "text-emerald-300"
+                  : txPhase === "failed" || txPhase === "expired"
+                    ? "text-rose-300"
+                    : "text-amber-300"
+              }`}
+            >
+              {txPhase === "confirming"
+                ? "Confirming…"
+                : txPhase === "confirmed"
+                  ? "Confirmed"
+                  : txPhase === "expired"
+                    ? "Expired — did not land"
+                    : txPhase === "failed"
+                      ? "Failed on-chain"
+                      : txPhase === "pending"
+                        ? "Not confirmed yet"
+                        : "Broadcast"}
+            </span>
+          </li>
+          {txMessage && txPhase !== "confirmed" && (
+            <li className="text-[10px] leading-relaxed text-zinc-400">{txMessage}</li>
+          )}
+          <li className="flex items-start justify-between gap-2">
+            <span className="text-zinc-500">Panta verify</span>
+            <span
+              className={`text-right ${
+                verifyPhase === "confirmed"
+                  ? "text-emerald-300"
+                  : verifyPhase === "failed"
+                    ? "text-rose-300"
+                    : verifyPhase === "idle"
+                      ? "text-zinc-600"
+                      : "text-amber-300"
+              }`}
+            >
+              {verifyPhase === "polling"
+                ? `Polling${verifyStatus ? ` · ${verifyStatus}` : "…"}`
+                : verifyPhase === "confirmed"
+                  ? "Verified"
+                  : verifyPhase === "timeout"
+                    ? `Still pending after 30s${verifyStatus ? ` · ${verifyStatus}` : ""}`
+                    : verifyPhase === "failed"
+                      ? `Verification failed${verifyStatus ? ` · ${verifyStatus}` : ""}`
+                      : "Not requested"}
+            </span>
+          </li>
+          <li className="flex items-start justify-between gap-2">
+            <span className="text-zinc-500">Attribution</span>
+            <span
+              className={`text-right ${
+                attrPhase === "attributed"
+                  ? "text-emerald-300"
+                  : attrPhase === "idle"
+                    ? "text-zinc-600"
+                    : "text-amber-300"
+              }`}
+            >
+              {attrPhase === "reporting"
+                ? "Reporting…"
+                : attrPhase === "reported"
+                  ? "Trade reported for attribution · awaiting ledger"
+                  : attrPhase === "attributed"
+                    ? ledgerSeen
+                      ? "Attributed · in account ledger"
+                      : "Attributed"
+                    : "Not reported"}
+            </span>
+          </li>
+        </ul>
       )}
 
       {signature && (
@@ -686,19 +1171,19 @@ export function PrimaryBuyPanel({
         <div className={`mt-3 flex flex-col gap-1.5`}>
           <button
             type="button"
-            disabled={busy}
+            disabled={busy || !allInputsValid}
             onClick={() => void runGuided()}
             className={`w-full ${btnPrimary}`}
           >
             {busy && guidedPhase
               ? guidedPhase
-              : step >= 6
+              : step >= S.reported
                 ? "Buy again · Quote → Attribute"
-                : step >= 3 && !busy
-                  ? "Resume · Quote → Attribute"
+                : needsRestart
+                  ? "Start over · new quote"
                   : "Buy · Quote → Attribute"}
           </button>
-          {step >= 3 && step < 6 && signature && (
+          {canResume && (
             <button
               type="button"
               disabled={busy}
@@ -707,31 +1192,38 @@ export function PrimaryBuyPanel({
             >
               {busy && guidedPhase
                 ? guidedPhase
-                : "Retry Submit → Verify → Attr"}
+                : txPhase === "confirmed"
+                  ? "Retry Submit → Verify → Report"
+                  : "Check confirmation → Submit → Verify → Report"}
             </button>
           )}
         </div>
       ) : (
         <div className={`mt-3 flex flex-wrap gap-1.5 ${compact ? "flex-col" : ""}`}>
-          <button type="button" disabled={busy} onClick={() => void wrap(runQuote)()} className={btnPrimary}>
+          <button type="button" disabled={busy || !quoteInputsValid} onClick={() => void wrap(runQuote)()} className={btnPrimary}>
             1 · Quote
           </button>
-          <button type="button" disabled={busy || !quote} onClick={() => void wrap(runBuild)()} className={btnGhost}>
+          <button type="button" disabled={busy || !quote || !slippageCheck.ok} onClick={() => void wrap(() => runBuild())()} className={btnGhost}>
             2 · Build VT
           </button>
-          <button type="button" disabled={busy || !build} onClick={() => void wrap(runSignBroadcast)()} className={btnGhost}>
-            3 · Sign & send
+          <button type="button" disabled={busy || !build || ixCheck?.ok !== true} onClick={() => void wrap(() => runSignBroadcast())()} className={btnGhost}>
+            3 · Sign, send & confirm
           </button>
-          <button type="button" disabled={busy || !signature} onClick={() => void wrap(runSubmit)()} className={btnGhost}>
+          {signature && txPhase === "pending" && (
+            <button type="button" disabled={busy} onClick={() => void wrap(runCheckConfirmation)()} className={btnGhost}>
+              Check confirmation
+            </button>
+          )}
+          <button type="button" disabled={busy || !signature || txPhase !== "confirmed"} onClick={() => void wrap(() => runSubmit())()} className={btnGhost}>
             4 · Submit
           </button>
-          <button type="button" disabled={busy || !build} onClick={() => void wrap(runVerify)()} className={btnGhost}>
-            5 · Verify
+          <button type="button" disabled={busy || !build || !signature} onClick={() => void wrap(() => runVerify())()} className={btnGhost}>
+            5 · Verify (poll ≤30s)
           </button>
           <button
             type="button"
-            disabled={busy || !signature}
-            onClick={() => void wrap(runAttribute)()}
+            disabled={busy || !signature || txPhase !== "confirmed"}
+            onClick={() => void wrap(() => runAttribute())()}
             className="rounded-md border border-emerald-400/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-200 disabled:opacity-40"
           >
             6 · POST /trades/
@@ -739,9 +1231,15 @@ export function PrimaryBuyPanel({
         </div>
       )}
 
+      {connected && blockingHint && !busy && (
+        <p className="mt-1.5 text-[11px] text-zinc-500" role="status">
+          {blockingHint}
+        </p>
+      )}
+
       <details className={`mt-3 rounded-md border border-[#1f1f23] bg-[#0a0a0b] open:pb-0 ${compact ? "hidden sm:block" : ""}`}>
         <summary className="min-h-[40px] cursor-pointer px-2.5 py-2 text-[10px] uppercase tracking-wide text-zinc-600 hover:text-zinc-400">
-          Advanced / raw
+          Raw / debug
         </summary>
         <div className={`grid gap-2 border-t border-[#1f1f23] p-2.5 ${compact ? "" : "lg:grid-cols-2"}`}>
           {!compact && (
@@ -754,15 +1252,6 @@ export function PrimaryBuyPanel({
                   placeholder="Market public key"
                   aria-label="Paste market ID"
                   className={`${inputCls} font-num`}
-                />
-              </label>
-              <label className="block text-[11px] text-zinc-400">
-                Partner ref (optional)
-                <input
-                  value={userId}
-                  onChange={(e) => setUserId(e.target.value)}
-                  placeholder="Optional attribution tag"
-                  className={inputCls}
                 />
               </label>
             </div>

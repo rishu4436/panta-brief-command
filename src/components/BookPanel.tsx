@@ -7,13 +7,19 @@ import { useWalletModal } from "@solana/wallet-adapter-react-ui";
 import { pantaFetch } from "@/lib/api";
 import { describeErr } from "@/lib/errors";
 import { impliedSide, shortAddr } from "@/lib/format";
-import { instructionsToVersionedTx } from "@/lib/solana";
+import { assertFeePayer, validatePantaInstructions } from "@/lib/panta/instructions";
+import {
+  confirmSignature,
+  instructionsToVersionedTx,
+  resolveLastValidBlockHeight,
+} from "@/lib/solana";
 import type {
   ClaimBuildResponse,
   CreatorFeesClaimBuildResponse,
   MarketCatalogItem,
   PositionRow,
   PositionsResponse,
+  TradeReportResponse,
 } from "@/lib/types";
 import { Panel } from "./Panel";
 import { PhaseBadge } from "./PhaseBadge";
@@ -124,21 +130,37 @@ export function BookPanel() {
       if (!data.instructions?.length || !data.recentBlockhash) {
         throw new Error("Build returned no instructions");
       }
+      if (data.wallet && data.wallet !== publicKey.toBase58()) {
+        throw new Error("Claim build wallet does not match the connected wallet. Signing blocked.");
+      }
+      // Same pre-sign allowlist as primary buys (Panta USDC program + standard programs).
+      const check = validatePantaInstructions(data.instructions, publicKey);
+      if (!check.ok) throw new Error(check.reason);
+      const lvbh = await resolveLastValidBlockHeight(connection, data.lastValidBlockHeight);
       const tx = instructionsToVersionedTx(
         data.instructions,
         publicKey,
         data.recentBlockhash,
       );
+      assertFeePayer(tx, publicKey);
       const signed = await signTransaction(tx);
       const sig = await connection.sendRawTransaction(signed.serialize(), {
         skipPreflight: false,
         preflightCommitment: "confirmed",
       });
       setClaimSig(sig);
-      setClaimMsg(`Claim broadcast · ${shortAddr(sig, 6)}`);
+      setClaimMsg(`Claim broadcast · ${shortAddr(sig, 6)} · confirming…`);
+      const outcome = await confirmSignature(connection, sig, data.recentBlockhash, lvbh);
+      if (outcome.status !== "confirmed") {
+        setClaimMsg(`Claim broadcast · ${shortAddr(sig, 6)}`);
+        throw new Error(outcome.message);
+      }
+      setClaimMsg(`Claim confirmed · ${shortAddr(sig, 6)}`);
+      // Win claims may be reported for attribution; creator-fee claims must not
+      // be (docs: returns TX_MISMATCH).
       if (mode === "win") {
         try {
-          await pantaFetch("/trades/", {
+          const { data: rep } = await pantaFetch<TradeReportResponse>("/trades/", {
             method: "POST",
             body: {
               signature: sig,
@@ -146,9 +168,13 @@ export function BookPanel() {
               marketId: claimMarketId.trim(),
             },
           });
-          setClaimMsg((m) => `${m} · attributed`);
+          // `processed` = attribution stored (docs trades/report); anything else is only "reported".
+          const attributed = String(rep?.status || "").toLowerCase() === "processed";
+          setClaimMsg(
+            (m) => `${m} · ${attributed ? "attributed" : "reported for attribution"}`,
+          );
         } catch {
-          /* optional */
+          setClaimMsg((m) => `${m} · attribution report failed (claim itself confirmed)`);
         }
       }
       void load();

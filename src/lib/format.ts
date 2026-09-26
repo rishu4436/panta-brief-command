@@ -1,3 +1,6 @@
+import { marketVolumeUsdc, normalizePantaTrade } from "./panta/normalize";
+import type { CatalogTradeRow } from "./types";
+
 export function formatPrice(price: string | number | null | undefined): string {
   if (price === undefined || price === null || price === "") return "—";
   const n = typeof price === "string" ? Number(price) : price;
@@ -25,70 +28,36 @@ export function formatVolumeUsdc(
   return `${n.toLocaleString(undefined, { maximumFractionDigits: 2 })} USDC`;
 }
 
-/** Prefer volumeUsdc, then totalVolumeUsdc; zero → empty. */
+/**
+ * Prefer volumeUsdc, then totalVolumeUsdc; zero → empty.
+ * Units are decided by field name in src/lib/panta/normalize.ts (no magnitude guessing).
+ */
 export function catalogVolume(
   m: {
-    volumeUsdc?: string | number | null;
-    totalVolumeUsdc?: string | number | null;
+    volumeUsdc?: string | null;
+    totalVolumeUsdc?: string | null;
     volumeUsdcBase?: string | number | null;
     totalVolumeUsdcBase?: string | number | null;
   },
-): string | number | null {
-  const primary = m.volumeUsdc ?? m.totalVolumeUsdc;
-  if (primary !== undefined && primary !== null && primary !== "") {
-    const n = typeof primary === "string" ? Number(primary) : primary;
-    if (Number.isFinite(n) && n > 0) return primary;
-  }
-  const base = m.volumeUsdcBase ?? m.totalVolumeUsdcBase;
-  if (base !== undefined && base !== null && base !== "") {
-    const u = fromUsdcBase(base);
-    if (u != null && u > 0) return u;
-  }
-  return null;
-}
-
-/** USDC mint uses 6 decimals — convert raw base units when clearly base-scale. */
-export function fromUsdcBase(
-  v: string | number | null | undefined,
 ): number | null {
-  if (v === undefined || v === null || v === "") return null;
-  const n = typeof v === "string" ? Number(v) : v;
-  if (!Number.isFinite(n)) return null;
-  // Heuristic: values >= 1000 without a decimal are almost always micro-USDC
-  if (Math.abs(n) >= 1000 && Number.isInteger(n)) return n / 1_000_000;
-  return n;
+  return marketVolumeUsdc({
+    volumeUsdc: m.volumeUsdc ?? undefined,
+    totalVolumeUsdc: m.totalVolumeUsdc ?? undefined,
+    volumeUsdcBase: m.volumeUsdcBase ?? undefined,
+    totalVolumeUsdcBase: m.totalVolumeUsdcBase ?? undefined,
+  });
 }
 
-/** Human tape size: prefer amountUsdc, else base→USDC, else yes/no as shares/USDC. */
-export function formatTapeSize(t: {
-  amountUsdc?: string | number | null;
-  amountUsdcBase?: string | number | null;
-  yesAmount?: string | number | null;
-  noAmount?: string | number | null;
-}): string {
-  if (t.amountUsdc != null && t.amountUsdc !== "") {
-    const n = typeof t.amountUsdc === "string" ? Number(t.amountUsdc) : t.amountUsdc;
-    if (Number.isFinite(n) && n > 0) return formatVolumeUsdc(n);
-  }
-  if (t.amountUsdcBase != null && t.amountUsdcBase !== "") {
-    const u = fromUsdcBase(t.amountUsdcBase);
-    if (u != null && u > 0) return formatVolumeUsdc(u);
-  }
-  const yRaw = t.yesAmount;
-  const nRaw = t.noAmount;
-  const y = fromUsdcBase(yRaw);
-  const n = fromUsdcBase(nRaw);
-  const yHas = y != null && y > 0;
-  const nHas = n != null && n > 0;
-  if (yHas || nHas) {
-    const fmt = (v: number) =>
-      v.toLocaleString(undefined, { maximumFractionDigits: 2 });
-    if (yHas && !nHas) return `${fmt(y!)} YES`;
-    if (nHas && !yHas) return `${fmt(n!)} NO`;
-    return `Y ${fmt(y ?? 0)} / N ${fmt(n ?? 0)}`;
-  }
-  if (yRaw != null || nRaw != null) {
-    return `Y ${yRaw ?? "—"} / N ${nRaw ?? "—"}`;
+/**
+ * Human tape size via normalizePantaTrade(): USDC paid when the row carries it,
+ * else shares received (labelled by side). Never infers units from magnitude.
+ */
+export function formatTapeSize(t: CatalogTradeRow): string {
+  const n = normalizePantaTrade(t);
+  if (n.amountUsdc != null) return formatVolumeUsdc(n.amountUsdc);
+  if (n.shares != null) {
+    const qty = n.shares.toLocaleString(undefined, { maximumFractionDigits: 2 });
+    return n.side ? `${qty} ${n.side.toUpperCase()}` : `${qty} sh`;
   }
   return "—";
 }

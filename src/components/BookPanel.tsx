@@ -18,6 +18,11 @@ import {
 } from "@/lib/solana";
 import { Panel } from "./Panel";
 import { PhaseBadge } from "./PhaseBadge";
+import { StatusBadge } from "./ui/StatusBadge";
+import { EmptyState, ErrorState, SkeletonLoader } from "./ui/States";
+import { IconExternal, IconPortfolio, IconWallet } from "./ui/Icons";
+
+export type BookTab = "positions" | "claims";
 
 type ClaimMode = ClaimKind;
 /**
@@ -56,7 +61,7 @@ const CLAIM_ATTR_COPY: Record<Exclude<ClaimAttr, "idle">, { label: string; cls: 
   },
 };
 
-export function BookPanel() {
+export function BookPanel({ tab, onTabChange }: { tab: BookTab; onTabChange: (t: BookTab) => void }) {
   const { publicKey, signTransaction, connected } = useWallet();
   const { connection } = useConnection();
   const { setVisible } = useWalletModal();
@@ -83,6 +88,7 @@ export function BookPanel() {
   const [mode, setMode] = useState<ClaimMode>("win");
   const [claimAttr, setClaimAttr] = useState<ClaimAttr>("idle");
   const [claimMarketId, setClaimMarketId] = useState("");
+  const [claimPhase, setClaimPhase] = useState<"idle" | "confirming" | "pending" | "confirmed" | "failed">("idle");
 
   const fillClaim = (marketId: string) => {
     setClaimMarketId(marketId);
@@ -91,6 +97,7 @@ export function BookPanel() {
     setClaimMsg(null);
     setClaimSig(null);
     setClaimAttr("idle");
+    onTabChange("claims");
     requestAnimationFrame(() => {
       ticketRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
     });
@@ -118,6 +125,7 @@ export function BookPanel() {
     setClaimMsg(null);
     setClaimSig(null);
     setClaimAttr("idle");
+    setClaimPhase("idle");
     try {
       if (!publicKey || !signTransaction) {
         throw new Error("Connect a signing wallet");
@@ -150,12 +158,15 @@ export function BookPanel() {
         preflightCommitment: "confirmed",
       });
       setClaimSig(sig);
+      setClaimPhase("confirming");
       setClaimMsg(`Claim broadcast · ${shortAddr(sig, 6)} · confirming…`);
       const outcome = await confirmSignature(connection, sig, data.recentBlockhash, lvbh);
       if (outcome.status !== "confirmed") {
+        setClaimPhase(outcome.status === "pending" ? "pending" : "failed");
         setClaimMsg(`Claim broadcast · ${shortAddr(sig, 6)}`);
         throw new Error(outcome.message);
       }
+      setClaimPhase("confirmed");
       setClaimMsg(`Claim confirmed · ${shortAddr(sig, 6)}`);
       // Win claims are reported for attribution; creator-fee claims must not
       // be (docs: POST /trades/ returns TX_MISMATCH), so they stay unattributed.
@@ -185,281 +196,251 @@ export function BookPanel() {
     }
   };
 
-  return (
-    <div className="grid gap-3 lg:grid-cols-5 animate-fade-in">
-      <div className="lg:col-span-3">
-        <Panel
-          title="Positions"
-          flush
-          action={
-            <button
-              type="button"
-              disabled={busy || !connected}
-              onClick={load}
-              className="mr-3.5 rounded-md border border-line bg-inset px-2 py-1 text-[11px] text-zinc-400 hover:text-zinc-200 active:scale-[0.98] disabled:opacity-40"
-            >
-              {busy ? "Loading…" : "Refresh"}
-            </button>
-          }
-        >
-          {!connected && (
-            <div className="flex flex-col items-start gap-3 px-3.5 py-8">
-              <p className="text-sm text-zinc-400">
-                Connect a wallet to query positions.
-              </p>
-              <button
-                type="button"
-                onClick={() => setVisible(true)}
-                className="rounded-md bg-cyan-400 px-3.5 py-2 text-[12px] font-semibold text-bg transition hover:bg-cyan-300 active:scale-[0.98]"
-              >
-                Connect wallet
-              </button>
-            </div>
-          )}
-          {error && (
-            <div className="mx-3.5 mt-3 rounded-md border border-rose-500/25 bg-rose-500/10 px-3 py-2 text-sm text-rose-200">
-              {error}
-            </div>
-          )}
-          {connected && busy && positions.length === 0 && (
-            <div className="space-y-2 p-3.5">
-              {Array.from({ length: 4 }).map((_, i) => (
-                <div key={i} className="skeleton h-10 w-full" />
-              ))}
-            </div>
-          )}
-          {connected && (positions.length > 0 || (!busy && positions.length === 0)) ? (
-          <div className="overflow-x-auto">
-            {positions.length > 0 ? (
-            <table className="w-full text-left text-sm">
-              <thead className="type-col">
-                <tr className="border-b border-line">
-                  <th scope="col" className="px-3.5 py-2 font-medium">
-                    Market
-                  </th>
-                  <th scope="col" className="px-3 py-2 font-medium">
-                    Side
-                  </th>
-                  <th scope="col" className="px-3 py-2 font-medium">
-                    Shares
-                  </th>
-                  <th
-                    scope="col"
-                    className="px-3 py-2 font-medium"
-                    title="Mark (spot × shares · not P&L)"
-                  >
-                    Mark
-                  </th>
-                  <th scope="col" className="px-3 py-2 font-medium">
-                    Outcome
-                  </th>
-                  <th scope="col" className="px-3 py-2 font-medium">
-                    Phase
-                  </th>
-                  <th scope="col" className="px-3 py-2 font-medium">
-                    Claim
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {positions.map((p, i) => {
-                  const claimable = Boolean(p.claimable && !p.claimed);
-                  return (
-                    <tr
-                      key={`${p.marketId}-${p.side}-${i}`}
-                      className={`border-t border-line transition-colors hover:bg-elevated ${
-                        claimable
-                          ? "border-l-2 border-l-emerald-400/70 bg-emerald-500/[0.04]"
-                          : ""
-                      }`}
-                    >
-                      <td className="px-3.5 py-2.5">
-                        <div className="font-medium text-zinc-200">
-                          {p.title || shortAddr(p.marketId, 5)}
-                        </div>
-                      </td>
-                      <td
-                        className={`px-3 py-2.5 font-num text-xs uppercase ${
-                          p.side === "yes"
-                            ? "text-emerald-400"
-                            : p.side === "no"
-                              ? "text-rose-400"
-                              : "text-zinc-400"
-                        }`}
-                      >
-                        {p.side ?? "—"}
-                      </td>
-                      <td className="px-3 py-2.5 font-num text-zinc-300">
-                        {p.shares}
-                      </td>
-                      <td className="px-3 py-2.5 font-num text-xs text-zinc-400">
-                        {(() => {
-                          const px = priceByMarket[p.marketId];
-                          if (!px) return <span className="text-zinc-600">···</span>;
-                          const price = p.side === "yes" ? px.yes : p.side === "no" ? px.no : null;
-                          const shares = p.sharesNum ?? NaN;
-                          const pr = price != null && price !== "" ? Number(price) : NaN;
-                          if (!Number.isFinite(shares) || !Number.isFinite(pr)) {
-                            return <span className="text-zinc-600">—</span>;
-                          }
-                          const notional = shares * pr;
-                          return (
-                            <span title={`shares × ${pr.toFixed(4)}`}>
-                              {notional.toLocaleString(undefined, {
-                                maximumFractionDigits: 2,
-                              })}{" "}
-                              USDC
-                            </span>
-                          );
-                        })()}
-                      </td>
-                      <td className="px-3 py-2.5 font-num text-xs text-zinc-500">
-                        {p.outcome || "—"}
-                      </td>
-                      <td className="px-3 py-2.5">
-                        <PhaseBadge phase={p.phase} />
-                      </td>
-                      <td className="px-3 py-2.5 text-xs">
-                        {p.claimed ? (
-                          <span className="text-zinc-500">Claimed</span>
-                        ) : claimable ? (
-                          <div className="flex flex-col items-start gap-1">
-                            <span className="text-[10px] font-medium uppercase tracking-wide text-emerald-400/80">
-                              Claimable
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => fillClaim(p.marketId)}
-                              className="rounded-md border border-emerald-400/40 bg-emerald-500/15 px-2 py-1 text-[11px] font-semibold text-emerald-300 transition hover:bg-emerald-500/25 active:scale-[0.98]"
-                            >
-                              Claim
-                            </button>
-                          </div>
-                        ) : (
-                          <span className="text-zinc-500">Open</span>
-                        )}
-                      </td>
+  const claimRows = positions.filter((p) => p.claimable || p.claimed);
+
+  const notConnected = (
+    <EmptyState
+      icon={<IconWallet className="h-5 w-5" />}
+      title="Connect a wallet to see your book"
+      description="Positions and claims are read for the connected Solana wallet. Nothing is signed until you approve it."
+      action={
+        <button type="button" onClick={() => setVisible(true)} className="btn btn-primary">
+          Connect Wallet
+        </button>
+      }
+    />
+  );
+
+  const errorBox = error ? (
+    <ErrorState
+      className="m-4"
+      title="Couldn't load positions"
+      description={`${error}. Panta may be busy; try again in a moment.`}
+      onRetry={load}
+    />
+  ) : null;
+
+  const refresh = (
+    <button type="button" disabled={busy || !connected} onClick={load} className="btn btn-ghost btn-sm mr-2">
+      {busy ? "Loading…" : "Refresh"}
+    </button>
+  );
+
+  const statusFor = (p: (typeof positions)[number]) =>
+    p.claimed ? (
+      <StatusBadge tone="success" size="xs">
+        Claimed
+      </StatusBadge>
+    ) : p.claimable ? (
+      <StatusBadge tone="live" size="xs">
+        Claimable
+      </StatusBadge>
+    ) : (
+      <PhaseBadge phase={p.phase} />
+    );
+
+  if (tab === "positions") {
+    return (
+      <Panel title="Positions" icon={<IconPortfolio className="h-4 w-4" />} flush action={refresh}>
+        {!connected ? (
+          notConnected
+        ) : (
+          <>
+            {errorBox}
+            {busy && positions.length === 0 ? (
+              <SkeletonLoader rows={4} className="p-4" label="Loading positions" />
+            ) : positions.length === 0 && !error ? (
+              <EmptyState
+                title="No positions yet"
+                description="Buys you make on the desk appear here once Panta records them."
+                action={
+                  <Link href="/desk" className="btn btn-primary">
+                    Browse markets
+                  </Link>
+                }
+              />
+            ) : positions.length > 0 ? (
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[640px] text-left text-[13px]">
+                  <thead className="type-col">
+                    <tr className="border-b border-line">
+                      <th scope="col" className="px-4 py-2.5 font-medium">Market</th>
+                      <th scope="col" className="px-3 py-2.5 font-medium">Side</th>
+                      <th scope="col" className="px-3 py-2.5 font-medium">Shares</th>
+                      <th scope="col" className="px-3 py-2.5 font-medium" title="Spot price × shares. Not P&L.">
+                        Mark value
+                      </th>
+                      <th scope="col" className="px-3 py-2.5 font-medium">Outcome</th>
+                      <th scope="col" className="px-3 py-2.5 font-medium">Status</th>
+                      <th scope="col" className="px-4 py-2.5 text-right font-medium">Action</th>
                     </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-            ) : !busy ? (
-              <div className="px-3.5 py-12 text-center text-sm text-zinc-600">
-                <p className="text-zinc-400">No positions yet</p>
-                <p className="mt-1 text-[11px] text-zinc-500">
-                  Primary buys land here after attribute
+                  </thead>
+                  <tbody>
+                    {positions.map((p, i) => {
+                      const claimable = Boolean(p.claimable && !p.claimed);
+                      const px = priceByMarket[p.marketId];
+                      const price = px ? (p.side === "yes" ? px.yes : p.side === "no" ? px.no : null) : null;
+                      const shares = p.sharesNum ?? NaN;
+                      const pr = price != null && price !== "" ? Number(price) : NaN;
+                      const mark = Number.isFinite(shares) && Number.isFinite(pr) ? shares * pr : null;
+                      return (
+                        <tr key={`${p.marketId}-${p.side}-${i}`} className="border-t border-line transition-colors hover:bg-elevated/60">
+                          <td className="px-4 py-3">
+                            <Link href={`/markets/${p.marketId}`} className="font-medium text-ink hover:text-cyan-200">
+                              {p.title || shortAddr(p.marketId, 5)}
+                            </Link>
+                          </td>
+                          <td className={`px-3 py-3 font-semibold uppercase ${p.side === "yes" ? "text-emerald-300" : p.side === "no" ? "text-rose-300" : "text-ink-3"}`}>
+                            {p.side ?? "—"}
+                          </td>
+                          <td className="font-num px-3 py-3 text-ink-2">{p.shares}</td>
+                          <td className="font-num px-3 py-3 text-ink-2">
+                            {!px ? (
+                              <span className="text-ink-3">…</span>
+                            ) : mark == null ? (
+                              <span className="text-ink-3">—</span>
+                            ) : (
+                              <span title={`shares × ${pr.toFixed(4)}`}>{mark.toLocaleString(undefined, { maximumFractionDigits: 2 })} USDC</span>
+                            )}
+                          </td>
+                          <td className="font-num px-3 py-3 text-ink-3">{p.outcome || "—"}</td>
+                          <td className="px-3 py-3">{statusFor(p)}</td>
+                          <td className="px-4 py-3 text-right">
+                            {claimable ? (
+                              <button type="button" onClick={() => fillClaim(p.marketId)} className="btn btn-secondary btn-sm">
+                                Claim
+                              </button>
+                            ) : (
+                              <span className="text-ink-3">—</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+                <p className="border-t border-line px-4 py-2.5 text-[11px] text-ink-3">
+                  Mark value = spot price × shares, not profit and loss.
                 </p>
-                <Link
-                  href="/desk"
-                  className="mt-3 inline-flex items-center rounded-md bg-cyan-400 px-3 py-1.5 text-[12px] font-semibold text-bg transition hover:bg-cyan-300"
-                >
-                  Browse desk →
-                </Link>
               </div>
             ) : null}
-          </div>
-          ) : null}
-        </Panel>
-      </div>
+          </>
+        )}
+      </Panel>
+    );
+  }
 
-      <div className="lg:col-span-2" ref={ticketRef}>
+  return (
+    <div className="grid gap-4 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)] lg:items-start">
+      <Panel title="Claims" flush action={refresh}>
+        {!connected ? (
+          notConnected
+        ) : (
+          <>
+            {errorBox}
+            {busy && positions.length === 0 ? (
+              <SkeletonLoader rows={3} className="p-4" label="Loading claims" />
+            ) : claimRows.length === 0 && !error ? (
+              <EmptyState
+                title="Nothing to claim yet"
+                description="When a market you hold resolves in your favour, the position shows up here as Claimable."
+              />
+            ) : (
+              <ul className="divide-y divide-line">
+                {claimRows.map((p, i) => (
+                  <li key={`${p.marketId}-${i}`} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+                    <div className="min-w-0">
+                      <p className="truncate text-[13px] font-medium text-ink">{p.title || shortAddr(p.marketId, 5)}</p>
+                      <p className="font-num mt-0.5 text-[12px] text-ink-3">
+                        <span className={p.side === "yes" ? "text-emerald-300" : "text-rose-300"}>{(p.side || "").toUpperCase() || "—"}</span> ·{" "}
+                        {p.shares} shares
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {statusFor(p)}
+                      {p.claimable && !p.claimed ? (
+                        <button type="button" onClick={() => fillClaim(p.marketId)} className="btn btn-secondary btn-sm">
+                          Claim
+                        </button>
+                      ) : null}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </>
+        )}
+      </Panel>
+
+      <div ref={ticketRef} className="scroll-mt-20">
         <Panel title="Claim ticket">
-          <div className="mb-3 flex gap-1.5">
-            <button
-              type="button"
-              aria-pressed={mode === "win"}
-              onClick={() => setMode("win")}
-              className={`flex-1 rounded-md px-3 py-1.5 text-xs font-semibold transition active:scale-[0.98] ${
-                mode === "win"
-                  ? "bg-cyan-400 text-bg"
-                  : "border border-line text-zinc-500 hover:text-zinc-300"
-              }`}
-            >
+          <div className="segmented flex w-full" role="group" aria-label="Claim type">
+            <button type="button" className="flex-1" aria-pressed={mode === "win"} onClick={() => setMode("win")}>
               Win claim
             </button>
-            <button
-              type="button"
-              aria-pressed={mode === "creator-fees"}
-              onClick={() => setMode("creator-fees")}
-              className={`flex-1 rounded-md px-3 py-1.5 text-xs font-semibold transition active:scale-[0.98] ${
-                mode === "creator-fees"
-                  ? "bg-cyan-400 text-bg"
-                  : "border border-line text-zinc-500 hover:text-zinc-300"
-              }`}
-            >
+            <button type="button" className="flex-1" aria-pressed={mode === "creator-fees"} onClick={() => setMode("creator-fees")}>
               Creator fees
             </button>
           </div>
-          <p className="type-meta mb-3 rounded-md border border-line bg-inset px-2.5 py-2 leading-relaxed">
+          <p className="mt-3 rounded-xl border border-line bg-inset px-3 py-2.5 text-[12px] leading-relaxed text-ink-3">
             {mode === "win" ? (
               <>
-                <span className="text-zinc-300">Win claims are reported for attribution.</span> After
-                the claim confirms, the desk reports it with POST /trades/. It reads{" "}
-                <span className="text-zinc-300">reported</span> until Panta returns{" "}
-                <span className="font-num">processed</span> or the claim appears in
-                /account/trades/, then <span className="text-cyan-300">attributed</span>.
+                <span className="text-ink-2">Win claims are reported for attribution.</span> After the claim confirms, the
+                desk reports it with POST /trades/. It reads <span className="text-ink-2">reported</span> until Panta returns{" "}
+                <span className="font-addr">processed</span> or the claim appears in /account/trades/, then{" "}
+                <span className="text-cyan-300">attributed</span>.
               </>
             ) : (
               <>
-                <span className="text-zinc-300">Creator-fee claims are not attributed.</span> Panta
-                does not accept them on POST /trades/ (TX_MISMATCH), so the desk does not report
-                them and they will not appear in Activity.
+                <span className="text-ink-2">Creator-fee claims are not attributed.</span> Panta does not accept them on POST
+                /trades/ (TX_MISMATCH), so the desk does not report them and they will not appear in Activity.
               </>
             )}
           </p>
-          <label className="block text-[11px] text-zinc-500">
+          <label className="mt-3 block text-[12px] text-ink-3">
             Market ID
-            <input
-              value={claimMarketId}
-              onChange={(e) => setClaimMarketId(e.target.value)}
-              className="mt-1 w-full rounded-md border border-line bg-inset px-3 py-2 text-sm outline-none focus:border-cyan-400/40"
-            />
+            <input value={claimMarketId} onChange={(e) => setClaimMarketId(e.target.value)} className="field mt-1 font-addr" placeholder="Pick Claim on a position, or paste an ID" />
           </label>
           {claimError && (
-            <div className="mt-3 rounded-md border border-rose-500/25 bg-rose-500/10 px-3 py-2 text-sm text-rose-200">
+            <div role="alert" className="mt-3 rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2.5 text-[13px] text-rose-100">
               {claimError}
             </div>
           )}
           {claimMsg && (
-            <div className="mt-3 break-all rounded-md border border-emerald-500/25 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-200 animate-fade-in">
-              {claimMsg}
-              {claimSig && (
-                <a
-                  href={`https://solscan.io/tx/${claimSig}`}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="mt-1 block text-cyan-300 hover:underline"
+            <div className="mt-3 space-y-2 rounded-xl border border-line bg-inset px-3 py-2.5 text-[13px] animate-fade-in" aria-live="polite">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-ink-2">Transaction</span>
+                <StatusBadge
+                  tone={claimPhase === "confirmed" ? "success" : claimPhase === "failed" ? "error" : "pending"}
+                  size="xs"
                 >
-                  View on Solscan →
+                  {claimPhase === "confirmed" ? "Confirmed" : claimPhase === "failed" ? "Failed" : claimPhase === "pending" ? "Pending" : "Submitted"}
+                </StatusBadge>
+              </div>
+              <p className="break-all text-[12px] text-ink-3">{claimMsg}</p>
+              {claimSig && (
+                <a href={`https://solscan.io/tx/${claimSig}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[12px] text-cyan-300 hover:underline">
+                  View on Solscan <IconExternal className="h-3 w-3" />
                 </a>
               )}
               {claimAttr !== "idle" && (
-                <span
-                  className={`mt-1.5 block border-t border-emerald-500/15 pt-1.5 text-xs ${CLAIM_ATTR_COPY[claimAttr].cls}`}
-                  role="status"
-                >
+                <p className={`border-t border-line pt-2 text-[12px] ${CLAIM_ATTR_COPY[claimAttr].cls}`} role="status">
+                  <span className="text-ink-3">Attribution: </span>
                   {CLAIM_ATTR_COPY[claimAttr].label}
-                </span>
+                </p>
               )}
             </div>
           )}
-          <button
-            type="button"
-            disabled={claimBusy || !connected || !claimMarketId.trim()}
-            onClick={() => void runClaim()}
-            className={`mt-4 w-full rounded-md py-2.5 text-sm font-semibold transition active:scale-[0.98] ${
-              claimBusy || !connected || !claimMarketId.trim()
-                ? "cursor-not-allowed border border-line bg-elevated text-zinc-500"
-                : "bg-cyan-400 text-bg hover:bg-cyan-300"
-            }`}
-          >
-            {!connected
-              ? "Connect wallet to claim"
-              : claimBusy
-                ? "Building…"
-                : "Build · sign · broadcast"}
-          </button>
+          {!connected ? (
+            <button type="button" onClick={() => setVisible(true)} className="btn btn-primary btn-lg mt-4 w-full">
+              Connect Wallet to claim
+            </button>
+          ) : (
+            <button type="button" disabled={claimBusy || !claimMarketId.trim()} onClick={() => void runClaim()} className="btn btn-primary btn-lg mt-4 w-full">
+              {claimBusy ? "Building & waiting for wallet…" : "Build, sign & broadcast claim"}
+            </button>
+          )}
+          <p className="mt-2 text-[11px] text-ink-3">Your wallet signs the claim. Instructions are checked against the allowlist first.</p>
         </Panel>
       </div>
     </div>

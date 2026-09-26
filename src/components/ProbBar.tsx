@@ -150,16 +150,15 @@ export function DualSideHero({
           </div>
         </div>
       </div>
-      <div className="mt-3 flex h-2 w-full overflow-hidden rounded-full bg-line">
-        <div
-          className="h-full bg-emerald-500 transition-all duration-500"
-          style={{ width: `${yW}%` }}
-        />
-        <div
-          className="h-full bg-rose-500 transition-all duration-500"
-          style={{ width: `${nW}%` }}
-        />
-      </div>
+      {y === null && n === null ? (
+        // No price: a neutral track, never a fake 50/50 split.
+        <div className="mt-3 h-2 w-full rounded-full bg-line" aria-hidden="true" />
+      ) : (
+        <div className="mt-3 flex h-2 w-full overflow-hidden rounded-full bg-line" aria-hidden="true">
+          <div className="h-full bg-emerald-500 transition-all duration-500" style={{ width: `${yW}%` }} />
+          <div className="h-full bg-rose-500 transition-all duration-500" style={{ width: `${nW}%` }} />
+        </div>
+      )}
     </div>
   );
 }

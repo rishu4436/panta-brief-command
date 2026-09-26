@@ -6,6 +6,8 @@ import { useAccountTrades } from "@/lib/data/hooks";
 import { describeErr } from "@/lib/errors";
 import { formatVolumeUsdc, shortAddr } from "@/lib/format";
 import { Panel } from "./Panel";
+import { StatusBadge } from "./ui/StatusBadge";
+import { EmptyState, ErrorState, SkeletonLoader } from "./ui/States";
 
 function formatCreatedAt(iso?: string | null): string {
   if (!iso) return "—";
@@ -62,11 +64,12 @@ export function AttributedTrades({
 
   return (
     <Panel
-      title="Activity · attributed trades"
+      title="Activity"
+      subtitle="Attributed trades"
       flush
       action={
-        <div className="mr-3.5 flex items-center gap-1.5">
-          <div className="inline-flex rounded-md border border-line bg-inset p-0.5">
+        <div className="mr-2 flex items-center gap-1.5">
+          <div className="segmented" role="group" aria-label="Filter activity">
             {(
               [
                 ["", "All"],
@@ -79,9 +82,6 @@ export function AttributedTrades({
                 type="button"
                 aria-pressed={kind === v}
                 onClick={() => setKind(v)}
-                className={`rounded px-2 py-0.5 text-[10px] ${
-                  kind === v ? "bg-elevated text-zinc-100" : "text-zinc-500"
-                }`}
               >
                 {label}
               </button>
@@ -91,16 +91,17 @@ export function AttributedTrades({
             type="button"
             disabled={busy}
             onClick={load}
-            className="rounded-md border border-line bg-inset px-2 py-1 text-[11px] text-zinc-400 hover:text-zinc-200 active:scale-[0.98] disabled:opacity-40"
+            className="btn btn-ghost btn-sm"
           >
-            {busy ? "…" : "Refresh"}
+            {busy ? "Loading…" : "Refresh"}
           </button>
         </div>
       }
     >
       <div className="border-b border-line px-3.5 py-2">
         <p className="type-meta">
-          GET /account/trades/ · partner attribution for this API key
+          Trades Panta has attributed to this app (GET /account/trades/). A transaction can be confirmed on Solana before
+          it shows here.
         </p>
         {summary && (
           <div className="mt-2 flex flex-wrap gap-1.5">
@@ -127,9 +128,12 @@ export function AttributedTrades({
       </div>
 
       {error && (
-        <div className="mx-3.5 mt-3 rounded-md border border-rose-500/25 bg-rose-500/10 px-3 py-2 text-sm text-rose-200">
-          {error}
-        </div>
+        <ErrorState
+          className="m-4"
+          title="Couldn't load activity"
+          description={`${error}. The attribution ledger may be busy; try again.`}
+          onRetry={load}
+        />
       )}
 
       <div className="overflow-x-auto">
@@ -152,6 +156,9 @@ export function AttributedTrades({
               </th>
               <th scope="col" className="px-3 py-2 font-medium">
                 Signature
+              </th>
+              <th scope="col" className="px-3 py-2 font-medium">
+                Attribution
               </th>
               <th scope="col" className="px-3 py-2 font-medium">
                 Time
@@ -215,6 +222,11 @@ export function AttributedTrades({
                     <span className="text-zinc-600">—</span>
                   )}
                 </td>
+                <td className="px-3 py-2.5">
+                  <StatusBadge tone="success" size="xs" title="Listed in Panta's attribution ledger">
+                    Verified
+                  </StatusBadge>
+                </td>
                 <td className="px-3 py-2.5 font-num text-[11px] text-zinc-500">
                   {formatCreatedAt(row.createdAt)} IST
                 </td>
@@ -222,33 +234,23 @@ export function AttributedTrades({
             ))}
             {!busy && !error && items.length === 0 && (
               <tr>
-                <td
-                  colSpan={compact ? 5 : 6}
-                  className="px-3.5 py-12 text-center text-sm text-zinc-600"
-                >
-                  <p className="text-zinc-400">
-                    Book is calm — no attributed fills yet
-                  </p>
-                  <p className="mt-1 text-[11px] text-zinc-500">
-                    Guided execute → Finish attribution (POST /trades/) lands buys
-                    and claims here. Empty is honest until a live fill.
-                  </p>
-                  <Link
-                    href="/execute"
-                    className="mt-3 inline-flex items-center rounded-md bg-cyan-400 px-3 py-1.5 text-[12px] font-semibold text-bg transition hover:bg-cyan-300"
-                  >
-                    Open execute →
-                  </Link>
+                <td colSpan={compact ? 6 : 7}>
+                  <EmptyState
+                    title="No attributed trades yet"
+                    description="Buys and win claims appear here after Panta attributes them. Until then they show as reported on the ticket."
+                    action={
+                      <Link href="/desk" className="btn btn-primary btn-sm">
+                        Browse markets
+                      </Link>
+                    }
+                  />
                 </td>
               </tr>
             )}
             {busy && items.length === 0 && (
               <tr>
-                <td colSpan={compact ? 5 : 6} className="px-3.5 py-8">
-                  <div className="space-y-2">
-                    <div className="skeleton h-4 w-full max-w-md" />
-                    <div className="skeleton h-4 w-2/3 max-w-sm" />
-                  </div>
+                <td colSpan={compact ? 6 : 7}>
+                  <SkeletonLoader rows={3} className="p-4" label="Loading activity" />
                 </td>
               </tr>
             )}

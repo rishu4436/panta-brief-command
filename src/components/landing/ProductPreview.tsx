@@ -103,10 +103,10 @@ export function ProductPreview({ className = "" }: { className?: string }) {
               </div>
             </div>
             <div className="mt-2 flex items-center justify-between">
-              <p className="text-[9px] font-medium text-ink-2">Cumulative flow · YES share</p>
+              <p className="text-[9px] font-medium text-ink-2">Market activity · YES share of flow</p>
               <div className="flex gap-0.5 rounded-md border border-line p-0.5 text-[8px] text-ink-3">
-                <span className="rounded px-1">10</span>
-                <span className="rounded px-1">25</span>
+                <span className="rounded px-1">Last 10</span>
+                <span className="rounded px-1">Last 25</span>
                 <span className="rounded bg-elevated px-1 text-ink">All</span>
               </div>
             </div>

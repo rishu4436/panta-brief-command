@@ -21,6 +21,8 @@ import { DualSideHero } from "./ProbBar";
 import { PrimaryBuyPanel } from "./PrimaryBuyPanel";
 import { TapeSparkline } from "./TapeSparkline";
 import { TradeTape } from "./TradeTape";
+import { MarketSidebar } from "./MarketSidebar";
+import { ErrorState } from "./ui/States";
 import { WatchStar } from "./WatchStar";
 
 function formatEnd(ts?: number | null): string {
@@ -48,17 +50,19 @@ function formatUpdated(ts: number | null): string {
 
 function DetailSkeleton() {
   return (
-    <div className="grid gap-3 lg:grid-cols-12">
-      <div className="space-y-3 lg:col-span-3">
-        <div className="skeleton h-40 w-full rounded-lg" />
-        <div className="skeleton h-56 w-full rounded-lg" />
+    <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_380px] xl:grid-cols-[260px_minmax(0,1fr)_400px]">
+      <div className="hidden xl:block">
+        <div className="skeleton h-[520px] w-full rounded-2xl" />
       </div>
-      <div className="space-y-3 lg:col-span-5">
-        <div className="skeleton h-36 w-full rounded-lg" />
-        <div className="skeleton h-72 w-full rounded-lg" />
+      <div className="space-y-4">
+        <div className="skeleton h-5 w-24" />
+        <div className="skeleton h-8 w-3/4" />
+        <div className="skeleton h-40 w-full rounded-2xl" />
+        <div className="skeleton h-64 w-full rounded-2xl" />
       </div>
-      <div className="lg:col-span-4">
-        <div className="skeleton h-[420px] w-full rounded-lg" />
+      <div className="space-y-4">
+        <div className="skeleton h-[360px] w-full rounded-2xl" />
+        <div className="skeleton h-[300px] w-full rounded-2xl" />
       </div>
     </div>
   );
@@ -89,9 +93,7 @@ export function MarketDetail({ marketId }: { marketId: string }) {
 
   if (busy && !market) {
     return (
-      <div className="space-y-3 animate-fade-in">
-        <div className="skeleton h-4 w-32" />
-        <div className="skeleton h-7 w-2/3 max-w-xl" />
+      <div className="animate-fade-in" role="status" aria-label="Loading market">
         <DetailSkeleton />
       </div>
     );
@@ -99,27 +101,21 @@ export function MarketDetail({ marketId }: { marketId: string }) {
 
   if (error && !market) {
     return (
-      <Panel>
-        <p className="text-sm text-rose-300">{error}</p>
-        <p className="mt-2 font-num text-[11px] text-zinc-500 break-all">
-          marketId: {marketId}
-        </p>
-        <div className="mt-3 flex flex-wrap gap-3">
-          <button
-            type="button"
-            onClick={load}
-            className="text-sm text-cyan-400 hover:text-cyan-300"
-          >
-            Retry
-          </button>
-          <Link
-            href="/desk"
-            className="text-sm text-cyan-400 hover:text-cyan-300"
-          >
-            ← Back to desk
-          </Link>
-        </div>
-      </Panel>
+      <div className="mx-auto max-w-xl py-10">
+        <ErrorState
+          title="Couldn't load this market"
+          description={
+            <>
+              {error}. Check the link or try again.
+              <span className="mt-1 block break-all font-addr text-[11px] opacity-70">marketId: {marketId}</span>
+            </>
+          }
+          onRetry={load}
+        />
+        <Link href="/desk" className="btn btn-ghost mt-3">
+          ← Back to markets
+        </Link>
+      </div>
     );
   }
 
@@ -134,161 +130,135 @@ export function MarketDetail({ marketId }: { marketId: string }) {
     desc.slice(0, 80).toLowerCase() === heading.slice(0, 80).toLowerCase();
   const showDesc = desc && !descIsDupe;
 
+  const vol = formatVolumeUsdc(catalogVolume(market));
+
   return (
-    <div className="space-y-4 animate-fade-in">
-      <div>
-        <Link href="/desk" className="type-back transition">
-          ← Desk
-        </Link>
-        <div className="mt-2 flex flex-wrap items-start justify-between gap-3">
-          <div className="min-w-0 flex-1">
-            <div className="flex items-start gap-2">
-              <h1
-                className={`type-display min-w-0 flex-1 break-words ${
-                  isUntitledMarket(market) ? "market-title--untitled" : ""
-                }`}
-              >
-                {heading}
-              </h1>
-              <WatchStar marketId={market.marketId} />
-              <button
-                type="button"
-                onClick={async () => {
-                  try {
-                    const url = typeof window !== "undefined" ? window.location.href : "";
-                    await navigator.clipboard.writeText(url);
-                    setCopied(true);
-                    setTimeout(() => setCopied(false), 2000);
-                  } catch {
-                    /* ignore */
-                  }
-                }}
-                className="min-h-[32px] shrink-0 rounded-md border border-line bg-surface px-2.5 py-1 text-[11px] text-zinc-400 transition hover:border-cyan-400/30 hover:text-cyan-300 active:scale-[0.98]"
-                aria-label="Copy link to market"
-              >
-                {copied ? "Copied" : "Copy link"}
-              </button>
-            </div>
-            {/* Primary meta: phase + ends + volume — keep calm */}
-            <div className="mt-2.5 flex flex-wrap items-center gap-2">
-              <PhaseBadge phase={market.phase} />
-              <span className="inline-flex items-center gap-1.5 rounded-md border border-amber-400/20 bg-amber-400/[0.07] px-2 py-0.5 font-num text-[11px] tabular-nums text-amber-200/90">
-                <span className="text-[10px] font-medium text-amber-400/70">Ends</span>
-                {formatEnd(market.endTime)} IST
-              </span>
-              {shouldShowCategoryChip(market.category, market.title, market.description) ? (
-                <span className="cat-chip rounded border border-line px-1.5 py-0.5 text-[10px] capitalize text-zinc-500">
-                  {market.category}
-                </span>
-              ) : null}
-              <span className="font-num text-[12px] tabular-nums text-zinc-400">
-                {formatVolumeUsdc(catalogVolume(market))}
-              </span>
-            </div>
-            {/* Secondary meta: hashes / oracle / resolution — quieter line */}
-            <div className="type-meta mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 font-num">
+    <div className="grid gap-4 animate-fade-in lg:grid-cols-[minmax(0,1fr)_360px] lg:grid-rows-[auto_auto_1fr] xl:grid-cols-[256px_minmax(0,1fr)_392px] 2xl:grid-cols-[280px_minmax(0,1fr)_420px]">
+      {/* DOM order = mobile order: detail → brief → trade → activity. Grid placement builds the desktop workspace. */}
+      <aside className="hidden self-start xl:sticky xl:top-20 xl:col-start-1 xl:row-span-3 xl:row-start-1 xl:block">
+        <MarketSidebar activeId={market.marketId} />
+      </aside>
+
+      {/* Centre: selected market */}
+      <div className="min-w-0 space-y-4 lg:col-start-1 lg:row-start-1 xl:col-start-2">
+        <header>
+          <Link href="/desk" className="type-back inline-flex min-h-8 items-center transition">
+            ← Markets
+          </Link>
+          <div className="mt-1 flex items-start gap-2">
+            <h1 className={`type-display min-w-0 flex-1 break-words ${isUntitledMarket(market) ? "market-title--untitled" : ""}`}>
+              {heading}
+            </h1>
+            <WatchStar marketId={market.marketId} />
+            <button
+              type="button"
+              onClick={async () => {
+                try {
+                  const url = typeof window !== "undefined" ? window.location.href : "";
+                  await navigator.clipboard.writeText(url);
+                  setCopied(true);
+                  setTimeout(() => setCopied(false), 2000);
+                } catch {
+                  /* ignore */
+                }
+              }}
+              className="btn btn-secondary btn-sm shrink-0"
+              aria-label="Copy link to market"
+            >
+              {copied ? "Copied" : "Copy link"}
+            </button>
+          </div>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <PhaseBadge phase={market.phase} />
+            {shouldShowCategoryChip(market.category, market.title, market.description) ? (
+              <span className="rounded-md border border-line px-2 py-0.5 text-[11px] capitalize text-ink-3">{market.category}</span>
+            ) : null}
+            <span className="type-meta flex flex-wrap items-center gap-x-2 font-num">
               <span title={market.marketId}>{shortAddr(market.marketId, 5)}</span>
-              {market.oracle ? (
-                <>
-                  <span className="text-zinc-700">·</span>
-                  <span title={market.oracle} className="max-w-[140px] truncate">
-                    Oracle {shortAddr(market.oracle, 4)}
-                  </span>
-                </>
-              ) : null}
-              {market.resolutionTime ? (
-                <>
-                  <span className="text-zinc-700">·</span>
-                  <span>Resolves {formatEnd(market.resolutionTime)} IST</span>
-                </>
-              ) : null}
               {updatedAt ? (
                 <>
-                  <span className="text-zinc-700">·</span>
+                  <span aria-hidden="true">·</span>
                   <span>Updated {formatUpdated(updatedAt)} IST</span>
                 </>
               ) : null}
-            </div>
+            </span>
           </div>
-        </div>
+        </header>
+
+        <Panel title="Probability" subtitle="Live spot · blank means not priced yet">
+          <DualSideHero yes={yes} no={no} />
+          <dl className="mt-4 grid grid-cols-2 gap-3 border-t border-line pt-4 text-[12px] sm:grid-cols-4">
+            <div>
+              <dt className="text-ink-3">Volume</dt>
+              <dd className="font-num mt-0.5 text-[14px] font-medium text-ink">{vol}</dd>
+            </div>
+            <div>
+              <dt className="text-ink-3">Ends</dt>
+              <dd className="font-num mt-0.5 text-[14px] font-medium text-ink">{market.endTime ? `${formatEnd(market.endTime)} IST` : "—"}</dd>
+            </div>
+            <div>
+              <dt className="text-ink-3">Resolves</dt>
+              <dd className="font-num mt-0.5 text-[14px] font-medium text-ink">
+                {market.resolutionTime ? `${formatEnd(market.resolutionTime)} IST` : "—"}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-ink-3">Prints in window</dt>
+              <dd className="font-num mt-0.5 text-[14px] font-medium text-ink">{tapeBusy ? "…" : tape.length}</dd>
+            </div>
+          </dl>
+        </Panel>
+
+        <TapeSparkline items={tape} busy={tapeBusy} size="lg" />
       </div>
 
-      <div className="grid gap-3 lg:grid-cols-12 lg:items-start">
-        <div className="space-y-3 lg:col-span-3">
-          <Panel title="Context">
-            {showDesc ? (
-              <div>
-                <p
-                  className={`type-body ${
-                    descOpen ? "" : "line-clamp-4"
-                  }`}
-                >
-                  {desc}
-                </p>
-                {desc.length > 180 && (
-                  <button
-                    type="button"
-                    onClick={() => setDescOpen((v) => !v)}
-                    className="mt-1 text-[11px] text-cyan-400 hover:underline"
-                  >
-                    {descOpen ? "Less" : "More"}
-                  </button>
-                )}
-              </div>
-            ) : (
-              <p className="type-body text-zinc-600">
-                {descIsDupe
-                  ? "See headline above for the market question."
-                  : "No additional context on file."}
-              </p>
-            )}
-            <dl className="type-meta mt-3 space-y-1.5 border-t border-line pt-3">
-              <div className="flex justify-between gap-2">
-                <dt className="text-zinc-600">Region</dt>
-                <dd className="text-zinc-400">{market.region || "—"}</dd>
-              </div>
-              <div className="flex justify-between gap-2">
-                <dt className="text-zinc-600">Type</dt>
-                <dd className="text-zinc-400">{market.marketType || "—"}</dd>
-              </div>
-              <div className="flex justify-between gap-2">
-                <dt className="text-zinc-600">Creator</dt>
-                <dd className="font-num text-zinc-400">
-                  {shortAddr(market.creatorAddress, 4)}
-                </dd>
-              </div>
-              <div className="flex justify-between gap-2">
-                <dt className="text-zinc-600">Resolution</dt>
-                <dd className="text-right text-zinc-400">
-                  {formatEnd(market.resolutionTime)} IST
-                </dd>
-              </div>
-              <div className="flex justify-between gap-2">
-                <dt className="text-zinc-600">Oracle</dt>
-                <dd
-                  className="max-w-[60%] truncate text-right text-zinc-400"
-                  title={market.oracle || undefined}
-                >
-                  {market.oracle || "—"}
-                </dd>
-              </div>
-            </dl>
-          </Panel>
-          <Panel title="Probability">
-            <DualSideHero yes={yes} no={no} />
-            <p className="type-meta mt-3">Live spot · blank means not priced yet</p>
-          </Panel>
-          <TapeSparkline items={tape} busy={tapeBusy} />
-        </div>
+      {/* Right: AI brief */}
+      <div className="min-w-0 self-start lg:col-start-2 lg:row-span-3 lg:row-start-1 xl:col-start-3">
+        <AiBrief market={market} auto />
+      </div>
 
-        <div className="space-y-3 lg:col-span-5">
-          <AiBrief market={market} auto />
-          <TradeTape items={tape} busy={tapeBusy} />
-        </div>
+      {/* Centre: trade ticket */}
+      <div className="min-w-0 self-start lg:col-start-1 lg:row-start-2 xl:col-start-2">
+        <PrimaryBuyPanel initialMarketId={market.marketId} compact market={market} />
+      </div>
 
-        <div className="lg:col-span-4 lg:sticky lg:top-16">
-          <PrimaryBuyPanel initialMarketId={market.marketId} compact />
-        </div>
+      {/* Centre: activity + context */}
+      <div className="min-w-0 space-y-4 self-start lg:col-start-1 lg:row-start-3 xl:col-start-2">
+        <TradeTape items={tape} busy={tapeBusy} />
+
+        <Panel title="Context">
+          {showDesc ? (
+            <div>
+              <p className={`type-body ${descOpen ? "" : "line-clamp-4"}`}>{desc}</p>
+              {desc.length > 180 && (
+                <button type="button" onClick={() => setDescOpen((v) => !v)} className="mt-1 min-h-8 text-[12px] text-cyan-300 hover:underline">
+                  {descOpen ? "Show less" : "Show more"}
+                </button>
+              )}
+            </div>
+          ) : (
+            <p className="type-body text-ink-3">
+              {descIsDupe ? "See the headline above for the market question." : "No additional context on file."}
+            </p>
+          )}
+          <dl className="mt-3 grid gap-x-6 gap-y-1.5 border-t border-line pt-3 text-[12px] sm:grid-cols-2">
+            {(
+              [
+                ["Region", market.region || "—"],
+                ["Type", market.marketType || "—"],
+                ["Creator", shortAddr(market.creatorAddress, 4)],
+                ["Oracle", market.oracle || "—"],
+              ] as const
+            ).map(([k, v]) => (
+              <div key={k} className="flex justify-between gap-2">
+                <dt className="text-ink-3">{k}</dt>
+                <dd className="max-w-[65%] truncate text-right text-ink-2" title={v}>
+                  {v}
+                </dd>
+              </div>
+            ))}
+          </dl>
+        </Panel>
       </div>
     </div>
   );

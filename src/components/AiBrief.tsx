@@ -9,6 +9,26 @@ import { useNow } from "@/hooks/useNow";
 import { describeErr } from "@/lib/errors";
 import { formatFriendlyIst } from "@/lib/format";
 import { BriefMarkdown } from "./BriefMarkdown";
+import { StatusBadge } from "./ui/StatusBadge";
+import { IconSparkles } from "./ui/Icons";
+
+type Layer = "observed" | "derived" | "unknown";
+const LAYER: Record<Layer, { label: string; cls: string; hint: string }> = {
+  observed: { label: "Observed", cls: "border-cyan-400/35 text-cyan-200", hint: "Read directly from Panta market data" },
+  derived: { label: "Derived", cls: "border-blue-500/40 text-blue-200", hint: "Computed deterministically from observed data" },
+  unknown: { label: "Unknown", cls: "border-amber-400/40 text-amber-200", hint: "Missing or not available in the data" },
+};
+
+function LayerTag({ layer }: { layer: Layer }) {
+  return (
+    <span
+      title={LAYER[layer].hint}
+      className={`inline-flex w-fit rounded border px-1 py-px text-[9px] font-semibold uppercase tracking-wider ${LAYER[layer].cls}`}
+    >
+      {LAYER[layer].label}
+    </span>
+  );
+}
 
 function pct(p: number | null | undefined): string {
   if (p == null || !Number.isFinite(p)) return "—";
@@ -69,38 +89,36 @@ export function AiBrief({
 
   return (
     <section
-      className="relative overflow-hidden rounded-lg border border-line bg-surface"
+      id="brief"
+      className="card relative scroll-mt-20 overflow-hidden border-violet-500/25"
       aria-label="AI market brief"
       aria-busy={busy}
     >
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-cyan-400/50 to-transparent"
-      />
+      <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-px" style={{ background: "var(--grad-ai)" }} />
       {/* Header */}
-      <div className="flex items-center justify-between gap-3 border-b border-line px-3.5 py-2.5">
-        <div className="flex items-center gap-2">
-          <span className="h-1.5 w-1.5 rounded-full bg-cyan-400 shadow-[0_0_8px_rgba(34,211,238,0.7)]" />
-          <h2 className="type-section text-zinc-300">AI Market Brief</h2>
+      <div className="flex min-h-[48px] items-center justify-between gap-3 border-b border-line px-4 py-2.5">
+        <div className="flex min-w-0 items-center gap-2">
+          <IconSparkles className="h-4 w-4 shrink-0 text-violet-300" />
+          <h2 className="truncate text-[14px] font-semibold text-ink">AI Market Brief</h2>
+          {brief && (
+            <StatusBadge tone={brief.source === "openai" ? "ai" : "neutral"} size="xs" title="Interpretation source">
+              {brief.source === "openai" ? "LLM" : "Template"}
+            </StatusBadge>
+          )}
         </div>
         <div className="flex items-center gap-2">
-          {s && <QualityBadge grade={s.dataQuality.grade} />}
-          <button
-            type="button"
-            onClick={regenerate}
-            disabled={busy || waitSec > 0}
-            className="min-h-[30px] rounded-md bg-cyan-400/15 px-2.5 py-1 text-[11px] font-semibold text-cyan-300 transition hover:bg-cyan-400/25 active:scale-[0.98] disabled:opacity-50"
-          >
+          <button type="button" onClick={regenerate} disabled={busy || waitSec > 0} className="btn btn-secondary btn-sm">
             {busy ? "Reading…" : brief ? "Regenerate" : "Generate"}
           </button>
         </div>
       </div>
 
       {/* Mode tabs */}
+      <div className="border-b border-line px-3 py-2.5">
       <div
         role="tablist"
         aria-label="Brief mode"
-        className="grid grid-cols-4 gap-1 border-b border-line bg-inset p-1.5"
+        className="segmented scrollbar-none flex w-full overflow-x-auto"
       >
         {BRIEF_MODES.map((m) => {
           const active = mode === m.id;
@@ -118,19 +136,16 @@ export function AiBrief({
                   setEnabled(true);
                 }
               }}
-              className={`min-h-[32px] rounded-md px-1.5 text-[11px] font-medium transition active:scale-[0.98] ${
-                active
-                  ? "bg-cyan-400/10 text-cyan-300 ring-1 ring-inset ring-cyan-400/35"
-                  : "text-zinc-500 hover:bg-elevated hover:text-zinc-300"
-              }`}
+              className="flex-1 whitespace-nowrap"
             >
               {m.label}
             </button>
           );
         })}
       </div>
+      </div>
 
-      <div className="p-3.5">
+      <div className="p-4">
         {error && (
           <div className="mb-3 rounded-md border border-rose-500/25 bg-rose-500/10 px-2.5 py-2 text-xs text-rose-200">
             {error}
@@ -173,6 +188,20 @@ export function AiBrief({
 
         {s && brief && (
           <div className={`transition-opacity ${busy ? "opacity-50" : "animate-fade-in"}`}>
+            <p className="mb-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-ink-3">
+              <span>
+                Data as of <span className="font-num text-ink-2">{formatFriendlyIst(s.computedAt)}</span>
+              </span>
+              {brief.cached ? <span>· cached</span> : null}
+              <span className="flex flex-wrap gap-1" aria-label="Evidence labels">
+                <LayerTag layer="observed" />
+                <LayerTag layer="derived" />
+                <span className="inline-flex rounded border border-violet-500/40 px-1 py-px text-[9px] font-semibold uppercase tracking-wider text-violet-200">
+                  Interpretation
+                </span>
+                <LayerTag layer="unknown" />
+              </span>
+            </p>
             {s.dataQuality.grade === "low" && (
               <div className="mb-3 rounded-md border border-amber-400/25 bg-amber-400/[0.06] px-2.5 py-2">
                 <p className="text-[11px] font-semibold text-amber-300">
@@ -184,14 +213,18 @@ export function AiBrief({
               </div>
             )}
 
+            <div className="mb-1.5 flex items-center gap-2">
+              <LayerTag layer={s.probability.yes == null ? "unknown" : "observed"} />
+              <span className="text-[11px] text-ink-3">Market snapshot</span>
+            </div>
             <ProbabilityBlock s={s} />
-            <div className="mt-3 divide-y divide-elevated rounded-md border border-elevated bg-inset">
+            <div className="mt-3 divide-y divide-line rounded-xl border border-line bg-inset">
               <FlowRow s={s} />
-              <Row label="Signal">
+              <Row label="Signal" layer={s.flow.yesFlowShare == null ? "unknown" : "derived"}>
                 <p className="type-body">{s.headline}</p>
               </Row>
               <PriceRow s={s} />
-              <Row label="Risk">
+              <Row label="Risk" layer="derived">
                 {s.riskFlags.length ? (
                   <ul className="space-y-1">
                     {s.riskFlags.map((f) => (
@@ -210,7 +243,7 @@ export function AiBrief({
                   <p className="type-body text-zinc-400">No deterministic risk flags raised.</p>
                 )}
               </Row>
-              <Row label="Execution">
+              <Row label="Execution" layer="observed">
                 <ul className="space-y-1">
                   {s.execution.lines.map((l) => (
                     <li key={l} className="text-[12px] leading-5 text-zinc-300">
@@ -219,33 +252,36 @@ export function AiBrief({
                   ))}
                 </ul>
               </Row>
-              <Row label="Data quality">
+              <Row label="Data quality" layer="derived">
                 <div className="flex flex-wrap items-center gap-2">
                   <QualityBadge grade={s.dataQuality.grade} />
                   <span className="type-meta">{s.dataQuality.reasons.join(" · ")}</span>
                 </div>
+              </Row>
+              <Row label="Not in data" layer="unknown">
+                <ul className="space-y-1 text-[12px] leading-5 text-ink-2">
+                  {s.probability.yes == null && <li>Live price for this market</li>}
+                  {s.tape.count === 0 && <li>Recent trade flow (no prints in the window)</li>}
+                  <li>Order-book depth, off-chain news and who the traders are</li>
+                </ul>
               </Row>
             </div>
 
             {/* Interpretation */}
             <div className="mt-4">
               <div className="mb-2 flex flex-wrap items-center gap-2">
-                <h3 className="type-section">Interpretation</h3>
-                <span
-                  className={`rounded border px-1.5 py-0.5 text-[10px] ${
-                    brief.source === "openai"
-                      ? "border-cyan-400/30 text-cyan-400"
-                      : "border-line-strong text-zinc-500"
-                  }`}
-                >
-                  {brief.source === "openai" ? "LLM" : "Template"}
+                <h3 className="text-[13px] font-semibold text-ink">
+                  {brief.source === "openai" ? "AI interpretation" : "Interpretation"}
+                </h3>
+                <span className="rounded border border-violet-500/40 px-1.5 py-0.5 text-[10px] text-violet-200">
+                  {brief.source === "openai" ? "LLM · potential interpretation" : "Template · AI unavailable"}
                 </span>
                 <span className="type-meta font-num">
                   {formatFriendlyIst(brief.generatedAt)}
                   {brief.cached ? " · cached" : ""}
                 </span>
               </div>
-              <div className="rounded-md border border-elevated bg-inset p-3">
+              <div className="rounded-xl border border-violet-500/20 bg-inset p-3">
                 <BriefMarkdown source={brief.narrative} />
               </div>
               <p className="type-meta mt-2">
@@ -260,10 +296,13 @@ export function AiBrief({
   );
 }
 
-function Row({ label, children }: { label: string; children: React.ReactNode }) {
+function Row({ label, layer, children }: { label: string; layer?: Layer; children: React.ReactNode }) {
   return (
-    <div className="grid grid-cols-[84px_1fr] gap-3 px-3 py-2.5">
-      <div className="type-col pt-0.5">{label}</div>
+    <div className="grid grid-cols-[92px_1fr] gap-3 px-3 py-2.5">
+      <div className="flex flex-col gap-1 pt-0.5">
+        <span className="type-col">{label}</span>
+        {layer ? <LayerTag layer={layer} /> : null}
+      </div>
       <div className="min-w-0">{children}</div>
     </div>
   );
@@ -340,7 +379,7 @@ function FlowRow({ s }: { s: MarketSignals }) {
   const n = s.tape.count;
   if (yesFlowShare == null) {
     return (
-      <Row label="Flow">
+      <Row label="Flow" layer="unknown">
         <p className="type-body text-zinc-400">
           {n === 0 ? "No recent prints — flow unavailable." : `${n} print(s) without a readable side.`}
         </p>
@@ -348,7 +387,7 @@ function FlowRow({ s }: { s: MarketSignals }) {
     );
   }
   return (
-    <Row label="Flow">
+    <Row label="Flow" layer="derived">
       <div className="flex flex-wrap items-baseline gap-x-2 font-num text-[13px]">
         <span className="font-semibold text-emerald-300">YES {pct(yesFlowShare)}</span>
         <span className="text-zinc-600">·</span>
@@ -381,7 +420,7 @@ function PriceRow({ s }: { s: MarketSignals }) {
           ? "flow leans more NO than price"
           : null;
   return (
-    <Row label="Price">
+    <Row label="Price" layer={d.marketYes == null ? "unknown" : "observed"}>
       <div className="flex flex-wrap items-baseline gap-x-2 font-num text-[13px] text-zinc-300">
         <span>
           Market <span className="font-semibold text-zinc-100">{pct(d.marketYes)}</span> YES

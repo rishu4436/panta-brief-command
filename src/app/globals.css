@@ -282,6 +282,36 @@ body {
   background: var(--red);
 }
 
+/* Outcome toggle (YES / NO): outline until pressed */
+.side-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 48px;
+  border-radius: var(--radius-control);
+  border: 1px solid var(--line);
+  background: var(--inset);
+  color: var(--ink-3);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  transition: border-color 0.15s ease, background-color 0.15s ease, color 0.15s ease;
+}
+.side-btn:hover {
+  border-color: var(--line-strong);
+  color: var(--ink);
+}
+.side-yes[aria-pressed="true"] {
+  border-color: rgba(34, 197, 94, 0.55);
+  background: rgba(34, 197, 94, 0.13);
+  color: #bbf7d0;
+}
+.side-no[aria-pressed="true"] {
+  border-color: rgba(244, 63, 94, 0.55);
+  background: rgba(244, 63, 94, 0.13);
+  color: #fecdd3;
+}
+
 /* ---------- Surfaces ---------- */
 .card {
   background: var(--surface);
@@ -382,6 +412,13 @@ body {
   color: var(--ink-2);
   text-transform: capitalize;
   transition: all 0.15s ease;
+}
+@media (pointer: coarse) {
+  .chip,
+  .segmented > button,
+  .segmented > a {
+    min-height: 44px;
+  }
 }
 .chip:hover {
   border-color: var(--line-strong);

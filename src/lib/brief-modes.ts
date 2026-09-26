@@ -2,10 +2,10 @@ import type { BriefMode } from "./types";
 
 /** Analytical brief modes (shared by client tabs and server validation). */
 export const BRIEF_MODES: readonly { id: BriefMode; label: string; hint: string }[] = [
-  { id: "desk", label: "Desk read", hint: "Probability, flow, timing and quality together" },
+  { id: "desk", label: "Summary", hint: "Probability, flow, timing and quality together" },
   { id: "flow", label: "Flow", hint: "Prints, share split, imbalance, concentration" },
-  { id: "risk", label: "Risk", hint: "Every flag and data-quality reason" },
-  { id: "catalysts", label: "Catalysts", hint: "Catalog description + resolution time only" },
+  { id: "risk", label: "Risks", hint: "Every flag and data-quality reason" },
+  { id: "catalysts", label: "What to watch", hint: "Catalog description + resolution time only" },
 ];
 
 export const BRIEF_MODE_IDS = BRIEF_MODES.map((m) => m.id) as readonly BriefMode[];

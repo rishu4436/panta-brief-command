@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { useWalletModal } from "@solana/wallet-adapter-react-ui";
@@ -26,18 +27,12 @@ import {
   resolveLastValidBlockHeight,
   type ConfirmOutcome,
 } from "@/lib/solana";
-import type { Json, PrimaryBuild, Quote } from "@/lib/types";
+import type { Json, Market, PrimaryBuild, Quote } from "@/lib/types";
 import { Panel } from "./Panel";
+import { TransactionStepper, type StepState, type TxStep } from "./TransactionStepper";
+import { StatusBadge, phaseTone } from "./ui/StatusBadge";
+import { IconWallet } from "./ui/Icons";
 
-const STEPS = [
-  "Quote",
-  "Build",
-  "Sign",
-  "Confirm",
-  "Submit",
-  "Verify",
-  "Attr",
-] as const;
 /** Step index = number of completed stages. */
 const S = { quoted: 1, built: 2, broadcast: 3, confirmed: 4, submitted: 5, verified: 6, reported: 7 } as const;
 
@@ -59,6 +54,8 @@ const LEDGER_CHECK_DELAYS_MS = [1500, 3000, 5000] as const;
 type TxPhase = "idle" | "confirming" | ConfirmOutcome["status"];
 type VerifyPhase = "idle" | "polling" | "confirmed" | "failed" | "timeout";
 type AttrPhase = "idle" | "reporting" | "reported" | "attributed";
+/** Lifecycle stage shown in the TransactionStepper. */
+type Stage = "quote" | "build" | "sign" | "confirm" | "verify";
 
 class StopFlow extends Error {}
 
@@ -76,9 +73,12 @@ function countdownLabel(expiresAt: string, now: number): string {
 export function PrimaryBuyPanel({
   initialMarketId = "",
   compact = false,
+  market: contextMarket = null,
 }: {
   initialMarketId?: string;
   compact?: boolean;
+  /** The market being viewed (market page), used for phase-aware states. */
+  market?: Market | null;
 }) {
   const { publicKey, signTransaction, connected } = useWallet();
   const { connection } = useConnection();
@@ -120,6 +120,14 @@ export function PrimaryBuyPanel({
   const [submitRaw, setSubmitRaw] = useState<Json>(null);
   const [verifyRaw, setVerifyRaw] = useState<Json>(null);
   const [tradeRaw, setTradeRaw] = useState<Json>(null);
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [stage, setStageState] = useState<Stage | null>(null);
+  const [failedStage, setFailedStage] = useState<Stage | null>(null);
+  const stageRef = useRef<Stage | null>(null);
+  const setStage = (st: Stage | null) => {
+    stageRef.current = st;
+    setStageState(st);
+  };
 
   /** Attribution ref bound at quote time (build/report must not contradict it). */
   const sessionAttrRef = useRef<string | undefined>(undefined);
@@ -129,7 +137,6 @@ export function PrimaryBuyPanel({
   const attrCheck = validateAttributionRef(attrRefInput);
   const marketIdValid = BASE58_PUBKEY_RE.test(marketId.trim());
   const quoteInputsValid = amountCheck.ok && attrCheck.ok && marketIdValid;
-  const allInputsValid = quoteInputsValid && slippageCheck.ok;
 
   // Picker catalog: shared primary-phase catalog cache (same query as the
   // landing strip); untitled rows get their detail through the shared ≤4
@@ -185,6 +192,8 @@ export function PrimaryBuyPanel({
   };
 
   const runQuote = async () => {
+    setStage("quote");
+    setReviewOpen(false);
     requireReady();
     if (!marketIdValid) throw new Error("Pick a market (valid market id required)");
     if (!amountCheck.ok) throw new Error(amountCheck.error);
@@ -206,6 +215,7 @@ export function PrimaryBuyPanel({
   };
 
   const runBuild = async (q?: Quote) => {
+    setStage("build");
     requireReady();
     const activeQuote = q || quote;
     if (!activeQuote?.quoteId) throw new Error("Quote first");
@@ -257,6 +267,7 @@ export function PrimaryBuyPanel({
   };
 
   const runSignBroadcast = async (b?: PrimaryBuild, q?: Quote) => {
+    setStage("sign");
     requireReady();
     const built = b || build;
     if (!built?.instructions?.length || !built.recentBlockhash) {
@@ -276,6 +287,7 @@ export function PrimaryBuyPanel({
       preflightCommitment: "confirmed",
     });
     setSignature(sig);
+    setStage("confirm");
     setLastValidBlockHeight(lvbh);
     setStep(S.broadcast);
     push(`Broadcast ${sig.slice(0, 16)}… · awaiting confirmation`);
@@ -291,6 +303,7 @@ export function PrimaryBuyPanel({
 
   const runCheckConfirmation = async (): Promise<boolean> => {
     if (!signature) throw new Error("No broadcast signature");
+    setStage("confirm");
     setTxPhase("confirming");
     const outcome = await checkSignatureOnce(connection, signature, lastValidBlockHeight);
     const ok = applyConfirm(outcome);
@@ -299,6 +312,7 @@ export function PrimaryBuyPanel({
   };
 
   const runSubmit = async (opts?: { orderId?: string; sig?: string; confirmed?: boolean }) => {
+    setStage("verify");
     requireReady();
     const orderId = opts?.orderId || build?.orderId;
     const sig = opts?.sig || signature;
@@ -317,6 +331,7 @@ export function PrimaryBuyPanel({
    * for up to ~30s. Stops on confirmed / failed / expired.
    */
   const runVerify = async (opts?: { orderId?: string; sig?: string | null }) => {
+    setStage("verify");
     requireReady();
     const orderId = opts?.orderId || build?.orderId;
     const sig = opts?.sig !== undefined ? opts.sig : signature;
@@ -389,6 +404,7 @@ export function PrimaryBuyPanel({
   };
 
   const runAttribute = async (opts?: { built?: PrimaryBuild; sig?: string }) => {
+    setStage("verify");
     requireReady();
     const built = opts?.built || build;
     const sig = opts?.sig || signature;
@@ -425,18 +441,54 @@ export function PrimaryBuyPanel({
   };
 
   const fail = (e: unknown) => {
+    setFailedStage(stageRef.current);
     setError(e instanceof StopFlow ? e.message || null : describeErr(e));
   };
 
-  const runGuided = async () => {
+  const begin = () => {
     setBusy(true);
     setError(null);
+    setFailedStage(null);
+  };
+
+  /** Guided step 1: quote (fees always shown before anything is built). */
+  const runGetQuote = async () => {
+    begin();
     try {
-      setGuidedPhase("Quoting…");
-      const q = await runQuote();
-      setGuidedPhase("Building…");
-      const b = await runBuild(q);
-      setGuidedPhase("Sign in wallet…");
+      setGuidedPhase("Getting quote…");
+      await runQuote();
+    } catch (e) {
+      fail(e);
+    } finally {
+      setGuidedPhase(null);
+      setBusy(false);
+    }
+  };
+
+  /** Guided step 2: build + pre-sign check, then show the review screen. The wallet is NOT opened here. */
+  const runReview = async () => {
+    begin();
+    try {
+      setGuidedPhase("Building & checking…");
+      await runBuild(quote ?? undefined);
+      setReviewOpen(true);
+    } catch (e) {
+      fail(e);
+    } finally {
+      setGuidedPhase(null);
+      setBusy(false);
+    }
+  };
+
+  /** Guided step 3 (after review): wallet approval → confirm → submit → verify → report. */
+  const runApprove = async () => {
+    if (!build || !quote) return;
+    const b = build;
+    const q = quote;
+    begin();
+    setReviewOpen(false);
+    try {
+      setGuidedPhase("Approve in your wallet…");
       const sig = await runSignBroadcast(b, q);
       setGuidedPhase("Submitting…");
       await runSubmit({ orderId: b.orderId, sig, confirmed: true });
@@ -455,8 +507,7 @@ export function PrimaryBuyPanel({
 
   /** Resume after a broadcast: (re)check confirmation, then Submit → Verify → Report. */
   const runFinishAttribution = async () => {
-    setBusy(true);
-    setError(null);
+    begin();
     try {
       if (txPhase !== "confirmed") {
         setGuidedPhase("Checking confirmation…");
@@ -477,8 +528,7 @@ export function PrimaryBuyPanel({
   };
 
   const wrap = (fn: () => Promise<unknown>) => async () => {
-    setBusy(true);
-    setError(null);
+    begin();
     try {
       await fn();
     } catch (e) {
@@ -501,15 +551,11 @@ export function PrimaryBuyPanel({
     });
   }, [catalog, pickerQuery]);
 
-  const expiresLabel = quote?.expiresAt ? countdownLabel(quote.expiresAt, now) : null;
 
-  const inputCls =
-    "mt-1 w-full rounded-md border border-line bg-inset px-3 py-2 text-sm text-zinc-100 outline-none focus:border-cyan-400/40";
-  const inputErrCls = "border-rose-500/50 focus:border-rose-400/60";
-  const btnPrimary =
-    "min-h-[48px] rounded-md bg-cyan-400 px-3 py-3 text-sm font-semibold text-bg transition hover:bg-cyan-300 active:scale-[0.98] disabled:opacity-40";
-  const btnGhost =
-    "min-h-[44px] rounded-md border border-line bg-inset px-3 py-2.5 text-sm text-zinc-300 transition hover:border-line-strong hover:text-zinc-100 active:scale-[0.98] disabled:opacity-40";
+  const inputCls = "field mt-1";
+  const inputErrCls = "!border-rose-500/60";
+  const btnPrimary = "btn btn-primary btn-lg w-full";
+  const btnGhost = "btn btn-secondary";
 
   const copySig = async () => {
     if (!signature) return;
@@ -522,8 +568,11 @@ export function PrimaryBuyPanel({
   };
 
   const selectedMarket = useMemo(
-    () => catalog.find((m) => m.marketId === marketId) || null,
-    [catalog, marketId],
+    () =>
+      (contextMarket && contextMarket.marketId === marketId ? contextMarket : null) ||
+      catalog.find((m) => m.marketId === marketId) ||
+      null,
+    [catalog, marketId, contextMarket],
   );
 
   const formatEndShort = (ts?: number | null) => {
@@ -537,39 +586,21 @@ export function PrimaryBuyPanel({
     });
   };
 
-  /** Chip tone per lifecycle stage (honest: pending/failed are not "done"). */
-  const chipTone = (i: number): "done" | "active" | "warn" | "bad" | "idle" => {
-    const label = STEPS[i];
-    if (label === "Confirm") {
-      if (txPhase === "failed" || txPhase === "expired") return "bad";
-      if (txPhase === "pending") return "warn";
-    }
-    if (label === "Verify") {
-      if (verifyPhase === "failed") return "bad";
-      if (verifyPhase === "timeout") return "warn";
-    }
-    if (label === "Attr" && attrPhase === "reported") return "warn";
-    if (step > i) return "done";
-    if (step === i) return "active";
-    return "idle";
-  };
-  const chipCls: Record<ReturnType<typeof chipTone>, string> = {
-    done: "border-emerald-400/30 bg-emerald-500/10 text-emerald-300",
-    active: "border-cyan-400/40 bg-cyan-400/10 text-cyan-300",
-    warn: "border-amber-400/30 bg-amber-400/10 text-amber-300",
-    bad: "border-rose-500/30 bg-rose-500/10 text-rose-300",
-    idle: "border-line text-zinc-600",
-  };
+  const phase = (selectedMarket?.phase || "").toLowerCase();
+  const resolved = Boolean(selectedMarket?.resolved) || phase === "resolved";
+  const cancelled = phase === "cancelled" || phase === "canceled";
+  const secondary = phase === "secondary";
+  // Only block when the phase is known and not primary; an unknown phase may still quote.
+  const closed = resolved || cancelled || secondary;
 
-  const statusLabel = guidedPhase
-    ? guidedPhase
-    : step === 0
-      ? "Ready to quote"
-      : step >= STEPS.length
-        ? attrPhase === "attributed"
-          ? "Attributed"
-          : "Reported for attribution"
-        : STEPS[Math.min(step, STEPS.length - 1)];
+  const expiresLabel = quote?.expiresAt ? countdownLabel(quote.expiresAt, now) : null;
+  const quoteExpired = expiresLabel === "0:00";
+  const quoteStale = Boolean(
+    quote &&
+      (quote.marketId !== marketId.trim() ||
+        (amountCheck.ok && Number(quote.amountUsdc) !== Number(amountCheck.value)) ||
+        (quote.side && quote.side !== side)),
+  );
 
   const blockingHint = !marketIdValid
     ? "Pick a market to quote."
@@ -583,615 +614,586 @@ export function PrimaryBuyPanel({
 
   const needsRestart = txPhase === "expired" || txPhase === "failed";
   const canResume = Boolean(signature) && step >= S.broadcast && step < S.reported && !needsRestart;
+  const done = step >= S.reported;
+  const inFlight = Boolean(signature) && !done && !needsRestart;
+
+  // ---- Lifecycle → stepper (states only advance on real results) ----
+  const st = (id: Stage, isDone: boolean, extra?: StepState | null): StepState => {
+    if (extra) return extra;
+    if (failedStage === id) return "failed";
+    if (isDone) return "done";
+    if (busy && stage === id) return "active";
+    return "waiting";
+  };
+  const verifyText =
+    verifyPhase === "polling"
+      ? `Panta verify: polling${verifyStatus ? ` (${verifyStatus})` : "…"}`
+      : verifyPhase === "confirmed"
+        ? "Panta verify: verified"
+        : verifyPhase === "timeout"
+          ? `Panta verify: still pending after 30s${verifyStatus ? ` (${verifyStatus})` : ""}`
+          : verifyPhase === "failed"
+            ? `Panta verify: failed${verifyStatus ? ` (${verifyStatus})` : ""}`
+            : null;
+  const attrText =
+    attrPhase === "reporting"
+      ? "Attribution: reporting…"
+      : attrPhase === "reported"
+        ? "Attribution: trade reported, awaiting ledger"
+        : attrPhase === "attributed"
+          ? ledgerSeen
+            ? "Attribution: attributed, in account ledger"
+            : "Attribution: attributed"
+          : null;
+  const steps: TxStep[] = [
+    {
+      id: "quote",
+      label: "Quote",
+      state: st("quote", Boolean(quote) && failedStage !== "quote"),
+      detail: quote ? `${quote.shares} ${String(quote.side || side).toUpperCase()} @ ${quote.avgPrice} · fee ${quote.feeUsdc} USDC` : undefined,
+    },
+    {
+      id: "build",
+      label: "Build",
+      state: st("build", Boolean(build) && ixCheck?.ok === true, ixCheck?.ok === false ? "failed" : null),
+      detail: ixCheck?.ok === false ? ixCheck.reason : build && ixCheck?.ok ? "Pre-sign check passed" : undefined,
+    },
+    {
+      id: "sign",
+      label: "Sign",
+      state: st("sign", Boolean(signature)),
+      detail: !signature && busy && stage === "sign" ? "Approve the transaction in your wallet" : undefined,
+    },
+    {
+      id: "broadcast",
+      label: "Broadcast",
+      state: signature ? "done" : failedStage === "sign" ? "waiting" : "waiting",
+      detail: signature ? `Sent · ${shortAddr(signature, 6)}` : undefined,
+    },
+    {
+      id: "confirm",
+      label: "Confirm",
+      state:
+        txPhase === "confirmed"
+          ? "done"
+          : txPhase === "failed" || txPhase === "expired"
+            ? "failed"
+            : txPhase === "pending"
+              ? "warn"
+              : txPhase === "confirming"
+                ? "active"
+                : "waiting",
+      detail:
+        txPhase === "confirmed"
+          ? "Confirmed on Solana"
+          : txPhase === "expired"
+            ? "Expired: the transaction did not land"
+            : txPhase === "failed"
+              ? "Failed on-chain"
+              : txPhase === "pending"
+                ? txMessage || "Not confirmed yet"
+                : undefined,
+    },
+    {
+      id: "verify",
+      label: "Verify / Attribute",
+      state:
+        attrPhase === "attributed"
+          ? "done"
+          : verifyPhase === "failed" || failedStage === "verify"
+            ? "failed"
+            : attrPhase === "reported" || verifyPhase === "timeout"
+              ? busy && stage === "verify"
+                ? "active"
+                : "warn"
+              : verifyPhase === "polling" || attrPhase === "reporting" || (busy && stage === "verify")
+                ? "active"
+                : "waiting",
+      detail: verifyText || attrText ? [verifyText, attrText].filter(Boolean).join(" · ") : undefined,
+    },
+  ];
+  const showStepper = Boolean(quote) || step > 0;
+
+  const marketTitle = selectedMarket
+    ? marketLabel(selectedMarket, { max: 96 })
+    : marketId
+      ? shortAddr(marketId, 8)
+      : "This market";
+
+  const statusLabel = closed
+    ? resolved
+      ? "Market resolved"
+      : cancelled
+        ? "Market cancelled"
+        : "Primary buys closed"
+    : guidedPhase
+      ? guidedPhase
+      : done
+        ? attrPhase === "attributed"
+          ? "Attributed"
+          : "Reported for attribution"
+        : reviewOpen
+          ? "Review before signing"
+          : quote
+            ? "Quote ready"
+            : !connected
+              ? "Wallet required"
+              : "Ready to quote";
+
+  // Primary guided action for the current state.
+  const primary: { label: string; onClick: () => void; disabled: boolean } = !quote || quoteStale || quoteExpired || needsRestart || done
+    ? {
+        label: busy && guidedPhase ? guidedPhase : done ? "New quote" : needsRestart ? "Start over · new quote" : quote ? "Get a new quote" : "Get quote",
+        onClick: () => void runGetQuote(),
+        disabled: busy || !quoteInputsValid,
+      }
+    : {
+        label: busy && guidedPhase ? guidedPhase : "Review & Confirm",
+        onClick: () => void runReview(),
+        disabled: busy || !slippageCheck.ok || inFlight,
+      };
+
+  const marketBlock = (
+    <div className="rounded-xl border border-line bg-inset px-3 py-2.5">
+      <div className="text-[13px] font-medium leading-snug text-ink">{marketTitle}</div>
+      {selectedMarket && (
+        <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[11px]">
+          <StatusBadge tone={phaseTone(selectedMarket.phase).tone} size="xs">
+            {phaseTone(selectedMarket.phase).label}
+          </StatusBadge>
+          {selectedMarket.endTime ? (
+            <>
+              <span className="text-ink-3">Ends</span>
+              <span className="font-num text-ink-2">{formatEndShort(selectedMarket.endTime)} IST</span>
+            </>
+          ) : null}
+        </div>
+      )}
+    </div>
+  );
 
   return (
-    <Panel title={compact ? "Execute ticket" : "Primary buy"}>
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <div
-          className="flex flex-wrap items-center gap-1.5"
-          aria-label="Execute progress"
-        >
-          <span className="text-[10px] text-zinc-500">{statusLabel}</span>
-          <span className="font-num text-[10px] text-zinc-600">
-            {Math.min(step + 1, STEPS.length)}/{STEPS.length}
-          </span>
-          {!compact && (
-            <div className="ml-1 hidden flex-wrap gap-1 sm:flex" role="presentation">
-              {STEPS.map((label, i) => (
-                <span
-                  key={label}
-                  aria-current={step === i ? "step" : undefined}
-                  className={`step-chip rounded border px-1.5 py-0.5 text-[9px] font-medium tracking-wide transition-all duration-300 ${chipCls[chipTone(i)]}`}
-                >
-                  {label}
-                </span>
-              ))}
-            </div>
-          )}
+    <Panel
+      id="trade"
+      title="Execute Trade"
+      subtitle={compact ? undefined : "Primary buy"}
+      action={
+        <span className="mr-4 flex items-center gap-2 text-[11px] text-ink-3" aria-live="polite">
+          {statusLabel}
+        </span>
+      }
+    >
+      {/* Buy / Sell: primary markets are buy-only */}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="segmented" role="group" aria-label="Order type">
+          <button type="button" aria-pressed="true">
+            Buy
+          </button>
+          <button type="button" disabled aria-disabled="true" title="Panta primary markets are buy-only" className="cursor-not-allowed opacity-50">
+            Sell
+          </button>
         </div>
-        <div className="inline-flex rounded-md border border-line bg-inset p-0.5">
-          <button
-            type="button"
-            aria-pressed={mode === "guided"}
-            onClick={() => setMode("guided")}
-            className={`rounded px-2 py-0.5 text-[10px] ${
-              mode === "guided" ? "bg-elevated text-zinc-100" : "text-zinc-500"
-            }`}
-          >
+        <div className="segmented" role="group" aria-label="Execution mode">
+          <button type="button" aria-pressed={mode === "guided"} onClick={() => setMode("guided")}>
             Guided
           </button>
-          <button
-            type="button"
-            aria-pressed={mode === "manual"}
-            onClick={() => setMode("manual")}
-            className={`rounded px-2 py-0.5 text-[10px] ${
-              mode === "manual" ? "bg-elevated text-zinc-100" : "text-zinc-500"
-            }`}
-          >
-            Manual
+          <button type="button" aria-pressed={mode === "manual"} onClick={() => setMode("manual")}>
+            Step-by-step
           </button>
         </div>
       </div>
+      <p className="mt-2 text-[11px] leading-relaxed text-ink-3">
+        Primary markets are buy-only. You exit by claiming in your Book after the market resolves.
+      </p>
 
-      <div className={`grid gap-2.5 ${compact ? "grid-cols-1" : "sm:grid-cols-2"}`}>
-        <div className={`block text-[11px] text-zinc-400 ${compact ? "" : "sm:col-span-2"}`}>
-          <span>Market</span>
-          {compact ? (
-            <div className="mt-1 rounded-md border border-line bg-inset px-3 py-2.5">
-              <div className="text-[12px] font-medium leading-snug text-zinc-200">
-                {selectedMarket
-                  ? marketLabel(selectedMarket, { max: 96 })
-                  : marketId
-                    ? shortAddr(marketId, 8)
-                    : "This market"}
-              </div>
-              {selectedMarket && (
-                <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[11px]">
-                  <span className="rounded border border-cyan-400/30 bg-cyan-400/10 px-1.5 py-0.5 font-medium uppercase tracking-wide text-cyan-300">
-                    {selectedMarket.phase || "—"}
-                  </span>
-                  <span className="text-zinc-500">Ends</span>
-                  <span className="font-num text-zinc-300">
-                    {formatEndShort(selectedMarket.endTime)} IST
-                  </span>
-                </div>
-              )}
-            </div>
-          ) : (
-            <>
-              <div className="relative mt-1">
-                <input
-                  value={pickerQuery}
-                  onChange={(e) => setPickerQuery(e.target.value)}
-                  placeholder="Search markets…"
-                  aria-label="Search markets"
-                  className={`${inputCls} mb-1.5`}
-                />
-                <select
-                  value={catalog.some((m) => m.marketId === marketId) ? marketId : ""}
-                  onChange={(e) => {
-                    if (e.target.value) {
-                      setMarketId(e.target.value);
-                      setPickerQuery("");
-                    }
-                  }}
-                  aria-label="Pick market"
-                  className={inputCls}
-                >
-                  <option value="">
-                    {filteredCatalog.length
-                      ? "Select a live market…"
-                      : pickerQuery
-                        ? "No matches — open Advanced to paste ID"
-                        : "Loading catalog…"}
-                  </option>
-                  {filteredCatalog.map((m) => (
-                    <option key={m.marketId} value={m.marketId}>
-                      {marketLabel(m, { max: 72 })}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              {selectedMarket && (
-                <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[11px]">
-                  <span className="rounded border border-cyan-400/30 bg-cyan-400/10 px-1.5 py-0.5 font-medium uppercase tracking-wide text-cyan-300">
-                    {selectedMarket.phase || "—"}
-                  </span>
-                  <span className="text-zinc-500">Ends</span>
-                  <span className="font-num text-zinc-300">
-                    {formatEndShort(selectedMarket.endTime)} IST
-                  </span>
-                </div>
-              )}
-            </>
-          )}
-        </div>
-
-        <div>
-          <div className="text-[11px] text-zinc-400">Side</div>
-          <div className="mt-1 grid grid-cols-2 gap-1.5">
-            <button
-              type="button"
-              aria-pressed={side === "yes"}
-              onClick={() => setSide("yes")}
-              className={`min-h-[48px] rounded-md border py-2.5 text-sm font-semibold transition active:scale-[0.98] ${
-                side === "yes"
-                  ? "border-emerald-400/40 bg-emerald-500/15 text-emerald-300"
-                  : "border-line text-zinc-500 hover:border-line-strong"
-              }`}
-            >
-              YES
-            </button>
-            <button
-              type="button"
-              aria-pressed={side === "no"}
-              onClick={() => setSide("no")}
-              className={`min-h-[48px] rounded-md border py-2.5 text-sm font-semibold transition active:scale-[0.98] ${
-                side === "no"
-                  ? "border-rose-400/40 bg-rose-500/15 text-rose-300"
-                  : "border-line text-zinc-500 hover:border-line-strong"
-              }`}
-            >
-              NO
-            </button>
-          </div>
-        </div>
-
-        <div>
-          <label className="block text-[11px] text-zinc-400">
-            Amount (USDC)
-            <input
-              type="text"
-              inputMode="decimal"
-              autoComplete="off"
-              value={amountInput}
-              onChange={(e) => setAmountInput(e.target.value)}
-              aria-invalid={!amountCheck.ok}
-              aria-describedby="amount-help"
-              className={`${inputCls} font-num ${amountCheck.ok ? "" : inputErrCls}`}
-            />
-          </label>
-          <p
-            id="amount-help"
-            className={`mt-1 text-[10px] ${amountCheck.ok ? "text-zinc-600" : "text-rose-300"}`}
-          >
-            {amountCheck.ok
-              ? `Up to 2 decimals · max ${MAX_AMOUNT_USDC.toLocaleString()} USDC`
-              : amountCheck.error}
-          </p>
-          <div className="mt-1.5 flex flex-wrap gap-1">
-            {AMOUNT_PRESETS.map((p) => (
-              <button
-                key={p}
-                type="button"
-                onClick={() => setAmountInput(p)}
-                className={`min-h-[40px] min-w-[44px] rounded border px-3 py-2 font-num text-[12px] transition active:scale-[0.98] ${
-                  amountInput === p
-                    ? "border-cyan-400/40 bg-cyan-400/10 text-cyan-300"
-                    : "border-line text-zinc-500 hover:text-zinc-300"
-                }`}
-              >
-                {p}
-              </button>
-            ))}
-            <button
-              type="button"
-              onClick={() => setAmountInput("")}
-              className="min-h-[40px] rounded border border-line px-3 py-2 text-[12px] text-zinc-400 hover:text-zinc-300 active:scale-[0.98]"
-              title="Clear amount"
-            >
-              Clear
-            </button>
-          </div>
-        </div>
-
-        <div>
-          <label className="block text-[11px] text-zinc-400">
-            Max slippage (bps)
-            <input
-              type="text"
-              inputMode="numeric"
-              autoComplete="off"
-              value={slippageInput}
-              onChange={(e) => setSlippageInput(e.target.value)}
-              aria-invalid={!slippageCheck.ok}
-              aria-describedby="slippage-help"
-              className={`${inputCls} font-num ${slippageCheck.ok ? "" : inputErrCls}`}
-            />
-          </label>
-          <p
-            id="slippage-help"
-            className={`mt-1 text-[10px] ${slippageCheck.ok ? "text-zinc-600" : "text-rose-300"}`}
-          >
-            {slippageCheck.ok
-              ? `${(slippageCheck.value / 100).toFixed(2)}% · whole bps, 0–${MAX_SLIPPAGE_BPS}`
-              : slippageCheck.error}
-          </p>
-        </div>
-
-        <details
-          className={`rounded-md border border-line bg-inset ${compact ? "" : "sm:col-span-2"}`}
-        >
-          <summary className="min-h-[36px] cursor-pointer px-2.5 py-2 text-[10px] uppercase tracking-wide text-zinc-500 hover:text-zinc-300">
-            Advanced
-          </summary>
-          <div className="border-t border-line p-2.5">
-            <label className="block text-[11px] text-zinc-400">
-              Attribution reference (optional)
-              <input
-                value={attrRefInput}
-                onChange={(e) => setAttrRefInput(e.target.value)}
-                maxLength={128}
-                autoComplete="off"
-                spellCheck={false}
-                placeholder="e.g. campaign_q3"
-                aria-invalid={!attrCheck.ok}
-                aria-describedby="attr-ref-help"
-                className={`${inputCls} font-num ${attrCheck.ok ? "" : inputErrCls}`}
-              />
-            </label>
-            <p id="attr-ref-help" className="mt-1 text-[10px] leading-relaxed text-zinc-600">
-              User-supplied attribution metadata, not an authenticated identity.
-              Sent as Panta <span className="font-num">userId</span> on quote, build, and report.
+      {closed ? (
+        <div className="mt-4 space-y-3">
+          {marketBlock}
+          <div role="status" className="rounded-xl border border-line-strong bg-elevated p-4">
+            <p className="text-[14px] font-semibold text-ink">
+              {resolved ? "Market resolved" : cancelled ? "Market cancelled" : "Primary buys are closed"}
             </p>
-            {!attrCheck.ok && (
-              <p className="mt-1 text-[10px] text-rose-300">{attrCheck.error}</p>
+            <p className="mt-1 text-[13px] leading-relaxed text-ink-3">
+              {resolved
+                ? "Trading has ended for this market. If you hold a winning position, you can claim it from your Book."
+                : cancelled
+                  ? "This market was cancelled, so no trading is possible. Check your Book for anything claimable."
+                  : "This market is in its secondary phase. Brief Command routes primary buys only, so there is nothing to quote here."}
+            </p>
+            {(resolved || cancelled) && (
+              <Link href="/book?tab=claims" className="btn btn-secondary mt-3">
+                Go to claims
+              </Link>
             )}
           </div>
-        </details>
-
-      </div>
-
-      {quote && (
-        <div className="mt-3 rounded-md border border-cyan-400/20 bg-cyan-400/[0.04] p-3 text-[12px] leading-relaxed text-zinc-300">
-          <p className="text-[13px]">
-            Pay{" "}
-            <span className="font-num font-semibold text-cyan-300">
-              {quote.amountUsdc} USDC
-            </span>{" "}
-            → ~{quote.shares} {quote.side?.toUpperCase() || side.toUpperCase()} @{" "}
-            <span className="font-num">{quote.avgPrice}</span>
-          </p>
-          <dl className="mt-2.5 grid grid-cols-3 gap-2 border-t border-cyan-400/15 pt-2.5 text-[11px]">
-            <div>
-              <dt className="text-[10px] uppercase tracking-wide text-zinc-500">Fee</dt>
-              <dd className="mt-0.5 font-num font-medium text-zinc-200">{quote.feeUsdc} USDC</dd>
-            </div>
-            <div>
-              <dt className="text-[10px] uppercase tracking-wide text-zinc-500">Slippage</dt>
-              <dd className="mt-0.5 font-num font-medium text-zinc-200">
-                {slippageCheck.ok ? `${slippageCheck.value} bps` : "—"}
-              </dd>
-            </div>
-            <div>
-              <dt className="text-[10px] uppercase tracking-wide text-zinc-500">Expires</dt>
-              <dd className={`mt-0.5 font-num font-medium ${expiresLabel === "0:00" ? "text-rose-300" : "text-amber-300"}`}>
-                {expiresLabel || "—"}
-              </dd>
-            </div>
-          </dl>
-        </div>
-      )}
-
-      {build && (
-        <div
-          className={`mt-2 rounded-md border p-3 text-[12px] ${
-            ixCheck?.ok === false
-              ? "border-rose-500/30 bg-rose-500/[0.06]"
-              : "border-line bg-inset"
-          }`}
-          aria-label="Pre-sign summary"
-        >
-          <div className="mb-2 text-[10px] uppercase tracking-wide text-zinc-500">
-            Pre-sign summary
-          </div>
-          <dl className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-[11px] sm:grid-cols-3">
-            <div>
-              <dt className="text-[10px] text-zinc-500">Wallet</dt>
-              <dd className="font-num text-zinc-200">{shortAddr(publicKey?.toBase58(), 4)}</dd>
-            </div>
-            <div className="col-span-1 sm:col-span-2">
-              <dt className="text-[10px] text-zinc-500">Market</dt>
-              <dd className="truncate text-zinc-200" title={build.marketId}>
-                {selectedMarket && selectedMarket.marketId === build.marketId
-                  ? marketLabel(selectedMarket, { max: 64 })
-                  : shortAddr(build.marketId, 6)}
-              </dd>
-            </div>
-            <div>
-              <dt className="text-[10px] text-zinc-500">Side</dt>
-              <dd
-                className={`font-semibold ${
-                  build.side?.toLowerCase() === "no" ? "text-rose-300" : "text-emerald-300"
-                }`}
-              >
-                {build.side?.toUpperCase() || "—"}
-              </dd>
-            </div>
-            <div>
-              <dt className="text-[10px] text-zinc-500">Amount</dt>
-              <dd className="font-num text-zinc-200">{build.amountUsdc} USDC</dd>
-            </div>
-            <div>
-              <dt className="text-[10px] text-zinc-500">Fee</dt>
-              <dd className="font-num text-zinc-200">{build.feeUsdc} USDC</dd>
-            </div>
-            <div>
-              <dt className="text-[10px] text-zinc-500">Expected shares</dt>
-              <dd className="font-num text-zinc-200">{build.expectedShares}</dd>
-            </div>
-            <div className="col-span-2">
-              <dt className="text-[10px] text-zinc-500">Instructions</dt>
-              <dd className="text-zinc-300">
-                {ixCheck?.ok
-                  ? `${ixCheck.count} ix · ${ixCheck.programs.map(programLabel).join(", ")}`
-                  : `${build.instructions?.length ?? 0} ix`}
-              </dd>
-            </div>
-          </dl>
-          <p
-            className={`mt-2 text-[11px] ${ixCheck?.ok === false ? "text-rose-200" : "text-emerald-300/80"}`}
-            role={ixCheck?.ok === false ? "alert" : undefined}
-          >
-            {ixCheck?.ok === false
-              ? ixCheck.reason
-              : ixCheck?.ok
-                ? "Checked: fee payer and only signer is your wallet; every program is on the allowlist."
-                : "Pending instruction check."}
-          </p>
-        </div>
-      )}
-
-      {signature && (
-        <ul
-          className="mt-2 space-y-1 rounded-md border border-line bg-inset px-3 py-2 text-[11px]"
-          aria-label="Execution status"
-          aria-live="polite"
-        >
-          <li className="flex items-start justify-between gap-2">
-            <span className="text-zinc-500">On-chain</span>
-            <span
-              className={`text-right ${
-                txPhase === "confirmed"
-                  ? "text-emerald-300"
-                  : txPhase === "failed" || txPhase === "expired"
-                    ? "text-rose-300"
-                    : "text-amber-300"
-              }`}
-            >
-              {txPhase === "confirming"
-                ? "Confirming…"
-                : txPhase === "confirmed"
-                  ? "Confirmed"
-                  : txPhase === "expired"
-                    ? "Expired — did not land"
-                    : txPhase === "failed"
-                      ? "Failed on-chain"
-                      : txPhase === "pending"
-                        ? "Not confirmed yet"
-                        : "Broadcast"}
-            </span>
-          </li>
-          {txMessage && txPhase !== "confirmed" && (
-            <li className="text-[10px] leading-relaxed text-zinc-400">{txMessage}</li>
-          )}
-          <li className="flex items-start justify-between gap-2">
-            <span className="text-zinc-500">Panta verify</span>
-            <span
-              className={`text-right ${
-                verifyPhase === "confirmed"
-                  ? "text-emerald-300"
-                  : verifyPhase === "failed"
-                    ? "text-rose-300"
-                    : verifyPhase === "idle"
-                      ? "text-zinc-600"
-                      : "text-amber-300"
-              }`}
-            >
-              {verifyPhase === "polling"
-                ? `Polling${verifyStatus ? ` · ${verifyStatus}` : "…"}`
-                : verifyPhase === "confirmed"
-                  ? "Verified"
-                  : verifyPhase === "timeout"
-                    ? `Still pending after 30s${verifyStatus ? ` · ${verifyStatus}` : ""}`
-                    : verifyPhase === "failed"
-                      ? `Verification failed${verifyStatus ? ` · ${verifyStatus}` : ""}`
-                      : "Not requested"}
-            </span>
-          </li>
-          <li className="flex items-start justify-between gap-2">
-            <span className="text-zinc-500">Attribution</span>
-            <span
-              className={`text-right ${
-                attrPhase === "attributed"
-                  ? "text-emerald-300"
-                  : attrPhase === "idle"
-                    ? "text-zinc-600"
-                    : "text-amber-300"
-              }`}
-            >
-              {attrPhase === "reporting"
-                ? "Reporting…"
-                : attrPhase === "reported"
-                  ? "Trade reported for attribution · awaiting ledger"
-                  : attrPhase === "attributed"
-                    ? ledgerSeen
-                      ? "Attributed · in account ledger"
-                      : "Attributed"
-                    : "Not reported"}
-            </span>
-          </li>
-        </ul>
-      )}
-
-      {signature && (
-        <div className="mt-2 flex flex-wrap items-center gap-2 text-[10px] text-zinc-500">
-          <span className="font-num break-all">
-            sig <span className="text-emerald-400">{shortAddr(signature, 8)}</span>
-          </span>
-          <button
-            type="button"
-            onClick={() => void copySig()}
-            className="rounded border border-line px-1.5 py-0.5 text-zinc-400 hover:text-zinc-200"
-          >
-            Copy
-          </button>
-          <a
-            href={`https://solscan.io/tx/${signature}`}
-            target="_blank"
-            rel="noreferrer"
-            className="text-cyan-400 hover:underline"
-          >
-            Explorer
-          </a>
-        </div>
-      )}
-
-      {toast && (
-        <div
-          role="status"
-          className="mt-2 flex items-start justify-between gap-2 rounded-md border border-emerald-400/30 bg-emerald-500/15 px-3 py-2.5 text-xs text-emerald-100 shadow-lg shadow-emerald-500/5 animate-fade-in"
-        >
-          <span className="min-w-0 break-words">{toast}</span>
-          <button
-            type="button"
-            onClick={() => setToast(null)}
-            className="shrink-0 text-[10px] uppercase tracking-wide text-emerald-300/70 hover:text-emerald-200"
-            aria-label="Dismiss"
-          >
-            Dismiss
-          </button>
-        </div>
-      )}
-
-      {error && (
-        <div className="mt-2 rounded-md border border-rose-500/25 bg-rose-500/10 px-2.5 py-2 text-xs text-rose-200">
-          {error}
-        </div>
-      )}
-
-      {!connected ? (
-        <button
-          type="button"
-          onClick={() => setVisible(true)}
-          className={`mt-3 w-full ${btnPrimary}`}
-        >
-          Connect wallet to quote
-        </button>
-      ) : mode === "guided" ? (
-        <div className={`mt-3 flex flex-col gap-1.5`}>
-          <button
-            type="button"
-            disabled={busy || !allInputsValid}
-            onClick={() => void runGuided()}
-            className={`w-full ${btnPrimary}`}
-          >
-            {busy && guidedPhase
-              ? guidedPhase
-              : step >= S.reported
-                ? "Buy again · Quote → Attribute"
-                : needsRestart
-                  ? "Start over · new quote"
-                  : "Buy · Quote → Attribute"}
-          </button>
-          {canResume && (
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => void runFinishAttribution()}
-              className="min-h-[48px] w-full rounded-md border border-emerald-400/30 bg-emerald-500/10 px-3 py-3 text-sm text-emerald-200 active:scale-[0.98] disabled:opacity-40"
-            >
-              {busy && guidedPhase
-                ? guidedPhase
-                : txPhase === "confirmed"
-                  ? "Retry Submit → Verify → Report"
-                  : "Check confirmation → Submit → Verify → Report"}
-            </button>
-          )}
         </div>
       ) : (
-        <div className={`mt-3 flex flex-wrap gap-1.5 ${compact ? "flex-col" : ""}`}>
-          <button type="button" disabled={busy || !quoteInputsValid} onClick={() => void wrap(runQuote)()} className={btnPrimary}>
-            1 · Quote
-          </button>
-          <button type="button" disabled={busy || !quote || !slippageCheck.ok} onClick={() => void wrap(() => runBuild())()} className={btnGhost}>
-            2 · Build VT
-          </button>
-          <button type="button" disabled={busy || !build || ixCheck?.ok !== true} onClick={() => void wrap(() => runSignBroadcast())()} className={btnGhost}>
-            3 · Sign, send & confirm
-          </button>
-          {signature && txPhase === "pending" && (
-            <button type="button" disabled={busy} onClick={() => void wrap(runCheckConfirmation)()} className={btnGhost}>
-              Check confirmation
-            </button>
-          )}
-          <button type="button" disabled={busy || !signature || txPhase !== "confirmed"} onClick={() => void wrap(() => runSubmit())()} className={btnGhost}>
-            4 · Submit
-          </button>
-          <button type="button" disabled={busy || !build || !signature} onClick={() => void wrap(() => runVerify())()} className={btnGhost}>
-            5 · Verify (poll ≤30s)
-          </button>
-          <button
-            type="button"
-            disabled={busy || !signature || txPhase !== "confirmed"}
-            onClick={() => void wrap(() => runAttribute())()}
-            className="rounded-md border border-emerald-400/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-200 disabled:opacity-40"
-          >
-            6 · POST /trades/
-          </button>
-        </div>
-      )}
+        <>
+          <div className={`mt-4 grid gap-3 ${compact ? "grid-cols-1" : "sm:grid-cols-2"}`}>
+            <div className={`block text-[12px] text-ink-3 ${compact ? "" : "sm:col-span-2"}`}>
+              <span>Market</span>
+              {compact ? (
+                <div className="mt-1">{marketBlock}</div>
+              ) : (
+                <>
+                  <div className="relative mt-1">
+                    <input
+                      value={pickerQuery}
+                      onChange={(e) => setPickerQuery(e.target.value)}
+                      placeholder="Search open markets…"
+                      aria-label="Search markets"
+                      className={`${inputCls} mb-1.5`}
+                    />
+                    <select
+                      value={catalog.some((m) => m.marketId === marketId) ? marketId : ""}
+                      onChange={(e) => {
+                        if (e.target.value) {
+                          setMarketId(e.target.value);
+                          setPickerQuery("");
+                        }
+                      }}
+                      aria-label="Pick market"
+                      className={inputCls}
+                    >
+                      <option value="">
+                        {filteredCatalog.length
+                          ? "Select an open market…"
+                          : pickerQuery
+                            ? "No matches — open Advanced to paste an ID"
+                            : "Loading catalog…"}
+                      </option>
+                      {filteredCatalog.map((m) => (
+                        <option key={m.marketId} value={m.marketId}>
+                          {marketLabel(m, { max: 72 })}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  {selectedMarket && <div className="mt-2">{marketBlock}</div>}
+                </>
+              )}
+            </div>
 
-      {connected && blockingHint && !busy && (
-        <p className="mt-1.5 text-[11px] text-zinc-500" role="status">
-          {blockingHint}
-        </p>
-      )}
+            <div>
+              <div className="text-[12px] text-ink-3" id="side-label">
+                Outcome
+              </div>
+              <div className="mt-1 grid grid-cols-2 gap-2" role="group" aria-labelledby="side-label">
+                <button type="button" aria-pressed={side === "yes"} onClick={() => setSide("yes")} className="side-btn side-yes">
+                  YES
+                </button>
+                <button type="button" aria-pressed={side === "no"} onClick={() => setSide("no")} className="side-btn side-no">
+                  NO
+                </button>
+              </div>
+            </div>
 
-      <details className={`mt-3 rounded-md border border-line bg-inset open:pb-0 ${compact ? "hidden sm:block" : ""}`}>
-        <summary className="min-h-[40px] cursor-pointer px-2.5 py-2 text-[10px] uppercase tracking-wide text-zinc-600 hover:text-zinc-400">
-          Raw / debug
-        </summary>
-        <div className={`grid gap-2 border-t border-line p-2.5 ${compact ? "" : "lg:grid-cols-2"}`}>
-          {!compact && (
-            <div className="space-y-2 lg:col-span-2">
-              <label className="block text-[11px] text-zinc-400">
-                Paste market ID
+            <div>
+              <label className="block text-[12px] text-ink-3">
+                Amount (USDC)
                 <input
-                  value={marketId}
-                  onChange={(e) => setMarketId(e.target.value)}
-                  placeholder="Market public key"
-                  aria-label="Paste market ID"
-                  className={`${inputCls} font-num`}
+                  type="text"
+                  inputMode="decimal"
+                  autoComplete="off"
+                  value={amountInput}
+                  onChange={(e) => setAmountInput(e.target.value)}
+                  aria-invalid={!amountCheck.ok}
+                  aria-describedby="amount-help"
+                  className={`${inputCls} font-num ${amountCheck.ok ? "" : inputErrCls}`}
                 />
               </label>
+              <p id="amount-help" className={`mt-1 text-[11px] ${amountCheck.ok ? "text-ink-3" : "text-rose-300"}`}>
+                {amountCheck.ok ? `Up to 2 decimals · max ${MAX_AMOUNT_USDC.toLocaleString()} USDC` : amountCheck.error}
+              </p>
+              <div className="mt-1.5 flex flex-wrap gap-1.5">
+                {AMOUNT_PRESETS.map((p) => (
+                  <button key={p} type="button" onClick={() => setAmountInput(p)} aria-pressed={amountInput === p} className="chip font-num">
+                    {p}
+                  </button>
+                ))}
+                <button type="button" onClick={() => setAmountInput("")} className="chip" title="Clear amount">
+                  Clear
+                </button>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-[12px] text-ink-3">
+                Max slippage (bps)
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="off"
+                  value={slippageInput}
+                  onChange={(e) => setSlippageInput(e.target.value)}
+                  aria-invalid={!slippageCheck.ok}
+                  aria-describedby="slippage-help"
+                  className={`${inputCls} font-num ${slippageCheck.ok ? "" : inputErrCls}`}
+                />
+              </label>
+              <p id="slippage-help" className={`mt-1 text-[11px] ${slippageCheck.ok ? "text-ink-3" : "text-rose-300"}`}>
+                {slippageCheck.ok ? `${(slippageCheck.value / 100).toFixed(2)}% · whole bps, 0–${MAX_SLIPPAGE_BPS}` : slippageCheck.error}
+              </p>
+            </div>
+          </div>
+
+          {/* Quote summary: fees always visible */}
+          {quote && (
+            <div className={`mt-4 rounded-xl border p-3.5 ${quoteStale || quoteExpired ? "border-amber-400/30 bg-amber-400/[0.05]" : "border-cyan-400/25 bg-cyan-400/[0.04]"}`}>
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-[12px] font-semibold text-ink-2">Quote</p>
+                {quoteStale ? (
+                  <StatusBadge tone="warning" size="xs">Inputs changed</StatusBadge>
+                ) : quoteExpired ? (
+                  <StatusBadge tone="warning" size="xs">Expired</StatusBadge>
+                ) : (
+                  <span className="font-num text-[11px] text-amber-300">Expires in {expiresLabel || "—"}</span>
+                )}
+              </div>
+              <p className="mt-1.5 text-[14px] text-ink">
+                Pay <span className="font-num font-semibold text-cyan-200">{quote.amountUsdc} USDC</span> → ~
+                <span className="font-num font-semibold">{quote.shares}</span> {String(quote.side || side).toUpperCase()}
+              </p>
+              <dl className="mt-3 grid grid-cols-3 gap-2 border-t border-line pt-3 text-[11px]">
+                <div>
+                  <dt className="text-ink-3">Avg. price</dt>
+                  <dd className="font-num mt-0.5 font-medium text-ink">{quote.avgPrice}</dd>
+                </div>
+                <div>
+                  <dt className="text-ink-3">Fee</dt>
+                  <dd className="font-num mt-0.5 font-medium text-ink">{quote.feeUsdc} USDC</dd>
+                </div>
+                <div>
+                  <dt className="text-ink-3">Max slippage</dt>
+                  <dd className="font-num mt-0.5 font-medium text-ink">{slippageCheck.ok ? `${slippageCheck.value} bps` : "—"}</dd>
+                </div>
+              </dl>
+              {(quoteStale || quoteExpired) && (
+                <p className="mt-2 text-[11px] text-amber-200">
+                  {quoteStale ? "Amount, side or market changed since this quote. Get a new quote before reviewing." : "This quote expired. Get a new quote to continue."}
+                </p>
+              )}
             </div>
           )}
-          <div>
-            <div className="mb-1.5 text-[10px] uppercase tracking-wide text-zinc-700">
-              Desk log
+
+          {/* Review step: shown before the wallet is invoked */}
+          {reviewOpen && build && quote && (
+            <section aria-labelledby="review-title" className="mt-4 rounded-xl border border-blue-500/40 bg-blue-500/[0.06] p-4 animate-fade-in">
+              <h3 id="review-title" className="text-[14px] font-semibold text-ink">
+                Review before you sign
+              </h3>
+              <dl className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 text-[12px]">
+                <div className="col-span-2">
+                  <dt className="text-ink-3">Market</dt>
+                  <dd className="text-ink">{marketTitle}</dd>
+                </div>
+                <div>
+                  <dt className="text-ink-3">Side</dt>
+                  <dd className={`font-semibold ${build.side?.toLowerCase() === "no" ? "text-rose-300" : "text-emerald-300"}`}>
+                    Buy {build.side?.toUpperCase() || side.toUpperCase()}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-ink-3">Amount</dt>
+                  <dd className="font-num text-ink">{build.amountUsdc} USDC</dd>
+                </div>
+                <div>
+                  <dt className="text-ink-3">Quote</dt>
+                  <dd className="font-num text-ink">
+                    ~{build.expectedShares} shares @ {quote.avgPrice}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-ink-3">Fees</dt>
+                  <dd className="font-num text-ink">{build.feeUsdc} USDC</dd>
+                </div>
+                <div>
+                  <dt className="text-ink-3">Wallet</dt>
+                  <dd className="font-num text-ink">{shortAddr(publicKey?.toBase58(), 4)}</dd>
+                </div>
+                <div>
+                  <dt className="text-ink-3">Max slippage</dt>
+                  <dd className="font-num text-ink">{slippageCheck.ok ? `${(slippageCheck.value / 100).toFixed(2)}%` : "—"}</dd>
+                </div>
+                <div className="col-span-2">
+                  <dt className="text-ink-3">Programs</dt>
+                  <dd className="text-ink-2">
+                    {ixCheck?.ok ? `${ixCheck.count} instructions · ${ixCheck.programs.map(programLabel).join(", ")}` : "—"}
+                  </dd>
+                </div>
+              </dl>
+              <p className="mt-3 flex gap-2 text-[12px] text-emerald-300/90">
+                <span aria-hidden="true">✓</span> Checked: your wallet is the fee payer and only signer; every program is on the allowlist.
+              </p>
+              <p className="mt-2 rounded-lg border border-amber-400/25 bg-amber-400/[0.06] px-3 py-2 text-[12px] leading-relaxed text-amber-100/90">
+                Prediction markets involve risk and you can lose the full amount. Your wallet will show the transaction next;
+                nothing is sent until you approve it there. Quote expires in {expiresLabel || "—"}.
+              </p>
+              <div className="mt-3 grid grid-cols-[auto_1fr] gap-2">
+                <button type="button" className="btn btn-secondary" onClick={() => setReviewOpen(false)} disabled={busy}>
+                  Back
+                </button>
+                <button type="button" className="btn btn-primary" onClick={() => void runApprove()} disabled={busy || quoteExpired}>
+                  <IconWallet className="h-4 w-4" />
+                  {quoteExpired ? "Quote expired" : "Approve in wallet"}
+                </button>
+              </div>
+            </section>
+          )}
+
+          {showStepper && (
+            <div className="mt-4 rounded-xl border border-line bg-inset p-3.5" aria-live="polite">
+              <p className="mb-3 text-[12px] font-semibold text-ink-2">Transaction progress</p>
+              <TransactionStepper steps={steps} compact />
             </div>
-            <ul className="max-h-36 space-y-1 overflow-y-auto font-num text-[10px] text-zinc-500">
-              {log.map((l, i) => (
-                <li key={i}>{l}</li>
-              ))}
-              {log.length === 0 && <li>Idle — run Quote to open a session.</li>}
-            </ul>
-          </div>
-          <div>
-            <div className="mb-1.5 text-[10px] uppercase tracking-wide text-zinc-700">
-              Last responses
+          )}
+
+          {signature && (
+            <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-ink-3">
+              <span className="font-addr break-all">
+                Signature <span className="text-emerald-300">{shortAddr(signature, 8)}</span>
+              </span>
+              <button type="button" onClick={() => void copySig()} className="chip">
+                Copy
+              </button>
+              <a href={`https://solscan.io/tx/${signature}`} target="_blank" rel="noreferrer" className="chip text-cyan-300">
+                Solscan ↗
+              </a>
             </div>
-            <pre className="max-h-36 overflow-auto font-num text-[9px] text-zinc-600">
-              {JSON.stringify(
-                { submitRaw, verifyRaw, tradeRaw, orderId: build?.orderId },
-                null,
-                2,
+          )}
+
+          {toast && (
+            <div role="status" className="mt-3 flex items-start justify-between gap-2 rounded-xl border border-emerald-400/30 bg-emerald-500/10 px-3 py-2.5 text-[12px] text-emerald-100 animate-fade-in">
+              <span className="min-w-0 break-words">{toast}</span>
+              <button type="button" onClick={() => setToast(null)} className="shrink-0 text-[11px] text-emerald-300/80 hover:text-emerald-200" aria-label="Dismiss notification">
+                Dismiss
+              </button>
+            </div>
+          )}
+
+          {error && (
+            <div role="alert" className="mt-3 rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2.5 text-[12px] text-rose-100">
+              <p>{error}</p>
+              {failedStage === "sign" && <p className="mt-1 text-rose-200/80">Nothing was sent. You can review and approve again.</p>}
+            </div>
+          )}
+
+          {!connected ? (
+            <div className="mt-4 rounded-xl border border-line bg-inset p-4">
+              <p className="text-[13px] leading-relaxed text-ink-2">
+                A Solana wallet is required to quote and execute. Your wallet signs every transaction; we never ask for a
+                private key or seed phrase.
+              </p>
+              <button type="button" onClick={() => setVisible(true)} className={`mt-3 ${btnPrimary}`}>
+                <IconWallet className="h-4 w-4" /> Connect Wallet
+              </button>
+            </div>
+          ) : mode === "guided" ? (
+            !reviewOpen && (
+              <div className="mt-4 flex flex-col gap-2">
+                <button type="button" disabled={primary.disabled} onClick={primary.onClick} className={btnPrimary}>
+                  {primary.label}
+                </button>
+                {canResume && (
+                  <button type="button" disabled={busy} onClick={() => void runFinishAttribution()} className="btn btn-secondary w-full">
+                    {busy && guidedPhase
+                      ? guidedPhase
+                      : txPhase === "confirmed"
+                        ? "Retry submit → verify → report"
+                        : "Check confirmation → submit → verify → report"}
+                  </button>
+                )}
+              </div>
+            )
+          ) : (
+            <div className={`mt-4 grid gap-2 ${compact ? "grid-cols-1" : "sm:grid-cols-2"}`}>
+              <button type="button" disabled={busy || !quoteInputsValid} onClick={() => void wrap(runQuote)()} className="btn btn-primary">
+                1 · Quote
+              </button>
+              <button type="button" disabled={busy || !quote || !slippageCheck.ok} onClick={() => void wrap(() => runBuild())()} className={btnGhost}>
+                2 · Build + check
+              </button>
+              <button type="button" disabled={busy || !build || ixCheck?.ok !== true} onClick={() => void wrap(() => runSignBroadcast())()} className={btnGhost}>
+                3 · Sign, send &amp; confirm
+              </button>
+              {signature && txPhase === "pending" && (
+                <button type="button" disabled={busy} onClick={() => void wrap(runCheckConfirmation)()} className={btnGhost}>
+                  Check confirmation
+                </button>
               )}
-            </pre>
-          </div>
-        </div>
-      </details>
+              <button type="button" disabled={busy || !signature || txPhase !== "confirmed"} onClick={() => void wrap(() => runSubmit())()} className={btnGhost}>
+                4 · Submit
+              </button>
+              <button type="button" disabled={busy || !build || !signature} onClick={() => void wrap(() => runVerify())()} className={btnGhost}>
+                5 · Verify (poll ≤30s)
+              </button>
+              <button type="button" disabled={busy || !signature || txPhase !== "confirmed"} onClick={() => void wrap(() => runAttribute())()} className={btnGhost}>
+                6 · Report trade
+              </button>
+            </div>
+          )}
+
+          {connected && blockingHint && !busy && (
+            <p className="mt-2 text-[12px] text-ink-3" role="status">
+              {blockingHint}
+            </p>
+          )}
+
+          <details className="mt-4 rounded-xl border border-line bg-inset">
+            <summary className="flex min-h-11 cursor-pointer items-center px-3 text-[12px] font-medium text-ink-3 hover:text-ink">
+              Advanced
+            </summary>
+            <div className="space-y-3 border-t border-line p-3">
+              <label className="block text-[12px] text-ink-3">
+                Attribution reference (optional)
+                <input
+                  value={attrRefInput}
+                  onChange={(e) => setAttrRefInput(e.target.value)}
+                  maxLength={128}
+                  autoComplete="off"
+                  spellCheck={false}
+                  placeholder="e.g. campaign_q3"
+                  aria-invalid={!attrCheck.ok}
+                  aria-describedby="attr-ref-help"
+                  className={`${inputCls} font-num ${attrCheck.ok ? "" : inputErrCls}`}
+                />
+              </label>
+              <p id="attr-ref-help" className="text-[11px] leading-relaxed text-ink-3">
+                User-supplied attribution metadata, not an authenticated identity. Sent as Panta{" "}
+                <span className="font-addr">userId</span> on quote, build, and report.
+              </p>
+              {!attrCheck.ok && <p className="text-[11px] text-rose-300">{attrCheck.error}</p>}
+              {!compact && (
+                <label className="block text-[12px] text-ink-3">
+                  Paste market ID
+                  <input
+                    value={marketId}
+                    onChange={(e) => setMarketId(e.target.value)}
+                    placeholder="Market public key"
+                    aria-label="Paste market ID"
+                    className={`${inputCls} font-addr`}
+                  />
+                </label>
+              )}
+              <div>
+                <p className="mb-1.5 text-[11px] font-medium text-ink-3">Desk log</p>
+                <ul className="max-h-36 space-y-1 overflow-y-auto font-addr text-[10px] text-ink-3">
+                  {log.map((l, i) => (
+                    <li key={i}>{l}</li>
+                  ))}
+                  {log.length === 0 && <li>Idle. Get a quote to open a session.</li>}
+                </ul>
+              </div>
+              <div>
+                <p className="mb-1.5 text-[11px] font-medium text-ink-3">Last responses (raw)</p>
+                <pre className="max-h-36 overflow-auto font-addr text-[10px] text-ink-3">
+                  {JSON.stringify({ submitRaw, verifyRaw, tradeRaw, orderId: build?.orderId }, null, 2)}
+                </pre>
+              </div>
+            </div>
+          </details>
+        </>
+      )}
     </Panel>
   );
 }

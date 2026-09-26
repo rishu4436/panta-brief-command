@@ -351,21 +351,16 @@ export function MarketList() {
     return () => window.removeEventListener("keydown", onKey);
   }, [filtered, highlight, router, filterKey]);
 
-  const chipCls = (active: boolean) =>
-    `shrink-0 rounded-full border px-2.5 py-1 text-[12px] capitalize transition active:scale-[0.98] ${
-      active
-        ? "border-cyan-400/40 bg-cyan-400/10 text-cyan-300"
-        : "border-line bg-inset text-zinc-400 hover:border-line-strong hover:text-zinc-200"
-    }`;
 
   return (
     <div className="space-y-3 animate-fade-in">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="type-page">Markets</h1>
-          <p className="type-lede">
-            Live USDC catalog
-            <span className="text-zinc-600"> · phase ≠ liquidity · arrows / search</span>
+          <p className="eyebrow">Trading desk</p>
+          <h1 className="mt-2 text-[28px] font-semibold tracking-[-0.02em] text-ink">Markets</h1>
+          <p className="mt-1 text-[13px] text-ink-3">
+            Live Panta catalog
+            <span> · open phase is not the same as liquidity · ↑↓ to move, Enter to open, / to search</span>
             {updatedAt ? (
               <span className="ml-1.5 font-num text-zinc-600">
                 · Updated {formatUpdated(updatedAt)} IST
@@ -374,38 +369,15 @@ export function MarketList() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <div className="inline-flex rounded-md border border-line bg-inset p-0.5">
-            <button
-              type="button"
-              aria-pressed={view === "rows"}
-              onClick={() => setView("rows")}
-              className={`rounded px-2.5 py-1 text-[11px] transition ${
-                view === "rows"
-                  ? "bg-elevated text-zinc-100"
-                  : "text-zinc-500 hover:text-zinc-300"
-              }`}
-            >
+          <div className="segmented" role="group" aria-label="Layout">
+            <button type="button" aria-pressed={view === "rows"} onClick={() => setView("rows")}>
               Rows
             </button>
-            <button
-              type="button"
-              aria-pressed={view === "cards"}
-              onClick={() => setView("cards")}
-              className={`rounded px-2.5 py-1 text-[11px] transition ${
-                view === "cards"
-                  ? "bg-elevated text-zinc-100"
-                  : "text-zinc-500 hover:text-zinc-300"
-              }`}
-            >
+            <button type="button" aria-pressed={view === "cards"} onClick={() => setView("cards")}>
               Cards
             </button>
           </div>
-          <button
-            type="button"
-            onClick={() => void catalog.refetch()}
-            className="rounded-md border border-line bg-surface px-2.5 py-1.5 text-[11px] text-zinc-400 transition hover:border-line-strong hover:text-zinc-200 active:scale-[0.98]"
-            disabled={busy}
-          >
+          <button type="button" onClick={() => void catalog.refetch()} className="btn btn-secondary btn-sm" disabled={busy}>
             {busy ? "Syncing…" : "Refresh"}
           </button>
         </div>
@@ -428,7 +400,7 @@ export function MarketList() {
         </div>
       )}
 
-      <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_260px] lg:items-start">
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-3 lg:grid-cols-[minmax(0,1fr)_260px] lg:items-start">
       <Panel flush>
         <div className="space-y-2.5 border-b border-line px-3.5 py-3">
           <div className="flex flex-wrap gap-2">
@@ -439,7 +411,7 @@ export function MarketList() {
                 onChange={(e) => setQ(e.target.value)}
                 placeholder="Search markets…"
                 aria-label="Search markets"
-                className="w-full rounded-md border border-line bg-inset px-3 py-2 pr-8 text-sm text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-cyan-400/40"
+                className="field pr-8"
               />
               <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 font-num text-[10px] text-zinc-600">
                 /
@@ -449,7 +421,7 @@ export function MarketList() {
               value={sort}
               onChange={(e) => setSort(e.target.value as SortMode)}
               aria-label="Sort markets"
-              className="rounded-md border border-line bg-inset px-3 py-2 text-sm text-zinc-300"
+              className="field !w-auto"
             >
               <option value="default">Sort: Default</option>
               <option value="volume">Sort: Volume</option>
@@ -460,7 +432,7 @@ export function MarketList() {
               value={phase}
               onChange={(e) => setPhase(e.target.value)}
               aria-label="Filter by phase"
-              className="rounded-md border border-line bg-inset px-3 py-2 text-sm text-zinc-300"
+              className="field !w-auto"
             >
               <option value="">All phases</option>
               <option value="primary">Primary (open)</option>
@@ -480,11 +452,7 @@ export function MarketList() {
               role="option"
               aria-selected={watchOnly}
               onClick={() => setWatchOnly((v) => !v)}
-              className={`shrink-0 rounded-full border px-3 py-1.5 text-[12px] transition active:scale-[0.98] ${
-                watchOnly
-                  ? "border-amber-400/40 bg-amber-400/10 text-amber-300"
-                  : "border-line bg-inset text-zinc-400 hover:border-line-strong hover:text-zinc-200"
-              }`}
+              className="chip"
             >
               ★ Watchlist{watchIds.length ? ` (${watchIds.length})` : ""}
             </button>
@@ -496,7 +464,7 @@ export function MarketList() {
                 setCategory("");
                 setWatchOnly(false);
               }}
-              className={chipCls(category === "" && !watchOnly)}
+              className="chip capitalize"
             >
               All
             </button>
@@ -510,7 +478,7 @@ export function MarketList() {
                   setCategory(c);
                   setWatchOnly(false);
                 }}
-                className={chipCls(category === c && !watchOnly)}
+                className="chip capitalize"
               >
                 {c}
               </button>
@@ -558,6 +526,10 @@ export function MarketList() {
                         <img
                           src={thumb}
                           alt=""
+                          onError={(e) => {
+                            // Upstream image missing (404): hide it rather than show a broken icon.
+                            e.currentTarget.style.display = "none";
+                          }}
                           className="h-28 w-full object-cover opacity-90 transition group-hover:opacity-100"
                         />
                       ) : (
@@ -652,6 +624,9 @@ export function MarketList() {
                           <img
                             src={thumb}
                             alt=""
+                            onError={(e) => {
+                              e.currentTarget.style.display = "none";
+                            }}
                             className="hidden h-10 w-10 shrink-0 rounded object-cover sm:block"
                           />
                         ) : null}

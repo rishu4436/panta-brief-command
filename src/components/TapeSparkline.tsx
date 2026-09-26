@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import type { Trade } from "@/lib/panta/domain";
 import { Panel } from "./Panel";
 
@@ -67,63 +67,99 @@ function buildPath(
   return { line, area, lastX: last.x, lastY: last.y };
 }
 
-export function TapeSparkline({ items, busy }: { items: Trade[]; busy?: boolean }) {
-  const series = useMemo(() => deriveTapeSeries(items), [items]);
+const RANGES = [
+  { id: "10", label: "Last 10", n: 10 },
+  { id: "25", label: "Last 25", n: 25 },
+  { id: "all", label: "All", n: Infinity },
+] as const;
+
+/**
+ * Market activity chart: running YES share of flow over the tape window.
+ * Range = how many of the most recent sided prints to include (the tape has
+ * no per-trade price, so there is no price or time-range chart to offer).
+ */
+export function TapeSparkline({ items, busy, size = "md" }: { items: Trade[]; busy?: boolean; size?: "md" | "lg" }) {
+  const [range, setRange] = useState<(typeof RANGES)[number]["id"]>("all");
+  const sided = useMemo(
+    () =>
+      items
+        .filter((t) => t.side && t.blockTime != null && Number.isFinite(t.blockTime))
+        .sort((a, b) => (b.blockTime as number) - (a.blockTime as number)),
+    [items],
+  );
+  const n = RANGES.find((r) => r.id === range)?.n ?? Infinity;
+  const series = useMemo(() => deriveTapeSeries(Number.isFinite(n) ? sided.slice(0, n) : sided), [sided, n]);
   const enough = series.length >= 2;
-  const w = 320;
-  const h = 72;
-  const path = useMemo(() => (enough ? buildPath(series, w, h, 4) : null), [enough, series]);
+  const w = 640;
+  const h = size === "lg" ? 180 : 96;
+  const pad = 6;
+  const path = useMemo(() => (enough ? buildPath(series, w, h, pad) : null), [enough, series, h]);
   const first = enough ? series[0].yesProb : 0;
   const last = enough ? series[series.length - 1].yesProb : 0;
   const delta = last - first;
+  const hCls = size === "lg" ? "h-[180px]" : "h-[96px]";
 
   return (
     <Panel
-      title="Cumulative flow"
+      title="Market activity"
+      subtitle="Cumulative YES share of flow"
       action={
-        enough ? (
-          <span className="mr-3.5 font-num text-[11px] text-zinc-400">
-            YES {(last * 100).toFixed(1)}% · {series.length} prints
-          </span>
+        sided.length >= 2 ? (
+          <div className="segmented mr-3" role="group" aria-label="Prints included">
+            {RANGES.map((r) => (
+              <button key={r.id} type="button" aria-pressed={range === r.id} onClick={() => setRange(r.id)} disabled={Number.isFinite(r.n) && sided.length <= r.n && r.id !== "all"}>
+                {r.label}
+              </button>
+            ))}
+          </div>
         ) : null
       }
     >
       {busy && items.length === 0 ? (
-        <div className="skeleton h-[72px] w-full" />
+        <div className={`skeleton w-full ${hCls}`} />
       ) : !enough || !path ? (
-        <div className="flex h-[72px] flex-col items-center justify-center rounded-md border border-dashed border-line bg-inset/60 px-3 text-center">
-          <div className="type-body text-zinc-400">No flow series yet</div>
-          <p className="type-meta mt-0.5">Needs ≥2 timed prints with a side · nothing invented</p>
+        <div className={`flex flex-col items-center justify-center rounded-xl border border-dashed border-line bg-inset/60 px-3 text-center ${hCls}`}>
+          <div className="text-[13px] font-medium text-ink-2">No flow series yet</div>
+          <p className="type-meta mt-1">Needs at least 2 timed prints with a side. Nothing is invented.</p>
         </div>
       ) : (
         <div className="relative">
-          <svg
-            viewBox={`0 0 ${w} ${h}`}
-            className="h-[72px] w-full"
-            role="img"
-            aria-label="Cumulative YES share of flow across the tape window"
-          >
-            <line x1="4" x2={w - 4} y1={h / 2} y2={h / 2} stroke="#2a2a2e" strokeDasharray="3 3" />
-            <path d={path.area} fill="rgba(34,211,238,0.10)" />
-            <path
-              d={path.line}
-              fill="none"
-              stroke="#22d3ee"
-              strokeWidth="1.75"
-              strokeLinejoin="round"
-              strokeLinecap="round"
-            />
-            <circle cx={path.lastX} cy={path.lastY} r="2.5" fill="#22d3ee" />
-          </svg>
-          <div className="mt-1 flex justify-between font-num text-[10px] text-zinc-500">
-            <span>first print {(first * 100).toFixed(0)}% YES</span>
-            <span>
-              now {(last * 100).toFixed(1)}% YES ({delta >= 0 ? "+" : ""}
-              {(delta * 100).toFixed(1)} pts)
+          <div className="flex items-baseline gap-3">
+            <span className="font-num text-[22px] font-semibold text-ink">{(last * 100).toFixed(1)}%</span>
+            <span className="text-[12px] text-ink-3">YES share of {series[0].basis}</span>
+            <span className={`font-num text-[12px] ${delta >= 0 ? "text-emerald-300" : "text-rose-300"}`}>
+              {delta >= 0 ? "+" : ""}
+              {(delta * 100).toFixed(1)} pts over {series.length} prints
             </span>
           </div>
-          <p className="mt-1 text-[10px] text-zinc-600">
-            Running YES share of {series[0].basis === "shares" ? "shares" : "prints"} · flow, not price · 50% line dashed
+          <div className="relative mt-2 pl-8">
+            <div className="absolute inset-y-0 left-0 flex flex-col justify-between py-1 font-num text-[10px] text-ink-3" aria-hidden="true">
+              <span>100%</span>
+              <span>50%</span>
+              <span>0%</span>
+            </div>
+            <svg
+              viewBox={`0 0 ${w} ${h}`}
+              preserveAspectRatio="none"
+              className={`${hCls} w-full`}
+              role="img"
+              aria-label={`Cumulative YES share of flow: ${(first * 100).toFixed(0)}% at first print, ${(last * 100).toFixed(1)}% now, across ${series.length} prints`}
+            >
+              <defs>
+                <linearGradient id="flow-fill" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0" stopColor="#12D6F5" stopOpacity="0.25" />
+                  <stop offset="1" stopColor="#12D6F5" stopOpacity="0" />
+                </linearGradient>
+              </defs>
+              <line x1={pad} x2={w - pad} y1={pad} y2={pad} stroke="#1d2b42" />
+              <line x1={pad} x2={w - pad} y1={h / 2} y2={h / 2} stroke="#2a3b57" strokeDasharray="4 4" />
+              <line x1={pad} x2={w - pad} y1={h - pad} y2={h - pad} stroke="#1d2b42" />
+              <path d={path.area} fill="url(#flow-fill)" />
+              <path d={path.line} fill="none" stroke="#12D6F5" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
+            </svg>
+          </div>
+          <p className="mt-2 text-[11px] text-ink-3">
+            Flow, not price: tape rows carry no per-trade price, so no price history is drawn. 50% line dashed.
           </p>
         </div>
       )}

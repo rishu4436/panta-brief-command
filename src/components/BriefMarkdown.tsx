@@ -18,11 +18,7 @@ export function BriefMarkdown({ source }: { source: string }) {
               <h4 className="type-section">
                 {inline(first.slice(4))}
               </h4>
-              {lines.slice(1).map((l, j) => (
-                <p key={j} className="mt-1">
-                  {inline(l)}
-                </p>
-              ))}
+              <BodyLines lines={lines.slice(1)} />
             </div>
           );
         }
@@ -63,6 +59,35 @@ export function BriefMarkdown({ source }: { source: string }) {
         );
       })}
     </div>
+  );
+}
+
+/** Lines under a heading: consecutive "- " lines become a list, others paragraphs. */
+function BodyLines({ lines }: { lines: string[] }) {
+  const groups: { list: boolean; items: string[] }[] = [];
+  for (const l of lines) {
+    if (!l.trim()) continue;
+    const isItem = /^\s*[-*]\s+/.test(l);
+    const last = groups[groups.length - 1];
+    if (last && last.list === isItem && isItem) last.items.push(l);
+    else groups.push({ list: isItem, items: [l] });
+  }
+  return (
+    <>
+      {groups.map((g, gi) =>
+        g.list ? (
+          <ul key={gi} className="mt-1 list-disc space-y-1 pl-4 text-zinc-400">
+            {g.items.map((l, j) => (
+              <li key={j}>{inline(l.replace(/^\s*[-*]\s+/, ""))}</li>
+            ))}
+          </ul>
+        ) : (
+          <p key={gi} className="mt-1">
+            {inline(g.items[0])}
+          </p>
+        ),
+      )}
+    </>
   );
 }
 

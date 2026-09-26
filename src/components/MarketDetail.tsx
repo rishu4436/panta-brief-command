@@ -306,15 +306,15 @@ export function MarketDetail({ marketId }: { marketId: string }) {
               </div>
             </dl>
           </Panel>
-          <AiBrief market={market} tape={tape} auto />
-        </div>
-
-        <div className="space-y-3 lg:col-span-5">
           <Panel title="Probability">
             <DualSideHero yes={yes} no={no} />
             <p className="type-meta mt-3">Live spot · blank means not priced yet</p>
           </Panel>
           <TapeSparkline items={tape} busy={tapeBusy} spotYes={yes != null && yes !== "" ? Number(yes) : null} />
+        </div>
+
+        <div className="space-y-3 lg:col-span-5">
+          <AiBrief market={market} auto />
           <TradeTape items={tape} busy={tapeBusy} />
         </div>
 

@@ -1,174 +1,257 @@
-import type { BriefTone, CatalogTradeRow, MarketCatalogItem } from "./types";
-import { formatFriendlyIst, formatOddsPct, formatVolumeUsdc, impliedSide } from "./format";
+/**
+ * Brief narrative = interpretation of precomputed signals.
+ *
+ * Both paths (OpenAI and the deterministic template) read the same
+ * MarketSignals object from src/lib/panta/signals.ts. Neither recomputes
+ * numbers, and neither gives buy/sell recommendations. Every brief has four
+ * sections: Observation · Evidence · Risk · Execution considerations.
+ */
 
-export type { BriefTone };
+import { catalogText, type MarketSignals } from "./panta/signals";
+import { BRIEF_MODES } from "./brief-modes";
+import type { BriefMode, MarketCatalogItem } from "./types";
 
-function tapeSummary(tape: CatalogTradeRow[]): {
-  count: number;
-  yesBuys: number;
-  noBuys: number;
-  lastSide: string | null;
-} {
-  let yesBuys = 0;
-  let noBuys = 0;
-  for (const t of tape) {
-    const side = (t.side || "").toLowerCase();
-    const yesAmt = Number(t.yesAmount ?? 0);
-    const noAmt = Number(t.noAmount ?? 0);
-    if (side === "yes" || yesAmt > noAmt) yesBuys += 1;
-    else if (side === "no" || noAmt > yesAmt) noBuys += 1;
-  }
-  const last = tape[0];
-  let lastSide: string | null = null;
-  if (last) {
-    lastSide =
-      last.side ||
-      (Number(last.yesAmount ?? 0) > Number(last.noAmount ?? 0) ? "yes" : "no");
-  }
-  return { count: tape.length, yesBuys, noBuys, lastSide };
+const SECTION_HEADERS = [
+  "### Observation",
+  "### Evidence",
+  "### Risk",
+  "### Execution considerations",
+] as const;
+
+/**
+ * Deterministic guard: phrases that read as trading advice. An LLM answer that
+ * matches is discarded in favour of the template.
+ */
+const ADVICE_RE =
+  /\b(you should|we recommend|i recommend|recommend(?:ed|s)? (?:buying|selling|a position)|consider (?:buying|selling|going|entering|adding)|buy now|sell now|go long|go short|take a position|size (?:up|down|carefully|your)|requires? conviction|prefer (?:primary )?(?:yes|no)|good entry|attractive entry|undervalued|overvalued|strong buy|strong sell)\b/i;
+
+export function containsAdvice(text: string): boolean {
+  return ADVICE_RE.test(text);
 }
 
-function toneHeader(tone: BriefTone): string {
-  if (tone === "bull") return "Tone preset: **Bull** — emphasize YES catalysts and upside flow.";
-  if (tone === "bear") return "Tone preset: **Bear** — emphasize NO catalysts, fade risk, and downside flow.";
-  return "Tone preset: **Neutral** — balanced desk read without directional spin.";
+// ---------------------------------------------------------------------------
+// Formatting helpers
+// ---------------------------------------------------------------------------
+
+const pct = (n: number | null, dp = 1) => (n == null ? "—" : `${(n * 100).toFixed(dp)}%`);
+
+function istTime(unixSec: number | null): string {
+  if (unixSec == null) return "n/a";
+  return (
+    new Date(unixSec * 1000).toLocaleString("en-IN", {
+      timeZone: "Asia/Calcutta",
+      dateStyle: "medium",
+      timeStyle: "short",
+    }) + " IST"
+  );
 }
 
-function toneDeskNote(
-  lean: string,
-  tone: BriefTone,
-): string {
-  if (tone === "bull") {
-    return lean === "NO"
-      ? "Bull preset vs NO-priced curve: thesis is contrarian — size only if resolution criteria clearly favor YES and quote avgPrice still works."
-      : "Bull preset: prefer primary YES when quote fee/slippage stay inside risk limits; do not chase expired quotes.";
-  }
-  if (tone === "bear") {
-    return lean === "YES"
-      ? "Bear preset vs YES-priced curve: look for NO entries on weak tape / wide fee; confirm endTime and oracle before fading."
-      : "Bear preset: lean NO or stay flat unless tape prints clear YES exhaustion and quote remains fresh.";
-  }
-  return lean === "YES"
-    ? "Curve prices YES as the favorite. Size primary buys carefully — bonding-curve avgPrice from quote is the binding fill, not the spot label."
-    : lean === "NO"
-      ? "Curve prices NO ahead. Contrarian YES requires conviction on resolution criteria; check endTime and oracle source before size."
-      : lean === "EVEN"
-        ? "Market is balanced. Edge comes from information timing and fee/slippage discipline on primary fills."
-        : "List endpoints return null prices — open detail (this page) for live odds before trading.";
+function duration(minutes: number | null): string {
+  if (minutes == null) return "n/a";
+  if (minutes < 60) return `${minutes}m`;
+  if (minutes < 48 * 60) return `${(minutes / 60).toFixed(minutes < 600 ? 1 : 0)}h`;
+  return `${(minutes / 1440).toFixed(1)}d`;
 }
+
+const num = (n: number | null, dp = 2) =>
+  n == null ? "n/a" : n.toLocaleString("en-US", { maximumFractionDigits: dp });
+
+function sourceLabel(s: MarketSignals["probability"]["source"]): string {
+  if (s === "settled") return "settlement";
+  if (s === "spot") return "live spot";
+  if (s === "primary_curve") return "primary curve";
+  return "unpriced";
+}
+
+function question(m: MarketCatalogItem): string {
+  return (m.title || "").trim() || "Untitled market";
+}
+
+// ---------------------------------------------------------------------------
+// Shared evidence lines (derived only from signals)
+// ---------------------------------------------------------------------------
+
+function probabilityLine(s: MarketSignals): string {
+  if (s.probability.yes == null) return "No market price is available.";
+  return `Market probability: YES ${pct(s.probability.yes)} / NO ${pct(s.probability.no)} (${sourceLabel(s.probability.source)}).`;
+}
+
+function flowLine(s: MarketSignals): string {
+  if (s.flow.yesFlowShare == null) return "Flow: no sided prints in the window.";
+  const basis = s.flow.basis === "shares" ? "share-weighted" : "print-weighted";
+  return `Flow (${basis}): YES ${pct(s.flow.yesFlowShare)} · NO ${pct(1 - s.flow.yesFlowShare)} across ${s.tape.count} prints (${s.tape.yesPrints} YES / ${s.tape.noPrints} NO).`;
+}
+
+function divergenceLine(s: MarketSignals): string {
+  const d = s.divergence;
+  if (d.gapPts == null) return `Price vs flow: not compared — ${d.reason || "insufficient data"}`;
+  if (d.direction === "aligned") return `Price vs flow: aligned (flow ${d.gapPts >= 0 ? "+" : ""}${d.gapPts} pts vs price).`;
+  return `Price vs flow: flow is ${Math.abs(d.gapPts)} pts ${d.direction === "flow_above_price" ? "above" : "below"} the market's YES probability.`;
+}
+
+function windowLine(s: MarketSignals): string {
+  if (s.tape.count === 0) return "Tape window: empty.";
+  return `Tape window: ${s.tape.count} prints over ${duration(s.tape.windowMinutes)}; last print ${duration(s.tape.lastPrintAgeMinutes)} ago.`;
+}
+
+function volumeLine(s: MarketSignals): string {
+  const parts: string[] = [];
+  if (s.volume.catalogUsdc != null) parts.push(`catalog volume ${num(s.volume.catalogUsdc)} USDC (lifetime)`);
+  if (s.volume.recentUsdc != null) parts.push(`${num(s.volume.recentUsdc)} USDC in the window`);
+  else if (s.volume.recentShares != null) parts.push(`${num(s.volume.recentShares)} shares in the window`);
+  return parts.length ? `Volume: ${parts.join("; ")}.` : "Volume: not reported.";
+}
+
+function resolutionLine(s: MarketSignals): string {
+  const r = s.resolution;
+  if (r.resolutionTime == null) return "Resolution time: not provided.";
+  if (r.passed) return `Resolution time ${istTime(r.resolutionTime)} has passed${s.resolved ? "" : " — settlement pending"}.`;
+  return `Resolution: ${istTime(r.resolutionTime)} (in ${duration(r.minutesToResolution)}).`;
+}
+
+function riskLines(s: MarketSignals, filter?: (id: string) => boolean): string[] {
+  const flags = filter ? s.riskFlags.filter((f) => filter(f.id)) : s.riskFlags;
+  const lines = flags.map((f) => `- ${f.label}`);
+  lines.push(`- Data quality **${s.dataQuality.grade.toUpperCase()}** — ${s.dataQuality.reasons.join("; ")}`);
+  return lines;
+}
+
+const bullets = (xs: string[]) => xs.map((x) => (x.startsWith("- ") ? x : `- ${x}`)).join("\n");
+
+// ---------------------------------------------------------------------------
+// Template (no-LLM) narrative
+// ---------------------------------------------------------------------------
+
+const FLOW_FLAGS = new Set([
+  "no_tape",
+  "thin_tape",
+  "stale_last_print",
+  "one_sided_flow",
+  "concentrated_flow",
+  "flow_price_divergence",
+]);
 
 export function buildTemplateBrief(
   market: MarketCatalogItem,
-  tape: CatalogTradeRow[],
-  tone: BriefTone = "neutral",
+  s: MarketSignals,
+  mode: BriefMode = "desk",
 ): string {
-  const { yes, no } = impliedSide(market);
-  const yesPct = formatOddsPct(yes);
-  const noPct = formatOddsPct(no);
-  const vol = formatVolumeUsdc(market.volumeUsdc ?? market.totalVolumeUsdc);
-  const phase = market.phase || "unknown";
-  const status = market.status || (market.resolved ? "resolved" : "open");
-  const tapeStats = tapeSummary(tape);
+  let observation: string;
+  let evidence: string[];
+  let risk: string[];
 
-  const lean =
-    yes !== null && no !== null
-      ? Number(yes) > Number(no)
-        ? "YES"
-        : Number(no) > Number(yes)
-          ? "NO"
-          : "EVEN"
-      : "UNPRICED";
+  if (mode === "flow") {
+    observation = s.headline;
+    evidence = [
+      flowLine(s),
+      s.flow.imbalance != null
+        ? `Imbalance ${s.flow.imbalance >= 0 ? "+" : ""}${s.flow.imbalance.toFixed(2)} on a −1 (all NO) to +1 (all YES) scale.`
+        : "Imbalance: not computable.",
+      `Primary prints ${s.tape.primaryPrints} · secondary ${s.tape.secondaryPrints}${s.tape.unknownSidePrints ? ` · ${s.tape.unknownSidePrints} without a side` : ""}.`,
+      s.tape.topWalletPrintShare != null
+        ? `Largest single wallet placed ${pct(s.tape.topWalletPrintShare, 0)} of prints.`
+        : "Wallet concentration: n/a.",
+      windowLine(s),
+      volumeLine(s),
+      divergenceLine(s),
+    ];
+    risk = riskLines(s, (id) => FLOW_FLAGS.has(id));
+  } else if (mode === "risk") {
+    const warn = s.riskFlags.filter((f) => f.severity === "warn").length;
+    observation = `${warn} warning flag${warn === 1 ? "" : "s"} and ${s.riskFlags.length - warn} informational flag${s.riskFlags.length - warn === 1 ? "" : "s"}; data quality is **${s.dataQuality.grade.toUpperCase()}**.`;
+    evidence = [
+      probabilityLine(s),
+      resolutionLine(s),
+      windowLine(s),
+      `Probability change across the window: ${s.probabilityChange.value == null ? `not derivable — ${s.probabilityChange.reason}` : pct(s.probabilityChange.value)}`,
+    ];
+    risk = riskLines(s);
+  } else if (mode === "catalysts") {
+    const cat = catalogText(market);
+    const desc = cat?.text || "";
+    observation = cat
+      ? `Catalog ${cat.kind} for “${question(market)}”: ${desc.length > 600 ? `${desc.slice(0, 600)}…` : desc}`
+      : `The catalog has no description or resolution rule for “${question(market)}”, so catalysts cannot be identified from Panta data. Only the resolution time is known.`;
+    evidence = [
+      resolutionLine(s),
+      cat
+        ? `The event that decides this market is whatever the ${cat.kind} above names; there is little else to go on.`
+        : "No catalog text to extract catalysts from.",
+      probabilityLine(s),
+    ];
+    risk = [
+      "- Catalysts here come only from the catalog text and resolution time; no external news is used.",
+      ...riskLines(s, (id) => ["resolution_soon", "resolution_passed", "no_description", "resolved", "cancelled"].includes(id)),
+    ];
+  } else {
+    observation = `${question(market)} — ${s.probability.yes != null ? `the market prices YES at ${pct(s.probability.yes)} (${sourceLabel(s.probability.source)})` : "no market price is available"}. ${s.headline}`;
+    evidence = [probabilityLine(s), flowLine(s), divergenceLine(s), windowLine(s), volumeLine(s), resolutionLine(s)];
+    risk = riskLines(s);
+  }
 
-  const end =
-    market.endTime != null
-      ? new Date(market.endTime * 1000).toLocaleString("en-IN", {
-          timeZone: "Asia/Calcutta",
-          dateStyle: "medium",
-          timeStyle: "short",
-        }) + " IST"
-      : "n/a";
-
-  const flowNote =
-    tapeStats.count === 0
-      ? "No recent tape prints in the catalog window — liquidity discovery is thin; treat odds as soft until flow appears."
-      : `Tape shows ${tapeStats.count} recent print(s): ~${tapeStats.yesBuys} YES-leaning vs ~${tapeStats.noBuys} NO-leaning. Last print lean: ${(tapeStats.lastSide || "n/a").toUpperCase()}.`;
-
-  const headline =
-    (market.title || "").trim() ||
-    (market.description || "").trim().slice(0, 140) ||
-    market.marketId;
-
+  const modeLabel = BRIEF_MODES.find((m) => m.id === mode)?.label || mode;
   return [
-    `## Desk brief — ${headline}`,
+    SECTION_HEADERS[0],
+    observation,
     "",
-    toneHeader(tone),
+    SECTION_HEADERS[1],
+    bullets(evidence),
     "",
-    `**Thesis lean:** ${lean}  ·  **Phase:** ${phase}  ·  **Status:** ${status}`,
-    `**Implied odds:** YES ${yesPct} / NO ${noPct}  ·  **Catalog volume:** ${vol}`,
-    `**Category:** ${market.category || "—"}  ·  **Region:** ${market.region || "—"}  ·  **Window end:** ${end}`,
+    SECTION_HEADERS[2],
+    risk.join("\n"),
     "",
-    "### Situation",
-    market.description?.trim()
-      ? market.description.trim().slice(0, 600)
-      : "No catalog description provided — rely on resolution source and on-chain curve state.",
+    SECTION_HEADERS[3],
+    bullets(s.execution.lines),
     "",
-    "### Tape read",
-    flowNote,
-    "",
-    "### Desk notes",
-    toneDeskNote(lean, tone),
-    "",
-    "### Risks",
-    "- Primary-only flow in this desk; secondary AMM routing is out of scope for v1.",
-    "- Quote sessions expire quickly — sign/broadcast promptly after build.",
-    "- Resolution disputes and oracle lag can reprice outcomes after the window.",
-    "",
-    `_Generated ${formatFriendlyIst(new Date())} · ${tone} · Powered by Panta_`,
+    `_Deterministic template · ${modeLabel} · signals v${s.version} · no recommendation_`,
   ].join("\n");
 }
 
-function toneSystemHint(tone: BriefTone): string {
-  if (tone === "bull") {
-    return "Adopt a constructive/bull tone toward YES without fabricating prices. Highlight catalysts that could lift YES.";
-  }
-  if (tone === "bear") {
-    return "Adopt a cautious/bear tone favoring NO or flat. Stress fade risk, fee drag, and why YES may be overextended.";
-  }
-  return "Stay balanced and desk-neutral. No cheerleading either side.";
-}
+// ---------------------------------------------------------------------------
+// LLM narrative (interprets signals; falls back to the template)
+// ---------------------------------------------------------------------------
+
+const MODE_FOCUS: Record<BriefMode, string> = {
+  desk: "Balanced desk read: summarize what the probability, flow, divergence, timing and data quality say together.",
+  flow: "Focus on order flow: print counts, share-weighted split, imbalance, wallet concentration, recency, and how flow compares with price.",
+  risk: "Focus on risk: explain each risk flag and the data-quality reasons, and what they limit about reading this market.",
+  catalysts:
+    "Focus on catalysts, using ONLY the catalog description / resolution rule and the resolution time. If that text is empty or thin, say plainly that catalysts cannot be identified from the available data. Do not use outside knowledge or news.",
+};
+
+const SYSTEM_PROMPT = [
+  "You are an analyst on a prediction-market desk. You receive precomputed, deterministic evidence (`signals`) about one Panta market.",
+  "Rules:",
+  "1. Interpret the evidence; do NOT recompute, adjust, or invent numbers. Quote numbers exactly as given (percentages may be rounded to one decimal).",
+  "2. Use only the provided fields. No outside facts, news, or speculation about events.",
+  "3. Never give buy, sell, hold, or sizing recommendations. Do not say what the reader should do, which side to prefer, or that a trade 'requires conviction'. Describe; do not advise.",
+  "4. If a field is null, say it is unavailable and why (a reason field is usually provided).",
+  "5. Output markdown with exactly these four sections, in order: `### Observation`, `### Evidence`, `### Risk`, `### Execution considerations`. Evidence and Risk are bullet lists. Execution considerations restates the factual execution lines (phase, quote required, TTLs) without advice.",
+  "6. Under 220 words.",
+].join("\n");
 
 export async function maybeOpenAIBrief(
   market: MarketCatalogItem,
-  tape: CatalogTradeRow[],
-  tone: BriefTone = "neutral",
+  signals: MarketSignals,
+  mode: BriefMode = "desk",
 ): Promise<{ narrative: string; source: "openai" | "template" }> {
+  const template = () => ({ narrative: buildTemplateBrief(market, signals, mode), source: "template" as const });
   const apiKey = process.env.OPENAI_API_KEY?.trim();
-  if (!apiKey) {
-    return { narrative: buildTemplateBrief(market, tape, tone), source: "template" };
-  }
+  if (!apiKey) return template();
 
   const model = process.env.OPENAI_MODEL?.trim() || "gpt-4o-mini";
-  const { yes, no } = impliedSide(market);
-  const prompt = {
-    tone,
-    title: (market.title || "").trim() || (market.description || "").trim(),
-    description: market.description,
-    category: market.category,
-    phase: market.phase,
-    status: market.status,
-    yesPrice: yes,
-    noPrice: no,
-    volumeUsdc: market.volumeUsdc,
-    endTime: market.endTime,
-    // Tape rows arrive pre-normalized by sanitizeTape(): human `shares` and
-    // `amountUsdc` only (see src/lib/panta/normalize.ts for unit contracts).
-    recentTape: tape.slice(0, 20).map((t) => ({
-      side: t.side,
-      shares: (t as { shares?: string }).shares,
-      amountUsdc: t.amountUsdc,
-      isPrimary: t.isPrimary,
-      blockTime: t.blockTime,
-    })),
+  const input = {
+    mode,
+    modeFocus: MODE_FOCUS[mode],
+    market: {
+      question: question(market),
+      description: (market.description || "").slice(0, 1500) || null,
+      resolutionRule: (market.resolutionRule || "").slice(0, 1500) || null,
+      category: market.category || null,
+      phase: market.phase || null,
+      resolutionTimeIst: istTime(signals.resolution.resolutionTime),
+    },
+    signals,
   };
 
   try {
@@ -181,33 +264,24 @@ export async function maybeOpenAIBrief(
       },
       body: JSON.stringify({
         model,
-        temperature: 0.4,
+        temperature: 0.2,
         max_completion_tokens: 700,
         messages: [
-          {
-            role: "system",
-            content:
-              `You are a prediction-market desk analyst. Write a concise markdown brief (Situation, Tape read, Desk notes, Risks) from the JSON. No investment advice disclaimer spam. Be concrete about YES/NO odds and flow. ${toneSystemHint(tone)}`,
-          },
-          {
-            role: "user",
-            content: JSON.stringify(prompt),
-          },
+          { role: "system", content: SYSTEM_PROMPT },
+          { role: "user", content: JSON.stringify(input) },
         ],
       }),
     });
-    if (!res.ok) {
-      return { narrative: buildTemplateBrief(market, tape, tone), source: "template" };
-    }
-    const json = (await res.json()) as {
-      choices?: { message?: { content?: string } }[];
-    };
+    if (!res.ok) return template();
+    const json = (await res.json()) as { choices?: { message?: { content?: string } }[] };
     const content = json.choices?.[0]?.message?.content?.trim();
-    if (!content) {
-      return { narrative: buildTemplateBrief(market, tape, tone), source: "template" };
+    if (!content) return template();
+    // Structure + advice guard: discard answers that drift.
+    if (!SECTION_HEADERS.every((h) => content.includes(h)) || containsAdvice(content)) {
+      return template();
     }
-    return { narrative: content, source: "openai" };
+    return { narrative: content.slice(0, 4000), source: "openai" };
   } catch {
-    return { narrative: buildTemplateBrief(market, tape, tone), source: "template" };
+    return template();
   }
 }

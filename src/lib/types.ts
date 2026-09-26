@@ -1,3 +1,5 @@
+import type { MarketSignals } from "./panta/signals";
+
 export type Json =
   | null
   | boolean
@@ -157,14 +159,18 @@ export type TradeReportResponse = {
   kind?: string;
 };
 
-export type BriefTone = "bull" | "neutral" | "bear";
+/** Analytical brief modes (replaces Bull/Neutral/Bear). */
+export type BriefMode = "desk" | "flow" | "risk" | "catalysts";
 
 export type BriefPayload = {
   market: MarketCatalogItem;
   tape: CatalogTradeRow[];
+  signals: MarketSignals;
   narrative: string;
   source: "openai" | "template";
+  mode: BriefMode;
   generatedAt: string;
+  cached?: boolean;
 };
 
 /** GET /account/trades/ — partner attribution (docs.panta.market) */

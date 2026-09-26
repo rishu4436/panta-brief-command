@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
+import type { StepMark } from "@/lib/trade-state";
 
-export type StepState = "waiting" | "active" | "done" | "failed" | "warn";
+export type StepState = StepMark;
 export type TxStep = { id: string; label: string; state: StepState; detail?: ReactNode };
 
 const STATE_LABEL: Record<StepState, string> = {
@@ -9,6 +10,7 @@ const STATE_LABEL: Record<StepState, string> = {
   done: "Completed",
   failed: "Failed",
   warn: "Needs attention",
+  pending: "Pending",
 };
 
 const DOT: Record<StepState, string> = {
@@ -17,6 +19,7 @@ const DOT: Record<StepState, string> = {
   done: "border-emerald-400/70 bg-emerald-400/15 text-emerald-200",
   failed: "border-rose-400/70 bg-rose-400/15 text-rose-200",
   warn: "border-amber-400/70 bg-amber-400/15 text-amber-200",
+  pending: "border-sky-400/60 bg-sky-400/10 text-sky-200",
 };
 
 const TEXT: Record<StepState, string> = {
@@ -25,6 +28,16 @@ const TEXT: Record<StepState, string> = {
   done: "text-emerald-300",
   failed: "text-rose-300",
   warn: "text-amber-300",
+  pending: "text-sky-300",
+};
+
+const BAR: Record<StepState, string> = {
+  waiting: "bg-line",
+  active: "bg-cyan-400",
+  done: "bg-emerald-400/80",
+  failed: "bg-rose-400",
+  warn: "bg-amber-400",
+  pending: "bg-sky-400/70",
 };
 
 function Marker({ state, index }: { state: StepState; index: number }) {
@@ -45,6 +58,11 @@ function Marker({ state, index }: { state: StepState; index: number }) {
         <span className="h-2 w-2 animate-pulse rounded-full bg-cyan-300" />
       ) : state === "warn" ? (
         "!"
+      ) : state === "pending" ? (
+        <svg viewBox="0 0 12 12" className="h-3 w-3">
+          <circle cx="6" cy="6" r="4.2" fill="none" stroke="currentColor" strokeWidth="1.4" />
+          <path d="M6 3.8V6l1.5 1" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+        </svg>
       ) : (
         index + 1
       )}
@@ -63,16 +81,42 @@ export function TransactionStepper({
   compact = false,
 }: {
   steps: TxStep[];
-  orientation?: "vertical" | "horizontal";
+  orientation?: "vertical" | "horizontal" | "summary";
   label?: string;
   compact?: boolean;
 }) {
+  if (orientation === "summary") {
+    // One segmented bar plus the step that needs the reader's eye (first not done).
+    const firstOpen = steps.findIndex((s) => s.state !== "done");
+    const f = firstOpen === -1 ? steps.length - 1 : firstOpen;
+    const cur = steps[f];
+    return (
+      <div>
+        <ol aria-label={label} className="flex gap-1">
+          {steps.map((s, i) => (
+            <li key={s.id} className="flex-1" aria-current={s.state === "active" ? "step" : undefined}>
+              <span className={`block h-1.5 rounded-full ${BAR[s.state]}`} />
+              <span className="sr-only">
+                {i + 1} {s.label}: {STATE_LABEL[s.state]}
+              </span>
+            </li>
+          ))}
+        </ol>
+        {cur ? (
+          <p className="mt-2 text-[12px] text-ink-2" aria-hidden="true">
+            Step <span className="font-num">{f + 1}</span> of {steps.length} · {cur.label} ·{" "}
+            <span className={TEXT[cur.state]}>{STATE_LABEL[cur.state]}</span>
+          </p>
+        ) : null}
+      </div>
+    );
+  }
   if (orientation === "horizontal") {
     return (
       <ol aria-label={label} className="grid gap-2" style={{ gridTemplateColumns: `repeat(${steps.length}, minmax(0, 1fr))` }}>
         {steps.map((s, i) => (
           <li key={s.id} className="min-w-0" aria-current={s.state === "active" ? "step" : undefined}>
-            <div className={`h-1 rounded-full transition-colors duration-300 ${s.state === "done" ? "bg-emerald-400/80" : s.state === "active" ? "bg-cyan-400" : s.state === "failed" ? "bg-rose-400" : s.state === "warn" ? "bg-amber-400" : "bg-line"}`} />
+            <div className={`h-1 rounded-full transition-colors duration-300 ${BAR[s.state]}`} />
             <p className="mt-1.5 truncate text-[11px] font-medium text-ink-2">
               <span className="font-num text-ink-3">{i + 1}</span> {s.label}
             </p>

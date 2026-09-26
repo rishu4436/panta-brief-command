@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useNow } from "@/hooks/useNow";
 import Link from "next/link";
 import { pantaFetch } from "@/lib/api";
 import {
@@ -150,7 +151,7 @@ export function HotTapeRail({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [targetKey]);
 
-  const now = Date.now();
+  const now = useNow(30_000);
 
   return (
     <Panel

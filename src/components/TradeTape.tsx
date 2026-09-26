@@ -1,6 +1,7 @@
 "use client";
 
 import type { CatalogTradeRow } from "@/lib/types";
+import { useNow } from "@/hooks/useNow";
 import { formatRelativeTime, formatTapeSize, shortAddr } from "@/lib/format";
 import { Panel } from "./Panel";
 
@@ -20,7 +21,7 @@ export function TradeTape({
   items: CatalogTradeRow[];
   busy?: boolean;
 }) {
-  const now = Date.now();
+  const now = useNow(30_000);
   return (
     <Panel title="Trade tape" flush>
       <div className="max-h-96 overflow-y-auto">

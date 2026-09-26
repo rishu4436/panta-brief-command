@@ -14,6 +14,7 @@ import {
   resolveLastValidBlockHeight,
 } from "@/lib/solana";
 import type {
+  AccountTradesResponse,
   ClaimBuildResponse,
   CreatorFeesClaimBuildResponse,
   MarketCatalogItem,
@@ -25,8 +26,43 @@ import { Panel } from "./Panel";
 import { PhaseBadge } from "./PhaseBadge";
 
 type ClaimMode = "win" | "creator-fees";
+/**
+ * Claim attribution, same vocabulary as primary buys:
+ * - reported   → POST /trades/ accepted, attribution not confirmed yet
+ * - attributed → POST /trades/ returned `processed`, or the signature is listed
+ *                in GET /account/trades/?kind=claim
+ * - not-attributable → creator-fee claims (Panta docs: POST /trades/ rejects
+ *                them with TX_MISMATCH), so they are never reported
+ */
+type ClaimAttr =
+  | "idle"
+  | "reporting"
+  | "reported"
+  | "attributed"
+  | "report-failed"
+  | "not-attributable";
 
-export function BookPanel() {
+const LEDGER_CHECK_DELAYS_MS = [1500, 3000, 5000] as const;
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+const CLAIM_ATTR_COPY: Record<Exclude<ClaimAttr, "idle">, { label: string; cls: string }> = {
+  reporting: { label: "Reporting for attribution…", cls: "text-zinc-400" },
+  reported: {
+    label: "Reported for attribution · not yet in /account/trades/",
+    cls: "text-zinc-300",
+  },
+  attributed: { label: "Attributed · listed as a claim in Activity", cls: "text-cyan-300" },
+  "report-failed": {
+    label: "Attribution report failed · the claim itself is confirmed on-chain",
+    cls: "text-amber-300",
+  },
+  "not-attributable": {
+    label: "Not attributed · creator-fee claims are not reported to POST /trades/",
+    cls: "text-zinc-400",
+  },
+};
+
+export function BookPanel({ onAttributionUpdate }: { onAttributionUpdate?: () => void } = {}) {
   const { publicKey, signTransaction, connected } = useWallet();
   const { connection } = useConnection();
   const { setVisible } = useWalletModal();
@@ -40,6 +76,7 @@ export function BookPanel() {
   const [claimMsg, setClaimMsg] = useState<string | null>(null);
   const [claimSig, setClaimSig] = useState<string | null>(null);
   const [mode, setMode] = useState<ClaimMode>("win");
+  const [claimAttr, setClaimAttr] = useState<ClaimAttr>("idle");
   const [claimMarketId, setClaimMarketId] = useState("");
   const [priceByMarket, setPriceByMarket] = useState<
     Record<string, { yes: string | null; no: string | null }>
@@ -101,9 +138,29 @@ export function BookPanel() {
     setClaimError(null);
     setClaimMsg(null);
     setClaimSig(null);
+    setClaimAttr("idle");
     requestAnimationFrame(() => {
       ticketRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
     });
+  };
+
+  /** Poll GET /account/trades/?kind=claim for the signature → "attributed". */
+  const checkClaimLedger = async (sig: string) => {
+    for (const delay of LEDGER_CHECK_DELAYS_MS) {
+      await sleep(delay);
+      try {
+        const { data } = await pantaFetch<AccountTradesResponse>("/account/trades/", {
+          query: { limit: "50", kind: "claim" },
+        });
+        if ((data.items || []).some((row) => row.signature === sig)) {
+          setClaimAttr("attributed");
+          onAttributionUpdate?.();
+          return;
+        }
+      } catch {
+        /* keep trying; stays "reported" */
+      }
+    }
   };
 
   const runClaim = async () => {
@@ -111,6 +168,7 @@ export function BookPanel() {
     setClaimError(null);
     setClaimMsg(null);
     setClaimSig(null);
+    setClaimAttr("idle");
     try {
       if (!publicKey || !signTransaction) {
         throw new Error("Connect a signing wallet");
@@ -156,26 +214,27 @@ export function BookPanel() {
         throw new Error(outcome.message);
       }
       setClaimMsg(`Claim confirmed · ${shortAddr(sig, 6)}`);
-      // Win claims may be reported for attribution; creator-fee claims must not
-      // be (docs: returns TX_MISMATCH).
+      // Win claims are reported for attribution; creator-fee claims must not
+      // be (docs: POST /trades/ returns TX_MISMATCH), so they stay unattributed.
       if (mode === "win") {
+        const wallet = publicKey.toBase58();
+        const marketId = claimMarketId.trim();
+        setClaimAttr("reporting");
         try {
           const { data: rep } = await pantaFetch<TradeReportResponse>("/trades/", {
             method: "POST",
-            body: {
-              signature: sig,
-              wallet: publicKey.toBase58(),
-              marketId: claimMarketId.trim(),
-            },
+            body: { signature: sig, wallet, marketId },
           });
           // `processed` = attribution stored (docs trades/report); anything else is only "reported".
           const attributed = String(rep?.status || "").toLowerCase() === "processed";
-          setClaimMsg(
-            (m) => `${m} · ${attributed ? "attributed" : "reported for attribution"}`,
-          );
+          setClaimAttr(attributed ? "attributed" : "reported");
+          onAttributionUpdate?.();
+          if (!attributed) void checkClaimLedger(sig);
         } catch {
-          setClaimMsg((m) => `${m} · attribution report failed (claim itself confirmed)`);
+          setClaimAttr("report-failed");
         }
+      } else {
+        setClaimAttr("not-attributable");
       }
       void load();
     } catch (e) {
@@ -397,6 +456,23 @@ export function BookPanel() {
               Creator fees
             </button>
           </div>
+          <p className="type-meta mb-3 rounded-md border border-[#1f1f23] bg-[#0a0a0b] px-2.5 py-2 leading-relaxed">
+            {mode === "win" ? (
+              <>
+                <span className="text-zinc-300">Win claims are reported for attribution.</span> After
+                the claim confirms, the desk reports it with POST /trades/. It reads{" "}
+                <span className="text-zinc-300">reported</span> until Panta returns{" "}
+                <span className="font-num">processed</span> or the claim appears in
+                /account/trades/, then <span className="text-cyan-300">attributed</span>.
+              </>
+            ) : (
+              <>
+                <span className="text-zinc-300">Creator-fee claims are not attributed.</span> Panta
+                does not accept them on POST /trades/ (TX_MISMATCH), so the desk does not report
+                them and they will not appear in Activity.
+              </>
+            )}
+          </p>
           <label className="block text-[11px] text-zinc-500">
             Market ID
             <input
@@ -422,6 +498,14 @@ export function BookPanel() {
                 >
                   View on Solscan →
                 </a>
+              )}
+              {claimAttr !== "idle" && (
+                <span
+                  className={`mt-1.5 block border-t border-emerald-500/15 pt-1.5 text-xs ${CLAIM_ATTR_COPY[claimAttr].cls}`}
+                  role="status"
+                >
+                  {CLAIM_ATTR_COPY[claimAttr].label}
+                </span>
               )}
             </div>
           )}

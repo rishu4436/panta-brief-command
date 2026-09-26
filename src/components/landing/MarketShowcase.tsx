@@ -11,6 +11,7 @@ import { SectionHeader } from "../ui/SectionHeader";
 import { StatusBadge, phaseTone } from "../ui/StatusBadge";
 import { EmptyState, ErrorState, Skeleton, SkeletonLoader } from "../ui/States";
 import { IconArrowRight, IconSparkles } from "../ui/Icons";
+import { EvidenceTag } from "../brief/EvidenceTag";
 
 type Filter = "volume" | "ending" | "resolved";
 const isOpen = (m: Market) => marketActivityRank(m) <= 1;
@@ -62,7 +63,24 @@ function section(narrative: string, name: string) {
   return m ? m[1].trim().replace(/\*\*/g, "") : "";
 }
 
-function MarketCard({ m, selected, onSelect }: { m: Market; selected: boolean; onSelect: () => void }) {
+const ROW_GRID =
+  "md:grid md:grid-cols-[minmax(0,1fr)_64px_64px_112px_76px] md:items-center md:gap-4 xl:grid-cols-[minmax(0,1fr)_112px_64px_64px_120px_112px_76px]";
+
+function TableHead() {
+  return (
+    <div className={`hidden border-b border-line px-4 pb-2 text-[11px] font-semibold uppercase tracking-wider text-ink-3 ${ROW_GRID}`} aria-hidden="true">
+      <span>Market</span>
+      <span className="hidden xl:block">Status</span>
+      <span className="text-right">YES</span>
+      <span className="text-right">NO</span>
+      <span className="text-right">Volume</span>
+      <span className="hidden xl:block">Ends</span>
+      <span />
+    </div>
+  );
+}
+
+function MarketRow({ m, selected, onSelect }: { m: Market; selected: boolean; onSelect: () => void }) {
   const { yes, no } = impliedSide(m);
   const y = pct(yes);
   const n = pct(no) ?? (y != null ? 100 - y : null);
@@ -70,56 +88,63 @@ function MarketCard({ m, selected, onSelect }: { m: Market; selected: boolean; o
   const vol = fmtVol(m);
   const end = fmtDate(m.endTime);
   const settled = marketActivityRank(m) === 3;
+  const badge = (
+    <StatusBadge tone={phase.tone} size="xs">
+      {phase.label}
+    </StatusBadge>
+  );
   return (
-    <li>
-      <div
-        className={`card card-hover relative grid gap-4 p-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center ${selected ? "border-cyan-400/60 bg-cyan-400/[0.05] ring-1 ring-cyan-400/40" : ""}`}
-      >
-        <div className="min-w-0">
-          <button
-            type="button"
-            onClick={onSelect}
-            aria-pressed={selected}
-            className="text-left after:absolute after:inset-0 after:rounded-[inherit] after:content-[''] focus-visible:outline-none"
-          >
-            <span className="line-clamp-2 text-[15px] font-semibold leading-snug text-ink">{marketLabel(m)}</span>
-          </button>
-          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[12px] text-ink-3">
-            {shouldShowCategoryChip(m.category, m.title, m.description) ? (
-              <span className="rounded-md border border-line px-1.5 py-0.5 capitalize">{m.category}</span>
-            ) : null}
-            <StatusBadge tone={phase.tone} size="xs">
-              {phase.label}
-            </StatusBadge>
-            {vol ? (
-              <span>
-                Volume <span className="font-num text-ink-2">{vol}</span>
-              </span>
-            ) : null}
-            {end ? (
-              <span>
-                {settled ? "Ended" : "Ends"} <span className="font-num text-ink-2">{end}</span>
-              </span>
-            ) : null}
-          </div>
+    <li
+      className={`relative rounded-lg px-4 py-3 transition-colors ${ROW_GRID} ${
+        selected ? "bg-cyan-400/[0.07] ring-1 ring-inset ring-cyan-400/45" : "hover:bg-white/[0.025]"
+      }`}
+    >
+      {selected ? <span className="absolute inset-y-2 left-0 w-[3px] rounded-full bg-cyan-400" aria-hidden="true" /> : null}
+      <div className="min-w-0">
+        <button
+          type="button"
+          onClick={onSelect}
+          aria-pressed={selected}
+          className="text-left after:absolute after:inset-0 after:rounded-[inherit] after:content-[''] focus-visible:outline-none"
+        >
+          <span className={`line-clamp-2 text-[14px] font-semibold leading-snug ${selected ? "text-ink" : "text-ink-2"}`}>{marketLabel(m)}</span>
+        </button>
+        <div className="mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[12px] text-ink-3">
+          {selected ? <span className="text-[11px] font-semibold uppercase tracking-wider text-cyan-300">Selected</span> : null}
+          <span className="xl:hidden">{badge}</span>
+          {shouldShowCategoryChip(m.category, m.title, m.description) ? <span className="capitalize">{m.category}</span> : null}
+          {end ? (
+            <span className="xl:hidden">
+              {settled ? "Ended" : "Ends"} <span className="font-num text-ink-2">{end}</span>
+            </span>
+          ) : null}
+          {vol ? (
+            <span className="md:hidden">
+              Vol <span className="font-num text-ink-2">{vol}</span>
+            </span>
+          ) : null}
         </div>
-        <div className="flex items-center gap-2">
-          <div className="min-w-[76px] rounded-lg border border-emerald-400/25 bg-emerald-400/[0.06] px-3 py-1.5 text-center">
-            <p className="text-[10px] font-semibold tracking-wider text-emerald-300">{settled ? "YES · settled" : "YES"}</p>
-            <p className="font-num text-[18px] font-semibold text-emerald-200">{y != null ? `${y}¢` : "—"}</p>
-          </div>
-          <div className="min-w-[76px] rounded-lg border border-rose-400/25 bg-rose-400/[0.06] px-3 py-1.5 text-center">
-            <p className="text-[10px] font-semibold tracking-wider text-rose-300">{settled ? "NO · settled" : "NO"}</p>
-            <p className="font-num text-[18px] font-semibold text-rose-200">{n != null ? `${n}¢` : "—"}</p>
-          </div>
-          <Link
-            href={`/markets/${m.marketId}`}
-            className="relative z-10 ml-auto inline-flex h-11 min-w-11 items-center justify-center gap-1 rounded-lg px-2 text-[13px] font-medium text-cyan-300 hover:bg-cyan-400/10 hover:text-cyan-200"
-          >
-            Open <IconArrowRight className="h-3.5 w-3.5" />
-            <span className="sr-only">market: {marketLabel(m)}</span>
-          </Link>
-        </div>
+      </div>
+      <div className="hidden xl:block">{badge}</div>
+      {/* YES / NO: side by side on mobile, own columns from md */}
+      <div className="mt-2.5 flex items-center gap-2 md:contents">
+        <span className="font-num inline-flex min-w-16 items-baseline justify-end gap-1 rounded-md bg-emerald-400/[0.08] px-2 py-1 text-[15px] font-semibold text-emerald-200 md:bg-transparent md:px-0">
+          <span className="text-[10px] font-semibold tracking-wider text-emerald-300 md:hidden">YES</span>
+          {y != null ? `${y}¢` : "—"}
+        </span>
+        <span className="font-num inline-flex min-w-16 items-baseline justify-end gap-1 rounded-md bg-rose-400/[0.08] px-2 py-1 text-[15px] font-semibold text-rose-200 md:bg-transparent md:px-0">
+          <span className="text-[10px] font-semibold tracking-wider text-rose-300 md:hidden">NO</span>
+          {n != null ? `${n}¢` : "—"}
+        </span>
+        <span className="font-num hidden text-right text-[13px] text-ink-2 md:block">{vol ?? "—"}</span>
+        <span className="font-num hidden text-[13px] text-ink-2 xl:block">{end ?? "—"}</span>
+        <Link
+          href={`/markets/${m.marketId}`}
+          className="relative z-10 ml-auto inline-flex h-11 min-w-11 items-center justify-center gap-1 rounded-lg px-2 text-[13px] font-medium text-cyan-300 hover:bg-cyan-400/10 hover:text-cyan-200 md:justify-self-end"
+        >
+          Open <IconArrowRight className="h-3.5 w-3.5" />
+          <span className="sr-only">market: {marketLabel(m)}</span>
+        </Link>
       </div>
     </li>
   );
@@ -135,11 +160,10 @@ function BriefPreview({ market, enabled, loading }: { market: Market | null; ena
   const flow = s?.flow.yesFlowShare;
 
   return (
-    <div className="card relative flex h-full flex-col overflow-hidden border-violet-500/25 p-5" aria-live="polite">
-      <div className="pointer-events-none absolute inset-x-0 top-0 h-px" style={{ background: "var(--grad-ai)" }} aria-hidden="true" />
+    <aside className="flex h-full flex-col rounded-xl border border-line/70 bg-bg/40 p-4" aria-live="polite" aria-label="Brief for the selected market">
       <div className="flex items-center justify-between gap-2">
-        <p className="flex items-center gap-2 text-[15px] font-semibold text-ink">
-          <IconSparkles className="h-4 w-4 text-violet-300" /> AI Market Brief
+        <p className="flex items-center gap-1.5 text-[13px] font-semibold text-ink-2">
+          <IconSparkles className="h-3.5 w-3.5 text-violet-300" /> Brief · selected market
         </p>
         {b ? (
           <StatusBadge tone={b.source === "openai" ? "ai" : "neutral"} size="xs" title="Brief source">
@@ -148,66 +172,58 @@ function BriefPreview({ market, enabled, loading }: { market: Market | null; ena
         ) : null}
       </div>
       {!market && !loading ? (
-        <p className="mt-4 text-sm text-ink-3">Select a market to see its brief.</p>
+        <p className="mt-3 text-[13px] text-ink-3">Select a market to see its brief.</p>
       ) : q.isError ? (
         <ErrorState
-          className="mt-4"
+          className="mt-3"
           title="Brief unavailable right now"
           description="Market data is still available on the desk. The brief service may be rate limited; try again in a moment."
           onRetry={() => q.refetch()}
         />
       ) : !b ? (
-        <div className="mt-4 space-y-3" role="status" aria-label="Loading brief">
-          <Skeleton className="h-4 w-4/5" />
-          <div className="grid grid-cols-3 gap-2">
-            <Skeleton className="h-14" />
-            <Skeleton className="h-14" />
-            <Skeleton className="h-14" />
-          </div>
+        <div className="mt-3 space-y-2.5" role="status" aria-label="Loading brief">
+          <Skeleton className="h-3 w-4/5" />
+          <Skeleton className="h-10" />
           <Skeleton className="h-3 w-full" />
-          <Skeleton className="h-3 w-11/12" />
           <Skeleton className="h-3 w-3/4" />
         </div>
       ) : (
         <>
-          <p className="mt-3 line-clamp-2 text-[13px] font-medium text-ink-2">{marketLabel(market ?? b.market)}</p>
           {b.market.partial ? (
             <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-400/30 bg-amber-400/[0.06] px-3 py-2 text-[12px] text-amber-200">
-              <span>Panta returned a partial record for this brief, so some fields are missing.</span>
+              <span>Panta returned a partial record, so some fields are missing.</span>
               <button type="button" className="btn btn-secondary btn-sm" onClick={() => q.refetch()} disabled={q.isFetching}>
                 {q.isFetching ? "Retrying…" : "Retry brief"}
               </button>
             </div>
           ) : null}
-          <dl className="mt-4 grid grid-cols-3 gap-2">
-            <div className="rounded-lg border border-line bg-inset px-3 py-2">
-              <dt className="text-[10px] font-semibold uppercase tracking-wider text-ink-3">Market YES</dt>
-              <dd className="font-num mt-0.5 text-[17px] font-semibold text-ink">{yes != null ? `${Math.round(yes * 100)}%` : "—"}</dd>
-            </div>
-            <div className="rounded-lg border border-line bg-inset px-3 py-2">
-              <dt className="text-[10px] font-semibold uppercase tracking-wider text-ink-3">Flow YES</dt>
-              <dd className="font-num mt-0.5 text-[17px] font-semibold text-ink">{flow != null ? `${Math.round(flow * 100)}%` : "—"}</dd>
-            </div>
-            <div className="rounded-lg border border-line bg-inset px-3 py-2">
-              <dt className="text-[10px] font-semibold uppercase tracking-wider text-ink-3">Data quality</dt>
-              <dd className="mt-0.5 text-[15px] font-semibold capitalize text-ink">{s?.dataQuality.grade ?? "—"}</dd>
-            </div>
+          <dl className="mt-3 grid grid-cols-3 divide-x divide-line rounded-lg border border-line text-center">
+            {(
+              [
+                ["Market YES", yes != null ? `${Math.round(yes * 100)}%` : "—"],
+                ["Flow YES", flow != null ? `${Math.round(flow * 100)}%` : "—"],
+                ["Quality", s?.dataQuality.grade ?? "—"],
+              ] as const
+            ).map(([k, v]) => (
+              <div key={k} className="px-2 py-1.5">
+                <dt className="text-[10px] uppercase tracking-wider text-ink-3">{k}</dt>
+                <dd className="font-num text-[14px] font-semibold capitalize text-ink-2">{v}</dd>
+              </div>
+            ))}
           </dl>
-          <p className="mt-4 text-[11px] font-semibold uppercase tracking-wider text-cyan-300">Observed signal</p>
-          <p className="mt-1 text-[13px] leading-relaxed text-ink-2">{s?.headline}</p>
+          <p className="mt-3 flex items-start gap-2 text-[12.5px] leading-relaxed text-ink-3">
+            <EvidenceTag layer="derived" className="mt-0.5 shrink-0" />
+            <span className="line-clamp-3">{s?.headline}</span>
+          </p>
           {obs ? (
-            <>
-              <p className="mt-4 text-[11px] font-semibold uppercase tracking-wider text-violet-300">
-                {b.source === "openai" ? "AI interpretation" : "Observation"}
-              </p>
-              <p className="mt-1 line-clamp-5 text-[13px] leading-relaxed text-ink-2">{obs}</p>
-            </>
+            <p className="mt-2 flex items-start gap-2 text-[12.5px] leading-relaxed text-ink-3">
+              <EvidenceTag layer="interpretation" className="mt-0.5 shrink-0" />
+              <span className="line-clamp-4">{obs}</span>
+            </p>
           ) : null}
-          <div className="mt-auto flex flex-wrap items-center justify-between gap-2 border-t border-line pt-4 text-[11px] text-ink-3">
+          <div className="mt-auto flex flex-wrap items-center justify-between gap-x-2 pt-2 text-[11px] text-ink-3">
             <span>
-              Generated{" "}
-              {new Date(b.generatedAt).toLocaleTimeString("en-IN", { timeZone: "Asia/Calcutta", hour: "2-digit", minute: "2-digit" })} IST ·
-              not advice
+              {new Date(b.generatedAt).toLocaleTimeString("en-IN", { timeZone: "Asia/Calcutta", hour: "2-digit", minute: "2-digit" })} IST · not advice
             </span>
             <Link href={`/markets/${b.market.marketId}#brief`} className="inline-flex min-h-11 items-center gap-1 font-medium text-violet-300 hover:text-violet-200">
               Full brief <IconArrowRight className="h-3.5 w-3.5" />
@@ -215,7 +231,7 @@ function BriefPreview({ market, enabled, loading }: { market: Market | null; ena
           </div>
         </>
       )}
-    </div>
+    </aside>
   );
 }
 
@@ -265,13 +281,13 @@ export function MarketShowcase() {
   const hydrating = candidates.length > 0 && markets.length === 0 && hydratingMore;
 
   return (
-    <section ref={ref} className="border-t border-line bg-surface/30 py-20 sm:py-24" aria-labelledby="markets-title">
+    <section ref={ref} id="live-markets" className="scroll-mt-20 border-y border-line bg-surface/40 py-14 sm:py-16" aria-labelledby="markets-title">
       <div className="mx-auto max-w-[1320px] px-5 sm:px-8">
         <SectionHeader
           eyebrow="Live markets"
           id="markets-title"
           title="Markets worth watching."
-          description="Explore live markets and inspect the activity behind their probabilities."
+          description="The only live section on this page: open Panta markets, priced now. Select a row for its brief."
           action={
             <Link href="/desk" className="btn btn-secondary">
               Explore All Markets <IconArrowRight className="h-4 w-4" />
@@ -279,8 +295,8 @@ export function MarketShowcase() {
           }
         />
 
-        <div className="mt-8 flex flex-wrap items-center justify-between gap-3">
-          <div className="segmented scrollbar-none max-w-full overflow-x-auto" role="group" aria-label="Filter markets">
+        <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
+          <div className="segmented max-w-full flex-wrap" role="group" aria-label="Filter markets">
             {(
               [
                 ["volume", "Top volume"],
@@ -299,7 +315,7 @@ export function MarketShowcase() {
           </p>
         </div>
 
-        <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+        <div className="mt-5 grid gap-6 lg:grid-cols-[minmax(0,1fr)_300px]">
           <div className="min-w-0">
             {catalog.isError ? (
               <ErrorState
@@ -308,7 +324,7 @@ export function MarketShowcase() {
                 onRetry={() => catalog.refetch()}
               />
             ) : catalog.isPending || hydrating || !seen ? (
-              <SkeletonLoader rows={4} label="Loading live markets"  />
+              <SkeletonLoader rows={4} label="Loading live markets" />
             ) : markets.length === 0 ? (
               <EmptyState
                 className="card"
@@ -327,11 +343,14 @@ export function MarketShowcase() {
                 }
               />
             ) : (
-              <ul className="space-y-3">
-                {markets.map((m) => (
-                  <MarketCard key={m.marketId} m={m} selected={m.marketId === selectedId} onSelect={() => setPicked(m.marketId)} />
-                ))}
-              </ul>
+              <div>
+                <TableHead />
+                <ul className="mt-1 divide-y divide-line/60">
+                  {markets.map((m) => (
+                    <MarketRow key={m.marketId} m={m} selected={m.marketId === selectedId} onSelect={() => setPicked(m.marketId)} />
+                  ))}
+                </ul>
+              </div>
             )}
             {markets.length > 0 && hydratingMore ? (
               <p className="mt-3 text-[12px] text-ink-3" role="status">

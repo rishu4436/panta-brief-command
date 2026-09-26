@@ -1,14 +1,7 @@
-import { IconArrowRight, IconSolana, IconSparkles, IconWallet, IconPulse } from "../ui/Icons";
+import { IconArrowRight } from "../ui/Icons";
 import { DemoButton } from "./DemoDialog";
 import { ProductPreview } from "./ProductPreview";
 import Link from "next/link";
-
-const INDICATORS = [
-  { label: "Live Panta Markets", Icon: IconPulse, tone: "text-cyan-300" },
-  { label: "AI Briefs", Icon: IconSparkles, tone: "text-violet-300" },
-  { label: "Solana Execution", Icon: IconSolana, tone: "text-blue-300" },
-  { label: "Your Wallet", Icon: IconWallet, tone: "text-emerald-300" },
-];
 
 function SignalLines() {
   return (
@@ -44,7 +37,7 @@ export function HeroSection() {
       <div className="glow-hero pointer-events-none absolute inset-0 -z-10" aria-hidden="true" />
       <SignalLines />
 
-      <div className="relative mx-auto grid max-w-[1320px] items-center gap-12 px-5 pb-16 pt-12 sm:px-8 sm:pt-16 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] xl:gap-8 lg:pb-24 lg:pt-16">
+      <div className="relative mx-auto grid max-w-[1320px] items-center gap-10 px-5 pb-12 pt-10 sm:px-8 sm:pt-14 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] xl:gap-8 lg:pb-16 lg:pt-14">
         <div className="rise-in min-w-0">
           <p className="eyebrow eyebrow--pill">AI-native prediction market desk</p>
           <h1 id="hero-title" className="h-hero mt-6">
@@ -63,35 +56,13 @@ export function HeroSection() {
             <DemoButton />
           </div>
 
-          <ul
-            className="scrollbar-none -mx-5 mt-10 hidden gap-2 overflow-x-auto px-5 sm:mx-0 sm:flex sm:flex-wrap sm:gap-x-4 sm:gap-y-3 xl:flex-nowrap sm:px-0"
-            aria-label="What's inside"
-          >
-            {INDICATORS.map(({ label, Icon, tone }) => (
-              <li key={label} className="flex shrink-0 items-center gap-2">
-                <span className={`flex h-7 w-7 items-center justify-center rounded-md border border-line bg-surface ${tone}`}>
-                  <Icon className="h-4 w-4" />
-                </span>
-                <span className="text-[13px] font-medium text-ink-2">{label}</span>
-              </li>
-            ))}
-          </ul>
         </div>
 
-        <div className="rise-in rise-delay-1 relative mx-auto w-full min-w-0 max-w-[920px] xl:mr-[-4.5rem] xl:w-[calc(100%+4.5rem)] xl:max-w-none xl:[perspective:2400px]">
+        <div className="rise-in rise-delay-1 relative mx-auto w-full min-w-0 max-w-[920px] min-[1400px]:mr-[-4.5rem] min-[1400px]:w-[calc(100%+4.5rem)] xl:max-w-none xl:[perspective:2400px]">
           <div className="glow-soft pointer-events-none absolute -inset-10 -z-10" aria-hidden="true" />
           <ProductPreview className="xl:origin-left xl:[transform:rotateY(-9deg)_rotateX(3deg)]" />
         </div>
 
-        {/* Mobile: indicators after the preview, as a scroll row */}
-        <ul className="scrollbar-none -mx-5 -mt-4 flex gap-2 overflow-x-auto px-5 sm:hidden" aria-label="What's inside">
-          {INDICATORS.map(({ label, Icon, tone }) => (
-            <li key={label} className="flex shrink-0 items-center gap-2 rounded-full border border-line bg-surface px-3 py-2">
-              <Icon className={`h-4 w-4 ${tone}`} />
-              <span className="text-[13px] font-medium text-ink-2">{label}</span>
-            </li>
-          ))}
-        </ul>
       </div>
     </section>
   );

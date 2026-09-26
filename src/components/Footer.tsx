@@ -14,7 +14,7 @@ const LINKS: { label: string; href: string; external?: boolean }[] = [
 ];
 
 function FooterLink({ label, href, external }: (typeof LINKS)[number]) {
-  const cls = "text-[13px] text-ink-2 transition hover:text-ink";
+  const cls = "tap-target text-[13px] text-ink-2 transition hover:text-ink";
   return external ? (
     <a href={href} target="_blank" rel="noreferrer" className={cls}>
       {label}
@@ -54,7 +54,7 @@ export function Footer({ variant = "marketing" }: { variant?: "marketing" | "app
             evidence, execute with your own wallet, and track what happened.
           </p>
         </div>
-        <nav aria-label="Footer" className="grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-3">
+        <nav aria-label="Footer" className="grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-3 [@media(pointer:coarse)]:gap-y-0">
           {LINKS.map((l) => (
             <FooterLink key={l.label} {...l} />
           ))}

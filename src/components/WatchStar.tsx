@@ -28,7 +28,7 @@ export function WatchStar({
       aria-pressed={on}
       aria-label={on ? "Remove from watchlist" : "Add to watchlist"}
       title={on ? "Unwatch" : "Watch"}
-      className={`inline-flex shrink-0 items-center justify-center rounded-md border transition active:scale-[0.96] ${dim} ${
+      className={`tap-target inline-flex shrink-0 items-center justify-center rounded-md border transition active:scale-[0.96] ${dim} ${
         on
           ? "border-amber-400/40 bg-amber-400/10 text-amber-300"
           : "border-line bg-inset text-zinc-500 hover:border-line-strong hover:text-zinc-300"

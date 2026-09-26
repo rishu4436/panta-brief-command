@@ -419,6 +419,13 @@ body {
   .segmented > a {
     min-height: 44px;
   }
+  /* Small icon buttons and text links get a full 44px hit area on touch. */
+  .tap-target {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    min-width: 44px;
+  }
 }
 .chip:hover {
   border-color: var(--line-strong);
@@ -649,9 +656,12 @@ summary:focus:not(:focus-visible) {
 .skip-link:focus {
   left: 0.75rem;
   top: 0.75rem;
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
   border-radius: 8px;
   background: var(--cyan);
-  padding: 0.5rem 0.75rem;
+  padding: 0.5rem 0.875rem;
   font-size: 0.875rem;
   font-weight: 600;
   color: var(--bg);

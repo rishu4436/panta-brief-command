@@ -45,7 +45,7 @@ function useNavItems(): { marketing: boolean; items: NavItem[] } {
 
 function Brand() {
   return (
-    <Link href="/" className="flex shrink-0 items-center gap-2.5" aria-label="Brief Command home">
+    <Link href="/" className="flex min-h-11 shrink-0 items-center gap-2.5" aria-label="Brief Command home">
       <BrandMark className="h-7 w-7" />
       <span className="text-[15px] font-bold tracking-[0.08em] text-ink">BRIEF COMMAND</span>
     </Link>
@@ -83,6 +83,7 @@ function MobileNavigation({ marketing }: { marketing: boolean }) {
   const [open, setOpen] = useState(false);
   const pathname = usePathname();
   const panelRef = useRef<HTMLDivElement>(null);
+  const toggleRef = useRef<HTMLButtonElement>(null);
   const [lastPath, setLastPath] = useState(pathname);
   if (pathname !== lastPath) {
     setLastPath(pathname);
@@ -93,15 +94,19 @@ function MobileNavigation({ marketing }: { marketing: boolean }) {
     if (!open) return;
     panelRef.current?.querySelector<HTMLElement>("a,button")?.focus();
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
+      if (e.key === "Escape") {
+        setOpen(false);
+        toggleRef.current?.focus();
+      }
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [open]);
 
   return (
-    <div className="md:hidden">
+    <div className={marketing ? "md:hidden" : "lg:hidden"}>
       <button
+        ref={toggleRef}
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
@@ -166,7 +171,7 @@ export function TopNavigation() {
         <div className="flex min-w-0 items-center gap-8">
           <Brand />
           {!marketing && (
-            <nav aria-label="Desk" className="hidden md:block">
+            <nav aria-label="Desk" className="hidden lg:block">
               <Suspense fallback={null}>
                 <DesktopLinks />
               </Suspense>
@@ -187,7 +192,7 @@ export function TopNavigation() {
                 href="https://docs.panta.market/"
                 target="_blank"
                 rel="noreferrer"
-                className="hidden items-center gap-2 rounded-full border border-line bg-surface/70 px-3 py-1.5 text-[12px] text-ink-2 transition hover:text-ink lg:inline-flex"
+                className="hidden items-center gap-2 rounded-full border border-line bg-surface/70 px-3 py-1.5 text-[12px] text-ink-2 transition hover:text-ink xl:inline-flex"
               >
                 <span className="live-dot h-1.5 w-1.5 rounded-full bg-emerald-400" aria-hidden="true" />
                 Powered by Panta API · Solana
@@ -207,7 +212,7 @@ export function TopNavigation() {
                 Search markets
                 <kbd className="rounded border border-line px-1 font-sans text-[10px]">⌘K</kbd>
               </button>
-              <div className="hidden md:block">
+              <div className="hidden lg:block">
                 <WalletButton />
               </div>
             </>

@@ -1,14 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
-import { pantaFetch } from "@/lib/api";
+import { useAccountTrades } from "@/lib/data/hooks";
 import { describeErr } from "@/lib/errors";
 import { formatVolumeUsdc, shortAddr } from "@/lib/format";
-import type { AccountTradeItem, AccountTradesResponse, AccountTradesSummary } from "@/lib/types";
 import { Panel } from "./Panel";
 
-function formatCreatedAt(iso?: string): string {
+function formatCreatedAt(iso?: string | null): string {
   if (!iso) return "—";
   const d = Date.parse(iso);
   if (!Number.isFinite(d)) return iso;
@@ -21,14 +20,14 @@ function formatCreatedAt(iso?: string): string {
   });
 }
 
-function kindCls(kind?: string): string {
+function kindCls(kind?: string | null): string {
   const k = (kind || "").toLowerCase();
   if (k === "buy") return "border-cyan-400/30 bg-cyan-400/10 text-cyan-300";
   if (k === "claim") return "border-emerald-400/30 bg-emerald-400/10 text-emerald-300";
   return "border-[#1f1f23] text-zinc-500";
 }
 
-function sideCls(side?: string): string {
+function sideCls(side?: string | null): string {
   const s = (side || "").toLowerCase();
   if (s === "yes" || s === "y") return "text-emerald-400";
   if (s === "no" || s === "n") return "text-rose-400";
@@ -39,44 +38,19 @@ export function AttributedTrades({
   limit = 50,
   kindFilter,
   compact = false,
-  refreshKey = 0,
 }: {
   limit?: number;
   kindFilter?: "buy" | "claim" | "";
   compact?: boolean;
-  /** bump to force reload (e.g. after attribute) */
-  refreshKey?: number;
 }) {
-  const [items, setItems] = useState<AccountTradeItem[]>([]);
-  const [summary, setSummary] = useState<AccountTradesSummary | null>(null);
-  const [busy, setBusy] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [kind, setKind] = useState<"buy" | "claim" | "">(kindFilter || "");
-
-  const load = useCallback(async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      const { data } = await pantaFetch<AccountTradesResponse>("/account/trades/", {
-        query: {
-          limit: String(limit),
-          kind: kind || undefined,
-        },
-      });
-      setItems(data.items || []);
-      setSummary(data.summary || null);
-    } catch (e) {
-      setError(describeErr(e));
-      setItems([]);
-      setSummary(null);
-    } finally {
-      setBusy(false);
-    }
-  }, [limit, kind]);
-
-  useEffect(() => {
-    void load();
-  }, [load, refreshKey]);
+  // Shared ledger cache; the execute/claim flows invalidate ["accountTrades"].
+  const q = useAccountTrades(limit, kind);
+  const items = q.data?.items ?? [];
+  const summary = q.data?.summary ?? null;
+  const busy = q.isFetching;
+  const error = q.error ? describeErr(q.error) : null;
+  const load = () => void q.refetch();
 
   const total = summary?.total ?? summary?.activityTotal ?? items.length;
   const buys = summary?.buys ?? summary?.byKind?.buy;
@@ -116,7 +90,7 @@ export function AttributedTrades({
           <button
             type="button"
             disabled={busy}
-            onClick={() => void load()}
+            onClick={load}
             className="rounded-md border border-[#1f1f23] bg-[#0a0a0b] px-2 py-1 text-[11px] text-zinc-400 hover:text-zinc-200 active:scale-[0.98] disabled:opacity-40"
           >
             {busy ? "…" : "Refresh"}
@@ -210,8 +184,8 @@ export function AttributedTrades({
                   </td>
                 )}
                 <td className="px-3 py-2.5 font-num text-xs text-zinc-300">
-                  {row.amountUsdc != null && row.amountUsdc !== ""
-                    ? `${row.amountUsdc} USDC`
+                  {row.amountUsdc != null
+                    ? formatVolumeUsdc(row.amountUsdc)
                     : "—"}
                 </td>
                 <td className="px-3 py-2.5">

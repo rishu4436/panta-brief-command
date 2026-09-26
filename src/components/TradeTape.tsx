@@ -1,24 +1,19 @@
 "use client";
 
-import type { CatalogTradeRow } from "@/lib/types";
+import type { Trade } from "@/lib/panta/domain";
 import { useNow } from "@/hooks/useNow";
 import { formatRelativeTime, formatTapeSize, shortAddr } from "@/lib/format";
 import { Panel } from "./Panel";
 
-function rowSide(t: CatalogTradeRow): string {
-  if (t.side) return t.side.toUpperCase();
-  const y = Number(t.yesAmount ?? 0);
-  const n = Number(t.noAmount ?? 0);
-  if (y > n) return "YES";
-  if (n > y) return "NO";
-  return "—";
+function rowSide(t: Trade): string {
+  return t.side ? t.side.toUpperCase() : "—";
 }
 
 export function TradeTape({
   items,
   busy,
 }: {
-  items: CatalogTradeRow[];
+  items: Trade[];
   busy?: boolean;
 }) {
   const now = useNow(30_000);

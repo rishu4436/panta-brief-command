@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { QueryClientProvider } from "@tanstack/react-query";
 import {
   ConnectionProvider,
   WalletProvider,
@@ -9,9 +10,22 @@ import { WalletModalProvider } from "@solana/wallet-adapter-react-ui";
 import { PhantomWalletAdapter } from "@solana/wallet-adapter-phantom";
 import { SolflareWalletAdapter } from "@solana/wallet-adapter-solflare";
 import "@solana/wallet-adapter-react-ui/styles.css";
+import { makeQueryClient } from "@/lib/data/query-client";
+import { resolveRpc } from "@/lib/rpc";
 
-const rpc =
-  process.env.NEXT_PUBLIC_DEFAULT_RPC || "https://api.mainnet-beta.solana.com";
+const { endpoint: rpc, isFallback: rpcIsFallback } = resolveRpc();
+
+/** Dev-only hint when the public mainnet RPC fallback is in use. */
+function RpcFallbackNote() {
+  useEffect(() => {
+    if (process.env.NODE_ENV !== "production" && rpcIsFallback) {
+      console.info(
+        "[rpc] Using the public mainnet RPC fallback. Set NEXT_PUBLIC_DEFAULT_RPC to a dedicated provider (Helius, QuickNode, Triton, Alchemy) for reliable sends and confirmations.",
+      );
+    }
+  }, []);
+  return null;
+}
 
 /** Wallet adapter close button has no accessible name — patch when modal mounts. */
 function WalletModalA11y() {
@@ -35,19 +49,23 @@ function WalletModalA11y() {
 }
 
 export function Providers({ children }: { children: ReactNode }) {
+  const [queryClient] = useState(makeQueryClient);
   const wallets = useMemo(
     () => [new PhantomWalletAdapter(), new SolflareWalletAdapter()],
     [],
   );
 
   return (
-    <ConnectionProvider endpoint={rpc}>
-      <WalletProvider wallets={wallets} autoConnect>
-        <WalletModalProvider>
-          <WalletModalA11y />
-          {children}
-        </WalletModalProvider>
-      </WalletProvider>
-    </ConnectionProvider>
+    <QueryClientProvider client={queryClient}>
+      <ConnectionProvider endpoint={rpc}>
+        <WalletProvider wallets={wallets} autoConnect>
+          <WalletModalProvider>
+            <WalletModalA11y />
+            <RpcFallbackNote />
+            {children}
+          </WalletModalProvider>
+        </WalletProvider>
+      </ConnectionProvider>
+    </QueryClientProvider>
   );
 }

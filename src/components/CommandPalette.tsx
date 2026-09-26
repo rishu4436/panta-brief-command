@@ -1,11 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { pantaFetch } from "@/lib/api";
+import { useCatalog } from "@/lib/data/hooks";
 import { marketLabel } from "@/lib/format";
 import { getRecents, getWatchlist, notifyStorage, pushRecent } from "@/lib/storage";
-import type { MarketCatalogItem, MarketsListResponse } from "@/lib/types";
 
 type Row = {
   marketId: string;
@@ -15,25 +14,17 @@ type Row = {
 
 export function CommandPalette() {
   const router = useRouter();
-  const [open, setOpen] = useState(false);
+  const [open, setOpenState] = useState(false);
   const [q, setQ] = useState("");
-  const [catalog, setCatalog] = useState<MarketCatalogItem[]>([]);
-  const [busy, setBusy] = useState(false);
   const [active, setActive] = useState(0);
-  const inputRef = useRef<HTMLInputElement>(null);
+  // Shared catalog cache (same query as the desk); fetched only once opened.
+  const { items: catalog, isFetching: busy } = useCatalog({}, { enabled: open });
 
-  const load = useCallback(async () => {
-    setBusy(true);
-    try {
-      const { data } = await pantaFetch<MarketsListResponse>("/markets/", {
-        query: { limit: "40" },
-      });
-      setCatalog(data.items || []);
-    } catch {
-      setCatalog([]);
-    } finally {
-      setBusy(false);
-    }
+  /** Reset the query on every open/close transition (no effect needed). */
+  const setOpen = useCallback((next: boolean | ((v: boolean) => boolean)) => {
+    setOpenState((v) => (typeof next === "function" ? next(v) : next));
+    setQ("");
+    setActive(0);
   }, []);
 
   useEffect(() => {
@@ -53,15 +44,7 @@ export function CommandPalette() {
       window.removeEventListener("keydown", onKey);
       window.removeEventListener("panta-brief-cmdk", onOpen);
     };
-  }, []);
-
-  useEffect(() => {
-    if (!open) return;
-    setQ("");
-    setActive(0);
-    void load();
-    requestAnimationFrame(() => inputRef.current?.focus());
-  }, [open, load]);
+  }, [setOpen]);
 
   const rows: Row[] = useMemo(() => {
     const qq = q.trim().toLowerCase();
@@ -105,10 +88,6 @@ export function CommandPalette() {
       .slice(0, 12);
   }, [catalog, q]);
 
-  useEffect(() => {
-    setActive(0);
-  }, [q]);
-
   const jump = (id: string) => {
     pushRecent(id);
     notifyStorage();
@@ -132,9 +111,12 @@ export function CommandPalette() {
         <div className="flex items-center gap-2 border-b border-[#1f1f23] px-3">
           <span className="text-[12px] text-zinc-500">⌘K</span>
           <input
-            ref={inputRef}
+            autoFocus
             value={q}
-            onChange={(e) => setQ(e.target.value)}
+            onChange={(e) => {
+              setQ(e.target.value);
+              setActive(0);
+            }}
             placeholder="Jump to market…"
             aria-label="Search markets"
             className="flex-1 bg-transparent py-3 text-sm text-zinc-100 outline-none placeholder:text-zinc-600"

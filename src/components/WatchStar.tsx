@@ -1,12 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState, type MouseEvent } from "react";
-import {
-  isWatched,
-  notifyStorage,
-  subscribeStorage,
-  toggleWatch,
-} from "@/lib/storage";
+import type { MouseEvent } from "react";
+import { useWatchlist } from "@/hooks/useLocalIds";
 
 export function WatchStar({
   marketId,
@@ -15,23 +10,13 @@ export function WatchStar({
   marketId: string;
   size?: "sm" | "md";
 }) {
-  const [on, setOn] = useState(false);
-
-  const sync = useCallback(() => {
-    setOn(isWatched(marketId));
-  }, [marketId]);
-
-  useEffect(() => {
-    sync();
-    return subscribeStorage(sync);
-  }, [sync]);
+  const watch = useWatchlist();
+  const on = watch.has(marketId);
 
   const toggle = (e: MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    toggleWatch(marketId);
-    notifyStorage();
-    sync();
+    watch.toggle(marketId);
   };
 
   const dim = size === "sm" ? "h-7 w-7 text-[13px]" : "h-8 w-8 text-[15px]";

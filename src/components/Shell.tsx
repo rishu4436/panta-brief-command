@@ -4,7 +4,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
-import { useEffect, useState, type ReactNode } from "react";
+import type { ReactNode } from "react";
+import { useUsdcBalance } from "@/lib/data/hooks";
 import { PublicKey } from "@solana/web3.js";
 import { shortAddr } from "@/lib/format";
 import { BrandMark } from "./BrandMark";
@@ -22,41 +23,11 @@ const USDC_MINT = new PublicKey("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v");
 function WalletMeta() {
   const { publicKey, connected } = useWallet();
   const { connection } = useConnection();
-  const [usdc, setUsdc] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    if (!connected || !publicKey) {
-      setUsdc(null);
-      return;
-    }
-    (async () => {
-      try {
-        const res = await connection.getParsedTokenAccountsByOwner(publicKey, {
-          mint: USDC_MINT,
-        });
-        let total = 0;
-        for (const acc of res.value) {
-          const info = acc.account.data.parsed?.info;
-          const amt = info?.tokenAmount?.uiAmount;
-          if (typeof amt === "number" && Number.isFinite(amt)) total += amt;
-        }
-        if (!cancelled) {
-          setUsdc(
-            total.toLocaleString(undefined, {
-              maximumFractionDigits: 2,
-              minimumFractionDigits: 0,
-            }),
-          );
-        }
-      } catch {
-        if (!cancelled) setUsdc(null);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [connected, publicKey, connection]);
+  const balance = useUsdcBalance(connection, connected ? publicKey : null, USDC_MINT);
+  const usdc =
+    balance.data == null
+      ? null
+      : balance.data.toLocaleString(undefined, { maximumFractionDigits: 2, minimumFractionDigits: 0 });
 
   if (!connected || !publicKey) return null;
 

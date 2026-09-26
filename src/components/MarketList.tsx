@@ -1,9 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { pantaFetch } from "@/lib/api";
+import { useCatalog, useCategories, useHydratedDetails, useViewportIds } from "@/lib/data/hooks";
 import { describeErr } from "@/lib/errors";
 import {
   catalogVolume,
@@ -15,11 +15,8 @@ import {
   shouldShowCategoryChip,
 } from "@/lib/format";
 import { notifyStorage, pushRecent } from "@/lib/storage";
-import type {
-  CategoriesResponse,
-  MarketCatalogItem,
-  MarketsListResponse,
-} from "@/lib/types";
+import { mergeMarket } from "@/lib/panta/markets";
+import type { Market } from "@/lib/types";
 import { useRecents, useWatchlist } from "@/hooks/useLocalIds";
 import { Panel } from "./Panel";
 import { PhaseBadge } from "./PhaseBadge";
@@ -69,18 +66,18 @@ function isApiKeyError(msg: string): boolean {
   );
 }
 
-function volumeNum(m: MarketCatalogItem): number {
+function volumeNum(m: Market): number {
   const v = catalogVolume(m);
   if (v == null) return 0;
   const n = typeof v === "string" ? Number(v) : Number(v);
   return Number.isFinite(n) ? n : 0;
 }
 
-function hasHumanLabel(m: MarketCatalogItem): boolean {
+function hasHumanLabel(m: Market): boolean {
   return !isUntitledMarket(m);
 }
 
-function hasAnySpot(m: MarketCatalogItem): boolean {
+function hasAnySpot(m: Market): boolean {
   const { yes, no } = impliedSide(m);
   if (yes !== null && yes !== undefined && yes !== "") {
     const n = typeof yes === "string" ? Number(yes) : yes;
@@ -93,7 +90,7 @@ function hasAnySpot(m: MarketCatalogItem): boolean {
   return false;
 }
 
-function phaseMatches(m: MarketCatalogItem, phase: string): boolean {
+function phaseMatches(m: Market, phase: string): boolean {
   if (!phase) return true;
   const want = phase.toLowerCase();
   const p = (m.phase || "").toLowerCase();
@@ -177,135 +174,32 @@ export function MarketList() {
   const searchParams = useSearchParams();
   const initialQ = searchParams.get("q") || "";
 
-  const [items, setItems] = useState<MarketCatalogItem[]>([]);
-  const [categories, setCategories] = useState<string[]>([]);
   const [category, setCategory] = useState("");
   const [phase, setPhase] = useState(""); // All — API status=primary often ships thin/untitled
   const [sort, setSort] = useState<SortMode>("default");
   const [view, setView] = useState<ViewMode>("rows");
-  const [nextCursor, setNextCursor] = useState<string | null>(null);
-  const [busy, setBusy] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [q, setQ] = useState(initialQ);
-  const [updatedAt, setUpdatedAt] = useState<number | null>(null);
   const [watchOnly, setWatchOnly] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
-  const [highlight, setHighlight] = useState(0);
   const { ids: watchIds } = useWatchlist();
   const { ids: recentIds } = useRecents();
 
-  const loadCategories = useCallback(async () => {
-    try {
-      const { data } = await pantaFetch<CategoriesResponse>("/categories/");
-      setCategories(data.categories || []);
-    } catch {
-      /* optional */
-    }
-  }, []);
+  // Shared catalog cache: same filter → same entry as the landing strip,
+  // command palette and execute picker; nothing here refetches on its own.
+  const catalog = useCatalog({ category, status: phase });
+  const categories = useCategories().data ?? [];
+  const busy = catalog.isFetching;
+  const error = catalog.error ? describeErr(catalog.error) : null;
+  const updatedAt = catalog.dataUpdatedAt || null;
 
-  const hydrateTitles = useCallback(async (batch: MarketCatalogItem[]) => {
-    // List endpoint often ships empty title; detail may carry a longer description.
-    // Prefer rows missing any human label, then thin descriptions.
-    const need = batch.filter((m) => {
-      const title = (m.title || "").trim();
-      const desc = (m.description || "").trim();
-      return !title || desc.length < 24;
-    });
-    if (need.length === 0) return;
-    // Priority: visible primary + labeled/volume books first so first paint recovers fast
-    const ranked = [...need].sort((a, b) => {
-      const aLabel = hasHumanLabel(a) ? 0 : 1;
-      const bLabel = hasHumanLabel(b) ? 0 : 1;
-      if (aLabel !== bLabel) return aLabel - bLabel;
-      const ap = (a.phase || "").toLowerCase() === "primary" ? 0 : 1;
-      const bp = (b.phase || "").toLowerCase() === "primary" ? 0 : 1;
-      if (ap !== bp) return ap - bp;
-      return volumeNum(b) - volumeNum(a);
-    });
-    const concurrency = 6;
-    let idx = 0;
-
-    async function worker() {
-      while (idx < ranked.length) {
-        const m = ranked[idx++];
-        try {
-          const { data } = await pantaFetch<MarketCatalogItem>(
-            `/markets/${encodeURIComponent(m.marketId)}/`,
-          );
-          const title = (data.title || "").trim() || (m.title || "").trim();
-          const listDesc = (m.description || "").trim();
-          const detailDesc = (data.description || "").trim();
-          // Keep the longer human question — detail sometimes truncates less
-          const description =
-            detailDesc.length >= listDesc.length ? detailDesc || listDesc : listDesc || detailDesc;
-          if (!title && !description) continue;
-          // ?? keeps list spot/volume when detail is thinner (common on cold catalog)
-          const patch: Partial<MarketCatalogItem> = {
-            title: title || undefined,
-            description: description || undefined,
-            oracle: data.oracle ?? m.oracle,
-            volumeUsdc: data.volumeUsdc ?? m.volumeUsdc,
-            totalVolumeUsdc: data.totalVolumeUsdc ?? m.totalVolumeUsdc,
-            yesPrice: data.yesPrice ?? m.yesPrice,
-            noPrice: data.noPrice ?? m.noPrice,
-            primaryYesPrice: data.primaryYesPrice ?? m.primaryYesPrice,
-            primaryNoPrice: data.primaryNoPrice ?? m.primaryNoPrice,
-            secondaryYesPrice: data.secondaryYesPrice ?? m.secondaryYesPrice,
-            secondaryNoPrice: data.secondaryNoPrice ?? m.secondaryNoPrice,
-            images: data.images?.length ? data.images : m.images,
-            // Prefer list phase — detail can disagree on cold rows
-            phase: m.phase || data.phase,
-            status: m.status || data.status,
-          };
-          // Progressive paint so first-screen rows fill in early
-          setItems((prev) =>
-            prev.map((row) =>
-              row.marketId === m.marketId ? { ...row, ...patch } : row,
-            ),
-          );
-        } catch {
-          /* soft-fail per market */
-        }
-      }
-    }
-
-    await Promise.all(Array.from({ length: concurrency }, () => worker()));
-  }, []);
-
-  const loadMarkets = useCallback(
-    async (opts?: { append?: boolean; cursor?: string | null }) => {
-      setBusy(true);
-      setError(null);
-      try {
-        const { data } = await pantaFetch<MarketsListResponse>("/markets/", {
-          query: {
-            category: category || undefined,
-            status: phase || undefined,
-            limit: "24",
-            cursor: opts?.cursor || undefined,
-          },
-        });
-        const next = data.items || [];
-        setItems((prev) => (opts?.append ? [...prev, ...next] : next));
-        setNextCursor(data.nextCursor ?? null);
-        setUpdatedAt(Date.now());
-        void hydrateTitles(next);
-      } catch (e) {
-        setError(describeErr(e));
-      } finally {
-        setBusy(false);
-      }
-    },
-    [category, phase, hydrateTitles],
+  // Catalog paints immediately; detail hydrates only for rows in/near the
+  // viewport (IntersectionObserver), ≤4 in flight via the shared limiter.
+  const { visible, track } = useViewportIds();
+  const details = useHydratedDetails(catalog.items, visible);
+  const items = useMemo(
+    () => catalog.items.map((m) => mergeMarket(m, details.get(m.marketId))),
+    [catalog.items, details],
   );
-
-  useEffect(() => {
-    void loadCategories();
-  }, [loadCategories]);
-
-  useEffect(() => {
-    void loadMarkets();
-  }, [loadMarkets]);
 
   // Persist search in URL ?q=
   useEffect(() => {
@@ -403,7 +297,7 @@ export function MarketList() {
   const recentMarkets = useMemo(() => {
     const byId = new Map(items.map((m) => [m.marketId, m]));
     return recentIds
-      .map((id) => byId.get(id) ?? ({ marketId: id } as MarketCatalogItem))
+      .map((id) => byId.get(id) ?? ({ marketId: id } as Market))
       .slice(0, 6);
   }, [items, recentIds]);
 
@@ -412,17 +306,13 @@ export function MarketList() {
     notifyStorage();
   };
 
-  useEffect(() => {
-    setHighlight(0);
-  }, [q, category, phase, sort, watchOnly, view, items.length]);
-
-  useEffect(() => {
-    if (filtered.length === 0) {
-      setHighlight(0);
-      return;
-    }
-    setHighlight((h) => Math.min(h, filtered.length - 1));
-  }, [filtered.length]);
+  // Keyboard highlight resets whenever the filter changes (state keyed on the
+  // filter, no reset effects) and is clamped to the visible list.
+  const filterKey = `${q}|${category}|${phase}|${sort}|${watchOnly}|${view}`;
+  const [hl, setHl] = useState({ key: filterKey, idx: 0 });
+  const rawHighlight = hl.key === filterKey ? hl.idx : 0;
+  const highlight = filtered.length ? Math.min(rawHighlight, filtered.length - 1) : 0;
+  const setHighlight = (idx: number) => setHl({ key: filterKey, idx });
 
   useEffect(() => {
     const isTypingTarget = (t: EventTarget | null) => {
@@ -441,12 +331,12 @@ export function MarketList() {
 
       if (e.key === "j" || e.key === "ArrowDown") {
         e.preventDefault();
-        setHighlight((h) => Math.min(filtered.length - 1, h + 1));
+        setHl({ key: filterKey, idx: Math.min(filtered.length - 1, highlight + 1) });
         return;
       }
       if (e.key === "k" || e.key === "ArrowUp") {
         e.preventDefault();
-        setHighlight((h) => Math.max(0, h - 1));
+        setHl({ key: filterKey, idx: Math.max(0, highlight - 1) });
         return;
       }
       if (e.key === "Enter") {
@@ -459,7 +349,7 @@ export function MarketList() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [filtered, highlight, router]);
+  }, [filtered, highlight, router, filterKey]);
 
   const chipCls = (active: boolean) =>
     `shrink-0 rounded-full border px-2.5 py-1 text-[12px] capitalize transition active:scale-[0.98] ${
@@ -512,7 +402,7 @@ export function MarketList() {
           </div>
           <button
             type="button"
-            onClick={() => void loadMarkets()}
+            onClick={() => void catalog.refetch()}
             className="rounded-md border border-[#1f1f23] bg-[#111113] px-2.5 py-1.5 text-[11px] text-zinc-400 transition hover:border-[#2a2a2e] hover:text-zinc-200 active:scale-[0.98]"
             disabled={busy}
           >
@@ -649,6 +539,7 @@ export function MarketList() {
                   return (
                     <div
                       key={m.marketId}
+                      ref={track(m.marketId)}
                       data-hi={hi ? "1" : undefined}
                       onMouseEnter={() => setHighlight(idx)}
                       style={{ animationDelay: `${Math.min(idx, 11) * 30}ms` }}
@@ -741,6 +632,7 @@ export function MarketList() {
                   return (
                     <div
                       key={m.marketId}
+                      ref={track(m.marketId)}
                       data-hi={hi ? "1" : undefined}
                       onMouseEnter={() => setHighlight(idx)}
                       style={{ animationDelay: `${Math.min(idx, 11) * 30}ms` }}
@@ -842,14 +734,12 @@ export function MarketList() {
               </div>
             )}
 
-            {nextCursor && !watchOnly && (
+            {catalog.hasNextPage && !watchOnly && (
               <div className="flex justify-center border-t border-[#1f1f23] py-3">
                 <button
                   type="button"
-                  disabled={busy}
-                  onClick={() =>
-                    void loadMarkets({ append: true, cursor: nextCursor })
-                  }
+                  disabled={catalog.isFetchingNextPage}
+                  onClick={() => void catalog.fetchNextPage()}
                   className="rounded-md border border-[#1f1f23] bg-[#0a0a0b] px-4 py-2 text-sm text-zinc-300 transition hover:border-[#2a2a2e] hover:text-zinc-100 active:scale-[0.98] disabled:opacity-40"
                 >
                   Load more

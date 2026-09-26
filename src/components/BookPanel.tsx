@@ -1,31 +1,25 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import Link from "next/link";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { useWalletModal } from "@solana/wallet-adapter-react-ui";
-import { pantaFetch } from "@/lib/api";
+import { useInvalidateAttribution, useMarketDetails, usePositions } from "@/lib/data/hooks";
 import { describeErr } from "@/lib/errors";
 import { impliedSide, shortAddr } from "@/lib/format";
+import { isInLedger, reportTrade } from "@/lib/panta/attribution";
+import { buildClaim, isAttributableClaim } from "@/lib/panta/claims";
+import type { ClaimKind } from "@/lib/panta/domain";
 import { assertFeePayer, validatePantaInstructions } from "@/lib/panta/instructions";
 import {
   confirmSignature,
   instructionsToVersionedTx,
   resolveLastValidBlockHeight,
 } from "@/lib/solana";
-import type {
-  AccountTradesResponse,
-  ClaimBuildResponse,
-  CreatorFeesClaimBuildResponse,
-  MarketCatalogItem,
-  PositionRow,
-  PositionsResponse,
-  TradeReportResponse,
-} from "@/lib/types";
 import { Panel } from "./Panel";
 import { PhaseBadge } from "./PhaseBadge";
 
-type ClaimMode = "win" | "creator-fees";
+type ClaimMode = ClaimKind;
 /**
  * Claim attribution, same vocabulary as primary buys:
  * - reported   → POST /trades/ accepted, attribution not confirmed yet
@@ -62,75 +56,33 @@ const CLAIM_ATTR_COPY: Record<Exclude<ClaimAttr, "idle">, { label: string; cls: 
   },
 };
 
-export function BookPanel({ onAttributionUpdate }: { onAttributionUpdate?: () => void } = {}) {
+export function BookPanel() {
   const { publicKey, signTransaction, connected } = useWallet();
   const { connection } = useConnection();
   const { setVisible } = useWalletModal();
   const ticketRef = useRef<HTMLDivElement>(null);
 
-  const [positions, setPositions] = useState<PositionRow[]>([]);
-  const [busy, setBusy] = useState(false);
+  const wallet = connected && publicKey ? publicKey.toBase58() : null;
+  const positionsQ = usePositions(wallet);
+  const positions = positionsQ.data ?? [];
+  const busy = positionsQ.isFetching;
+  const error = positionsQ.error ? describeErr(positionsQ.error) : null;
+  const load = () => void positionsQ.refetch();
+  const onAttributionUpdate = useInvalidateAttribution();
+
+  // Marks: detail prices via the shared market cache. Intentional bounded
+  // hydration (≤12 markets, ≤4 in flight) — see useMarketDetails.
+  const details = useMarketDetails(positions.map((p) => p.marketId));
+  const priceByMarket: Record<string, { yes: string | null; no: string | null }> = {};
+  for (const [id, m] of details) priceByMarket[id] = impliedSide(m);
+
   const [claimBusy, setClaimBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [claimError, setClaimError] = useState<string | null>(null);
   const [claimMsg, setClaimMsg] = useState<string | null>(null);
   const [claimSig, setClaimSig] = useState<string | null>(null);
   const [mode, setMode] = useState<ClaimMode>("win");
   const [claimAttr, setClaimAttr] = useState<ClaimAttr>("idle");
   const [claimMarketId, setClaimMarketId] = useState("");
-  const [priceByMarket, setPriceByMarket] = useState<
-    Record<string, { yes: string | null; no: string | null }>
-  >({});
-
-  const load = useCallback(async () => {
-    if (!publicKey) {
-      setError("Connect a wallet to load positions");
-      return;
-    }
-    setBusy(true);
-    setError(null);
-    try {
-      const { data } = await pantaFetch<PositionsResponse>("/positions/", {
-        query: { wallet: publicKey.toBase58() },
-      });
-      const rows = data.positions || [];
-      setPositions(rows);
-      // Soft-fetch detail prices for notional marks (live API only)
-      const ids = Array.from(new Set(rows.map((r) => r.marketId))).slice(0, 12);
-      void (async () => {
-        const next: Record<string, { yes: string | null; no: string | null }> = {};
-        await Promise.all(
-          ids.map(async (id) => {
-            try {
-              const { data: m } = await pantaFetch<MarketCatalogItem>(
-                `/markets/${encodeURIComponent(id)}/`,
-              );
-              const side = impliedSide(m);
-              next[id] = { yes: side.yes, no: side.no };
-            } catch {
-              /* skip */
-            }
-          }),
-        );
-        if (Object.keys(next).length) {
-          setPriceByMarket((prev) => ({ ...prev, ...next }));
-        }
-      })();
-    } catch (e) {
-      setError(describeErr(e));
-    } finally {
-      setBusy(false);
-    }
-  }, [publicKey]);
-
-  useEffect(() => {
-    if (publicKey) {
-      void load();
-    } else {
-      setPositions([]);
-      setError(null);
-    }
-  }, [publicKey, load]);
 
   const fillClaim = (marketId: string) => {
     setClaimMarketId(marketId);
@@ -149,12 +101,9 @@ export function BookPanel({ onAttributionUpdate }: { onAttributionUpdate?: () =>
     for (const delay of LEDGER_CHECK_DELAYS_MS) {
       await sleep(delay);
       try {
-        const { data } = await pantaFetch<AccountTradesResponse>("/account/trades/", {
-          query: { limit: "50", kind: "claim" },
-        });
-        if ((data.items || []).some((row) => row.signature === sig)) {
+        if (await isInLedger(sig, "claim")) {
           setClaimAttr("attributed");
-          onAttributionUpdate?.();
+          onAttributionUpdate();
           return;
         }
       } catch {
@@ -174,18 +123,12 @@ export function BookPanel({ onAttributionUpdate }: { onAttributionUpdate?: () =>
         throw new Error("Connect a signing wallet");
       }
       if (!claimMarketId.trim()) throw new Error("marketId required");
-      const path =
-        mode === "win" ? "/claim/build/" : "/claim/creator-fees/build/";
-      const { data } = await pantaFetch<
-        ClaimBuildResponse | CreatorFeesClaimBuildResponse
-      >(path, {
-        method: "POST",
-        body: {
-          wallet: publicKey.toBase58(),
-          marketId: claimMarketId.trim(),
-        },
+      // Parsed strictly (zod) by the claims adapter before anything is signed.
+      const data = await buildClaim(mode, {
+        wallet: publicKey.toBase58(),
+        marketId: claimMarketId.trim(),
       });
-      if (!data.instructions?.length || !data.recentBlockhash) {
+      if (!data.instructions.length) {
         throw new Error("Build returned no instructions");
       }
       if (data.wallet && data.wallet !== publicKey.toBase58()) {
@@ -216,27 +159,25 @@ export function BookPanel({ onAttributionUpdate }: { onAttributionUpdate?: () =>
       setClaimMsg(`Claim confirmed · ${shortAddr(sig, 6)}`);
       // Win claims are reported for attribution; creator-fee claims must not
       // be (docs: POST /trades/ returns TX_MISMATCH), so they stay unattributed.
-      if (mode === "win") {
-        const wallet = publicKey.toBase58();
-        const marketId = claimMarketId.trim();
+      if (isAttributableClaim(mode)) {
         setClaimAttr("reporting");
         try {
-          const { data: rep } = await pantaFetch<TradeReportResponse>("/trades/", {
-            method: "POST",
-            body: { signature: sig, wallet, marketId },
+          const { state } = await reportTrade({
+            signature: sig,
+            wallet: publicKey.toBase58(),
+            marketId: claimMarketId.trim(),
           });
           // `processed` = attribution stored (docs trades/report); anything else is only "reported".
-          const attributed = String(rep?.status || "").toLowerCase() === "processed";
-          setClaimAttr(attributed ? "attributed" : "reported");
-          onAttributionUpdate?.();
-          if (!attributed) void checkClaimLedger(sig);
+          setClaimAttr(state);
+          onAttributionUpdate();
+          if (state !== "attributed") void checkClaimLedger(sig);
         } catch {
           setClaimAttr("report-failed");
         }
       } else {
         setClaimAttr("not-attributable");
       }
-      void load();
+      load();
     } catch (e) {
       setClaimError(describeErr(e));
     } finally {
@@ -254,7 +195,7 @@ export function BookPanel({ onAttributionUpdate }: { onAttributionUpdate?: () =>
             <button
               type="button"
               disabled={busy || !connected}
-              onClick={() => void load()}
+              onClick={load}
               className="mr-3.5 rounded-md border border-[#1f1f23] bg-[#0a0a0b] px-2 py-1 text-[11px] text-zinc-400 hover:text-zinc-200 active:scale-[0.98] disabled:opacity-40"
             >
               {busy ? "Loading…" : "Refresh"}
@@ -339,14 +280,14 @@ export function BookPanel({ onAttributionUpdate }: { onAttributionUpdate?: () =>
                       </td>
                       <td
                         className={`px-3 py-2.5 font-num text-xs uppercase ${
-                          p.side?.toLowerCase() === "yes"
+                          p.side === "yes"
                             ? "text-emerald-400"
-                            : p.side?.toLowerCase() === "no"
+                            : p.side === "no"
                               ? "text-rose-400"
                               : "text-zinc-400"
                         }`}
                       >
-                        {p.side}
+                        {p.side ?? "—"}
                       </td>
                       <td className="px-3 py-2.5 font-num text-zinc-300">
                         {p.shares}
@@ -355,14 +296,8 @@ export function BookPanel({ onAttributionUpdate }: { onAttributionUpdate?: () =>
                         {(() => {
                           const px = priceByMarket[p.marketId];
                           if (!px) return <span className="text-zinc-600">···</span>;
-                          const side = (p.side || "").toLowerCase();
-                          const price =
-                            side === "yes" || side === "y"
-                              ? px.yes
-                              : side === "no" || side === "n"
-                                ? px.no
-                                : null;
-                          const shares = Number(p.shares);
+                          const price = p.side === "yes" ? px.yes : p.side === "no" ? px.no : null;
+                          const shares = p.sharesNum ?? NaN;
                           const pr = price != null && price !== "" ? Number(price) : NaN;
                           if (!Number.isFinite(shares) || !Number.isFinite(pr)) {
                             return <span className="text-zinc-600">—</span>;

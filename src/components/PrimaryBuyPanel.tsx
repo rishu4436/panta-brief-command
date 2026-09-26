@@ -3,15 +3,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { useWalletModal } from "@solana/wallet-adapter-react-ui";
-import { ApiError, pantaFetch } from "@/lib/api";
+import { useCatalog, useHydratedDetails, useInvalidateAttribution } from "@/lib/data/hooks";
+import { isInLedger, reportTrade } from "@/lib/panta/attribution";
+import { ApiError } from "@/lib/panta/client";
+import { mergeMarket } from "@/lib/panta/markets";
+import { checkBuild, requestBuild, requestQuote, submitOrder, verifyOrder } from "@/lib/panta/orders";
 import { describeErr } from "@/lib/errors";
 import { marketLabel, shortAddr } from "@/lib/format";
-import {
-  assertFeePayer,
-  programLabel,
-  validatePantaInstructions,
-  type InstructionCheck,
-} from "@/lib/panta/instructions";
+import { assertFeePayer, programLabel, type InstructionCheck } from "@/lib/panta/instructions";
 import { BASE58_PUBKEY_RE } from "@/lib/panta/routes";
 import {
   MAX_AMOUNT_USDC,
@@ -27,15 +26,7 @@ import {
   resolveLastValidBlockHeight,
   type ConfirmOutcome,
 } from "@/lib/solana";
-import type {
-  AccountTradesResponse,
-  Json,
-  MarketCatalogItem,
-  MarketsListResponse,
-  PrimaryBuildResponse,
-  PrimaryQuoteResponse,
-  TradeReportResponse,
-} from "@/lib/types";
+import type { Json, PrimaryBuild, Quote } from "@/lib/types";
 import { Panel } from "./Panel";
 
 const STEPS = [
@@ -69,8 +60,6 @@ type TxPhase = "idle" | "confirming" | ConfirmOutcome["status"];
 type VerifyPhase = "idle" | "polling" | "confirmed" | "failed" | "timeout";
 type AttrPhase = "idle" | "reporting" | "reported" | "attributed";
 
-type VerifyResponse = { orderId?: string; status?: string; signature?: string };
-
 class StopFlow extends Error {}
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -84,39 +73,12 @@ function countdownLabel(expiresAt: string, now: number): string {
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
-/** Cross-check the build against the quote and wallet, then the instruction allowlist. */
-function checkBuild(
-  built: PrimaryBuildResponse,
-  q: PrimaryQuoteResponse | null,
-  wallet: string,
-  walletKey: Parameters<typeof validatePantaInstructions>[1],
-): InstructionCheck {
-  if (built.wallet && built.wallet !== wallet) {
-    return { ok: false, reason: "Build wallet does not match the connected wallet. Signing blocked." };
-  }
-  if (q) {
-    if (built.quoteId && built.quoteId !== q.quoteId) {
-      return { ok: false, reason: "Build does not match the active quote. Signing blocked." };
-    }
-    if (built.marketId && built.marketId !== q.marketId) {
-      return { ok: false, reason: "Build market differs from the quoted market. Signing blocked." };
-    }
-    if (built.side && q.side && built.side.toLowerCase() !== q.side.toLowerCase()) {
-      return { ok: false, reason: "Build side differs from the quoted side. Signing blocked." };
-    }
-  }
-  return validatePantaInstructions(built.instructions, walletKey);
-}
-
 export function PrimaryBuyPanel({
   initialMarketId = "",
   compact = false,
-  onAttributionUpdate,
 }: {
   initialMarketId?: string;
   compact?: boolean;
-  /** Called after POST /trades/ and when the trade shows up in /account/trades/. */
-  onAttributionUpdate?: () => void;
 }) {
   const { publicKey, signTransaction, connected } = useWallet();
   const { connection } = useConnection();
@@ -141,11 +103,11 @@ export function PrimaryBuyPanel({
   const [log, setLog] = useState<string[]>([]);
   const [toast, setToast] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
-  const [catalog, setCatalog] = useState<MarketCatalogItem[]>([]);
+  const onAttributionUpdate = useInvalidateAttribution();
   const [pickerQuery, setPickerQuery] = useState("");
 
-  const [quote, setQuote] = useState<PrimaryQuoteResponse | null>(null);
-  const [build, setBuild] = useState<PrimaryBuildResponse | null>(null);
+  const [quote, setQuote] = useState<Quote | null>(null);
+  const [build, setBuild] = useState<PrimaryBuild | null>(null);
   const [ixCheck, setIxCheck] = useState<InstructionCheck | null>(null);
   const [signature, setSignature] = useState<string | null>(null);
   const [lastValidBlockHeight, setLastValidBlockHeight] = useState<number | null>(null);
@@ -169,47 +131,20 @@ export function PrimaryBuyPanel({
   const quoteInputsValid = amountCheck.ok && attrCheck.ok && marketIdValid;
   const allInputsValid = quoteInputsValid && slippageCheck.ok;
 
-  // Picker catalog (live API only).
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const { data } = await pantaFetch<MarketsListResponse>("/markets/", {
-          query: { status: "primary", limit: "40" },
-        });
-        const items = (data.items || []).slice(0, 24);
-        if (cancelled) return;
-        setCatalog(items);
-        const need = items.filter((m) => !(m.title || "").trim());
-        const updates = new Map<string, string>();
-        await Promise.all(
-          need.slice(0, 16).map(async (m) => {
-            try {
-              const { data: det } = await pantaFetch<MarketCatalogItem>(
-                `/markets/${encodeURIComponent(m.marketId)}/`,
-              );
-              const title = (det.title || det.description || "").trim();
-              if (title) updates.set(m.marketId, title);
-            } catch {
-              /* ignore */
-            }
-          }),
-        );
-        if (!cancelled && updates.size) {
-          setCatalog((prev) =>
-            prev.map((m) =>
-              updates.has(m.marketId) ? { ...m, title: updates.get(m.marketId)! } : m,
-            ),
-          );
-        }
-      } catch {
-        /* optional picker */
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  // Picker catalog: shared primary-phase catalog cache (same query as the
+  // landing strip); untitled rows get their detail through the shared ≤4
+  // limiter instead of a private fan-out.
+  const primaryCatalog = useCatalog({ status: "primary" });
+  const pickerRows = useMemo(() => primaryCatalog.items.slice(0, 24), [primaryCatalog.items]);
+  const pickerIds = useMemo(
+    () => new Set(pickerRows.filter((m) => !m.title).slice(0, 8).map((m) => m.marketId)),
+    [pickerRows],
+  );
+  const pickerDetails = useHydratedDetails(pickerRows, pickerIds);
+  const catalog = useMemo(
+    () => pickerRows.map((m) => mergeMarket(m, pickerDetails.get(m.marketId))),
+    [pickerRows, pickerDetails],
+  );
 
   useEffect(() => {
     if (!quote?.expiresAt) return;
@@ -255,16 +190,10 @@ export function PrimaryBuyPanel({
     if (!amountCheck.ok) throw new Error(amountCheck.error);
     if (!attrCheck.ok) throw new Error(`Attribution reference: ${attrCheck.error}`);
     const ref = attrCheck.value;
-    const body: Record<string, string> = {
-      wallet: publicKey!.toBase58(),
-      marketId: marketId.trim(),
-      side,
-      amountUsdc: amountCheck.value,
-    };
-    if (ref) body.userId = ref;
-    const { data } = await pantaFetch<PrimaryQuoteResponse>(
-      "/primaryorderquote/",
-      { method: "POST", userId: ref, body },
+    // Parsed strictly (zod) by the orders adapter.
+    const { quote: data } = await requestQuote(
+      { wallet: publicKey!.toBase58(), marketId: marketId.trim(), side, amountUsdc: amountCheck.value },
+      ref,
     );
     sessionAttrRef.current = ref;
     setQuote(data);
@@ -276,23 +205,17 @@ export function PrimaryBuyPanel({
     return data;
   };
 
-  const runBuild = async (q?: PrimaryQuoteResponse) => {
+  const runBuild = async (q?: Quote) => {
     requireReady();
     const activeQuote = q || quote;
     if (!activeQuote?.quoteId) throw new Error("Quote first");
     if (!slippageCheck.ok) throw new Error(slippageCheck.error);
     const ref = sessionAttrRef.current;
-    const body: Record<string, string | number> = {
-      quoteId: activeQuote.quoteId,
-      wallet: publicKey!.toBase58(),
-      maxSlippageBps: slippageCheck.value,
-    };
-    if (ref) body.userId = ref;
-    const { data } = await pantaFetch<PrimaryBuildResponse>(
-      "/primaryorderbuild/",
-      { method: "POST", userId: ref, body },
+    const { build: data } = await requestBuild(
+      { quoteId: activeQuote.quoteId, wallet: publicKey!.toBase58(), maxSlippageBps: slippageCheck.value },
+      ref,
     );
-    const check = checkBuild(data, activeQuote, publicKey!.toBase58(), publicKey!);
+    const check = checkBuild(data, activeQuote, publicKey!);
     setBuild(data);
     setIxCheck(check);
     setSignature(null);
@@ -333,14 +256,14 @@ export function PrimaryBuyPanel({
     return false;
   };
 
-  const runSignBroadcast = async (b?: PrimaryBuildResponse, q?: PrimaryQuoteResponse) => {
+  const runSignBroadcast = async (b?: PrimaryBuild, q?: Quote) => {
     requireReady();
     const built = b || build;
     if (!built?.instructions?.length || !built.recentBlockhash) {
       throw new Error("Build first");
     }
     // Re-run the pre-sign check right before signing (defense in depth).
-    const check = checkBuild(built, q || quote, publicKey!.toBase58(), publicKey!);
+    const check = checkBuild(built, q || quote, publicKey!);
     setIxCheck(check);
     if (!check.ok) throw new StopFlow(check.reason);
 
@@ -383,13 +306,10 @@ export function PrimaryBuyPanel({
     if (!opts?.confirmed && txPhase !== "confirmed") {
       throw new Error("Wait for on-chain confirmation before submitting to Panta");
     }
-    const { data, raw } = await pantaFetch<{ status?: string }>("/primaryordersubmit/", {
-      method: "POST",
-      body: { orderId, signature: sig, wallet: publicKey!.toBase58() },
-    });
+    const { result, raw } = await submitOrder({ orderId, signature: sig, wallet: publicKey!.toBase58() });
     setSubmitRaw(raw);
     setStep((s) => Math.max(s, S.submitted));
-    push(`Submitted signature to Panta · status ${data?.status || "unknown"}`);
+    push(`Submitted signature to Panta · status ${result.status || "unknown"}`);
   };
 
   /**
@@ -409,12 +329,9 @@ export function PrimaryBuyPanel({
     let last: string | null = null;
     for (;;) {
       try {
-        const { data, raw } = await pantaFetch<VerifyResponse>("/primaryorderverify/", {
-          method: "POST",
-          body: { orderId, ...(sig ? { signature: sig } : {}), wallet: publicKey!.toBase58() },
-        });
+        const { result, raw } = await verifyOrder({ orderId, signature: sig, wallet: publicKey!.toBase58() });
         setVerifyRaw(raw);
-        last = typeof data?.status === "string" ? data.status.toLowerCase() : null;
+        last = result.status;
         setVerifyStatus(last);
         if (last && VERIFY_SUCCESS.has(last)) {
           setVerifyPhase("confirmed");
@@ -452,15 +369,12 @@ export function PrimaryBuyPanel({
     for (const delay of LEDGER_CHECK_DELAYS_MS) {
       await sleep(delay);
       try {
-        const { data } = await pantaFetch<AccountTradesResponse>("/account/trades/", {
-          query: { limit: "50", kind: "buy" },
-        });
-        if ((data.items || []).some((row) => row.signature === sig)) {
+        if (await isInLedger(sig, "buy")) {
           setLedgerSeen(true);
           setAttrPhase("attributed");
           push("Attributed · visible in GET /account/trades/");
           if (!alreadyAttributed) setToast(`Attributed · ${shortAddr(sig, 6)}`);
-          onAttributionUpdate?.();
+          onAttributionUpdate();
           return;
         }
       } catch {
@@ -474,32 +388,29 @@ export function PrimaryBuyPanel({
     );
   };
 
-  const runAttribute = async (opts?: { built?: PrimaryBuildResponse; sig?: string }) => {
+  const runAttribute = async (opts?: { built?: PrimaryBuild; sig?: string }) => {
     requireReady();
     const built = opts?.built || build;
     const sig = opts?.sig || signature;
     if (!sig || !built) throw new Error("Need broadcast signature");
     const ref = sessionAttrRef.current;
-    const body: Record<string, string> = {
-      signature: sig,
-      wallet: publicKey!.toBase58(),
-      marketId: built.marketId,
-      quoteId: built.quoteId,
-      clientOrderId: built.orderId,
-    };
-    if (ref) body.userId = ref;
     setAttrPhase("reporting");
-    const { data, raw } = await pantaFetch<TradeReportResponse>("/trades/", {
-      method: "POST",
-      userId: ref,
-      body,
-    });
+    const { report, state, raw } = await reportTrade(
+      {
+        signature: sig,
+        wallet: publicKey!.toBase58(),
+        marketId: built.marketId,
+        quoteId: built.quoteId,
+        clientOrderId: built.orderId,
+      },
+      ref,
+    );
     setTradeRaw(raw);
     setStep(S.reported);
-    const status = String(data?.status || "").toLowerCase();
+    const status = report.status;
     // docs.panta.market trades/report: status `processed` "when attribution is
     // stored" — the only POST response we treat as definitive.
-    const definitive = status === "processed";
+    const definitive = state === "attributed";
     if (definitive) {
       setAttrPhase("attributed");
       push("Attributed · POST /trades/ status processed");
@@ -509,7 +420,7 @@ export function PrimaryBuyPanel({
       push(`Trade reported for attribution · status ${status || "unknown"}`);
       setToast(`Trade reported for attribution · ${shortAddr(sig, 6)}`);
     }
-    onAttributionUpdate?.();
+    onAttributionUpdate();
     void checkLedger(sig, definitive);
   };
 

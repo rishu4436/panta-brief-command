@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import { useNow } from "@/hooks/useNow";
 import Link from "next/link";
-import { pantaFetch } from "@/lib/api";
+import { useTradesFor } from "@/lib/data/hooks";
 import {
   catalogVolume,
   formatRelativeTime,
@@ -11,28 +11,23 @@ import {
   marketLabel,
   shortAddr,
 } from "@/lib/format";
-import type { CatalogTradeRow, MarketCatalogItem, MarketTradesResponse } from "@/lib/types";
+import type { Market, Trade } from "@/lib/panta/domain";
 import { Panel } from "./Panel";
 
 type TapeHit = {
   marketId: string;
   label: string;
-  trade: CatalogTradeRow;
+  trade: Trade;
 };
 
 const MAX_PARALLEL = 3;
 const MAX_ROWS = 18;
 
-function tradeSide(t: CatalogTradeRow): string {
-  if (t.side) return t.side.toUpperCase();
-  const y = Number(t.yesAmount ?? 0);
-  const n = Number(t.noAmount ?? 0);
-  if (y > n) return "YES";
-  if (n > y) return "NO";
-  return "—";
+function tradeSide(t: Trade): string {
+  return t.side ? t.side.toUpperCase() : "—";
 }
 
-function activityScore(m: MarketCatalogItem): number {
+function activityScore(m: Market): number {
   const vol = catalogVolume(m);
   const volN =
     vol == null ? 0 : typeof vol === "string" ? Number(vol) : Number(vol);
@@ -55,12 +50,12 @@ export function HotTapeRail({
   markets,
   watchIds = [],
 }: {
-  markets: MarketCatalogItem[];
+  markets: Market[];
   watchIds?: string[];
 }) {
   const targets = useMemo(() => {
     const byId = new Map(markets.map((m) => [m.marketId, m]));
-    const ordered: MarketCatalogItem[] = [];
+    const ordered: Market[] = [];
     const seen = new Set<string>();
 
     // Watched first (operator intent), then activity-ranked visible set
@@ -86,70 +81,29 @@ export function HotTapeRail({
     return ordered.slice(0, MAX_PARALLEL);
   }, [markets, watchIds]);
 
-  const targetKey = targets.map((m) => m.marketId).join("|");
-  const [hits, setHits] = useState<TapeHit[]>([]);
-  const [busy, setBusy] = useState(false);
-  const [skipped, setSkipped] = useState<string | null>(null);
-  const [scanned, setScanned] = useState(0);
-
-  useEffect(() => {
-    if (targets.length === 0) {
-      setHits([]);
-      setScanned(0);
-      setSkipped("No visible markets to scan yet.");
-      return;
-    }
-    let cancelled = false;
-    setBusy(true);
-    setSkipped(null);
-
-    (async () => {
-      try {
-        const batches = await Promise.all(
-          targets.map(async (m) => {
-            try {
-              const { data } = await pantaFetch<MarketTradesResponse>(
-                `/markets/${encodeURIComponent(m.marketId)}/trades/`,
-              );
-              const items = (data.items || []).slice(0, 6);
-              return items.map((trade) => ({
-                marketId: m.marketId,
-                label: marketLabel(m, { max: 36 }),
-                trade,
-              }));
-            } catch {
-              return [] as TapeHit[];
-            }
-          }),
-        );
-        if (cancelled) return;
-        const merged = batches
-          .flat()
-          .sort((a, b) => (b.trade.blockTime ?? 0) - (a.trade.blockTime ?? 0))
-          .slice(0, MAX_ROWS);
-        setHits(merged);
-        setScanned(targets.length);
-        if (merged.length === 0) {
-          setSkipped(
-            `Quiet on ${targets.length} scanned book${targets.length === 1 ? "" : "s"} — no recent prints yet.`,
-          );
-        }
-      } catch {
-        if (!cancelled) {
-          setHits([]);
-          setScanned(0);
-          setSkipped("Hot tape skipped — trade fan-out unavailable.");
-        }
-      } finally {
-        if (!cancelled) setBusy(false);
+  // Shared per-market tape cache (same entries MarketDetail uses).
+  const queries = useTradesFor(targets.map((m) => m.marketId));
+  const busy = queries.some((q) => q.isPending && q.fetchStatus !== "idle");
+  const settled = queries.filter((q) => q.isSuccess || q.isError).length;
+  const allFailed = queries.length > 0 && queries.every((q) => q.isError);
+  const hits = useMemo(() => {
+    const out: TapeHit[] = [];
+    targets.forEach((m, i) => {
+      for (const trade of (queries[i]?.data ?? []).slice(0, 6)) {
+        out.push({ marketId: m.marketId, label: marketLabel(m, { max: 36 }), trade });
       }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [targetKey]);
+    });
+    return out.sort((a, b) => (b.trade.blockTime ?? 0) - (a.trade.blockTime ?? 0)).slice(0, MAX_ROWS);
+  }, [targets, queries]);
+  const scanned = settled;
+  const skipped =
+    targets.length === 0
+      ? "No visible markets to scan yet."
+      : allFailed
+        ? "Hot tape skipped — trade fan-out unavailable."
+        : !busy && hits.length === 0
+          ? `Quiet on ${targets.length} scanned book${targets.length === 1 ? "" : "s"} — no recent prints yet.`
+          : null;
 
   const now = useNow(30_000);
 

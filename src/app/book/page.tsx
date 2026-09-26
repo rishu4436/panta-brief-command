@@ -1,4 +1,5 @@
-import { BookWorkspace } from "@/components/BookWorkspace";
+import { BookPanel } from "@/components/BookPanel";
+import { AttributedTrades } from "@/components/AttributedTrades";
 
 export default function BookPage() {
   return (
@@ -10,7 +11,9 @@ export default function BookPage() {
           creator-fee claims are not
         </p>
       </div>
-      <BookWorkspace />
+      {/* Attribution updates invalidate the shared ["accountTrades"] cache. */}
+      <BookPanel />
+      <AttributedTrades limit={50} />
     </div>
   );
 }

@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useMemo } from "react";
 import Link from "next/link";
-import { pantaFetch } from "@/lib/api";
+import { useCatalog } from "@/lib/data/hooks";
 import { catalogVolume, formatVolumeUsdc, impliedSide, isUntitledMarket, marketActivityRank, marketLabel } from "@/lib/format";
-import type { MarketCatalogItem, MarketsListResponse } from "@/lib/types";
+import type { Market } from "@/lib/panta/domain";
 import { ProbBar } from "./ProbBar";
 import { PhaseBadge } from "./PhaseBadge";
 
@@ -50,63 +50,22 @@ function StaticPreview() {
 }
 
 export function LiveStrip() {
-  const [items, setItems] = useState<MarketCatalogItem[]>([]);
-  const [busy, setBusy] = useState(true);
-  const [failed, setFailed] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      setBusy(true);
-      setFailed(false);
-      try {
-        // Prefer primary/active; demote cancelled/resolved in the strip
-        let items: MarketCatalogItem[] = [];
-        try {
-          const { data } = await pantaFetch<MarketsListResponse>("/markets/", {
-            query: { status: "primary", limit: "8" },
-          });
-          items = data.items || [];
-        } catch {
-          /* fall through to unfiltered */
-        }
-        if (items.length < 3) {
-          try {
-            const { data } = await pantaFetch<MarketsListResponse>("/markets/", {
-              query: { limit: "12" },
-            });
-            const extra = data.items || [];
-            const seen = new Set(items.map((m) => m.marketId));
-            for (const m of extra) {
-              if (!seen.has(m.marketId)) {
-                items.push(m);
-                seen.add(m.marketId);
-              }
-            }
-          } catch {
-            /* keep primary-only list */
-          }
-        }
-        if (items.length === 0) throw new Error("empty catalog");
-        items = [...items].sort(
-          (a, b) => marketActivityRank(a) - marketActivityRank(b),
-        );
-        if (!cancelled) {
-          setItems(items.slice(0, 6));
-        }
-      } catch {
-        if (!cancelled) {
-          setFailed(true);
-          setItems([]);
-        }
-      } finally {
-        if (!cancelled) setBusy(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  // Shared catalog cache: the same queries back the desk and execute picker.
+  const primary = useCatalog({ status: "primary" });
+  const all = useCatalog({}, { enabled: primary.isFetched && primary.items.length < 3 });
+  const items = useMemo(() => {
+    const seen = new Set<string>();
+    const merged: Market[] = [];
+    for (const m of [...primary.items, ...(primary.items.length < 3 ? all.items : [])]) {
+      if (seen.has(m.marketId)) continue;
+      seen.add(m.marketId);
+      merged.push(m);
+    }
+    // Prefer primary/active; demote cancelled/resolved in the strip.
+    return merged.sort((a, b) => marketActivityRank(a) - marketActivityRank(b)).slice(0, 6);
+  }, [primary.items, all.items]);
+  const busy = primary.isPending || (primary.items.length < 3 && all.isPending && all.fetchStatus !== "idle");
+  const failed = primary.isError && all.isError;
 
   const showLive = !busy && !failed && items.length > 0;
   const showPreview = !busy && (failed || items.length === 0);

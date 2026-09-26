@@ -26,6 +26,27 @@ function writeIds(key: string, ids: string[]) {
   }
 }
 
+/** Raw stored string (stable snapshot for useSyncExternalStore). */
+export function readRaw(kind: "watch" | "recent"): string {
+  if (typeof window === "undefined") return "";
+  try {
+    return window.localStorage.getItem(kind === "watch" ? WATCH_KEY : RECENT_KEY) || "";
+  } catch {
+    return "";
+  }
+}
+
+export function parseIds(raw: string): string[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((x): x is string => typeof x === "string" && x.length > 0);
+  } catch {
+    return [];
+  }
+}
+
 export function getWatchlist(): string[] {
   return readIds(WATCH_KEY);
 }

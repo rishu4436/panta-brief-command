@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { pantaFetch } from "@/lib/api";
+import { useMarket, useMarketTrades } from "@/lib/data/hooks";
 import { describeErr } from "@/lib/errors";
 import {
   catalogVolume,
@@ -13,11 +13,6 @@ import {
   shortAddr,
   shouldShowCategoryChip,
 } from "@/lib/format";
-import type {
-  CatalogTradeRow,
-  MarketCatalogItem,
-  MarketTradesResponse,
-} from "@/lib/types";
 import { notifyStorage, pushRecent } from "@/lib/storage";
 import { AiBrief } from "./AiBrief";
 import { Panel } from "./Panel";
@@ -70,54 +65,27 @@ function DetailSkeleton() {
 }
 
 export function MarketDetail({ marketId }: { marketId: string }) {
-  const [market, setMarket] = useState<MarketCatalogItem | null>(null);
-  const [tape, setTape] = useState<CatalogTradeRow[]>([]);
-  const [busy, setBusy] = useState(true);
-  const [tapeBusy, setTapeBusy] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [updatedAt, setUpdatedAt] = useState<number | null>(null);
+  const id = marketId.trim();
+  const detail = useMarket(id);
+  const trades = useMarketTrades(id);
   const [descOpen, setDescOpen] = useState(false);
   const [copied, setCopied] = useState(false);
 
-  const load = useCallback(async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      const id = marketId.trim();
-      if (!id) throw new Error("Missing marketId");
-      const { data } = await pantaFetch<MarketCatalogItem>(
-        `/markets/${encodeURIComponent(id)}/`,
-      );
-      setMarket(data);
-      setUpdatedAt(Date.now());
-      pushRecent(id);
-      notifyStorage();
-    } catch (e) {
-      setError(describeErr(e));
-    } finally {
-      setBusy(false);
-    }
-  }, [marketId]);
+  // Shared cache: placeholder is the catalog row until the detail lands.
+  const market = detail.data ?? null;
+  const busy = detail.isPending;
+  const error = detail.error ? describeErr(detail.error) : !id ? "Missing marketId" : null;
+  const updatedAt = detail.isPlaceholderData ? null : detail.dataUpdatedAt || null;
+  const tape = trades.data ?? [];
+  const tapeBusy = trades.isPending;
+  const load = () => void detail.refetch();
 
-  const loadTape = useCallback(async () => {
-    setTapeBusy(true);
-    try {
-      const id = marketId.trim();
-      const { data } = await pantaFetch<MarketTradesResponse>(
-        `/markets/${encodeURIComponent(id)}/trades/`,
-      );
-      setTape(data.items || []);
-    } catch {
-      setTape([]);
-    } finally {
-      setTapeBusy(false);
-    }
-  }, [marketId]);
-
+  // Record the visit (localStorage only; no React state involved).
   useEffect(() => {
-    void load();
-    void loadTape();
-  }, [load, loadTape]);
+    if (!id || !detail.isSuccess || detail.isPlaceholderData) return;
+    pushRecent(id);
+    notifyStorage();
+  }, [id, detail.isSuccess, detail.isPlaceholderData]);
 
   if (busy && !market) {
     return (
@@ -139,7 +107,7 @@ export function MarketDetail({ marketId }: { marketId: string }) {
         <div className="mt-3 flex flex-wrap gap-3">
           <button
             type="button"
-            onClick={() => void load()}
+            onClick={load}
             className="text-sm text-cyan-400 hover:text-cyan-300"
           >
             Retry
@@ -159,7 +127,7 @@ export function MarketDetail({ marketId }: { marketId: string }) {
 
   const { yes, no } = impliedSide(market);
   const heading = marketLabel(market);
-  const desc = (market.description || "").trim();
+  const desc = (market.description || market.resolutionRule || "").trim();
   const descIsDupe =
     desc &&
     heading &&
@@ -310,7 +278,7 @@ export function MarketDetail({ marketId }: { marketId: string }) {
             <DualSideHero yes={yes} no={no} />
             <p className="type-meta mt-3">Live spot · blank means not priced yet</p>
           </Panel>
-          <TapeSparkline items={tape} busy={tapeBusy} spotYes={yes != null && yes !== "" ? Number(yes) : null} />
+          <TapeSparkline items={tape} busy={tapeBusy} />
         </div>
 
         <div className="space-y-3 lg:col-span-5">

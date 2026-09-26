@@ -1,14 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import type { BriefMode, BriefPayload, MarketCatalogItem } from "@/lib/types";
+import { useState } from "react";
+import type { BriefMode, Market } from "@/lib/types";
 import type { MarketSignals } from "@/lib/panta/signals";
-import { BRIEF_MODES } from "@/lib/brief-modes";
+import { BRIEF_MODES, BRIEF_RATE_LIMIT } from "@/lib/brief-modes";
+import { BriefRateLimitError, useBrief } from "@/lib/data/hooks";
+import { useNow } from "@/hooks/useNow";
 import { describeErr } from "@/lib/errors";
 import { formatFriendlyIst } from "@/lib/format";
 import { BriefMarkdown } from "./BriefMarkdown";
-
-type Result = { key: string; brief?: BriefPayload; error?: string };
 
 function pct(p: number | null | undefined): string {
   if (p == null || !Number.isFinite(p)) return "—";
@@ -44,50 +44,23 @@ export function AiBrief({
   market,
   auto = false,
 }: {
-  market: MarketCatalogItem;
+  market: Market;
   auto?: boolean;
 }) {
   const [mode, setMode] = useState<BriefMode>("desk");
   const [nonce, setNonce] = useState(0);
   const [enabled, setEnabled] = useState(auto);
-  const [result, setResult] = useState<Result | null>(null);
-  const [lastGood, setLastGood] = useState<BriefPayload | null>(null);
-
   const marketId = market.marketId;
-  const key = `${marketId}:${mode}:${nonce}`;
 
-  useEffect(() => {
-    if (!enabled || !marketId) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetch("/api/brief", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          // Server fetches + sanitizes market/tape and computes signals itself.
-          body: JSON.stringify({ marketId, mode }),
-        });
-        const json = (await res.json()) as BriefPayload & { code?: string; detail?: string };
-        if (!res.ok) throw new Error(json.detail || json.code || `HTTP ${res.status}`);
-        if (cancelled) return;
-        setResult({ key, brief: json });
-        setLastGood(json);
-      } catch (e) {
-        if (!cancelled) setResult({ key, error: describeErr(e) });
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [enabled, key, marketId, mode]);
-
-  const busy = enabled && result?.key !== key;
-  const current = result?.key === key ? result : null;
-  // While a new mode loads, keep the last brief for this market on screen (dimmed).
-  const brief =
-    current?.brief ?? (lastGood && lastGood.market.marketId === marketId ? lastGood : null);
-  const error = current?.error ?? null;
+  // Shared data layer: cached per marketId:mode:nonce, deduped in flight.
+  const q = useBrief(marketId, mode, nonce, enabled);
+  const busy = enabled && q.isFetching;
+  const brief = q.data ?? null;
+  const rateLimited = q.error instanceof BriefRateLimitError ? q.error : null;
+  const error = q.error && !rateLimited ? describeErr(q.error) : null;
   const s = brief?.signals ?? null;
+  const now = useNow(rateLimited ? 1000 : 60_000);
+  const waitSec = rateLimited ? Math.max(0, Math.ceil((rateLimited.retryAt - now) / 1000)) : 0;
 
   const regenerate = () => {
     if (!enabled) setEnabled(true);
@@ -115,7 +88,7 @@ export function AiBrief({
           <button
             type="button"
             onClick={regenerate}
-            disabled={busy}
+            disabled={busy || waitSec > 0}
             className="min-h-[30px] rounded-md bg-cyan-400/15 px-2.5 py-1 text-[11px] font-semibold text-cyan-300 transition hover:bg-cyan-400/25 active:scale-[0.98] disabled:opacity-50"
           >
             {busy ? "Reading…" : brief ? "Regenerate" : "Generate"}
@@ -161,6 +134,32 @@ export function AiBrief({
         {error && (
           <div className="mb-3 rounded-md border border-rose-500/25 bg-rose-500/10 px-2.5 py-2 text-xs text-rose-200">
             {error}
+          </div>
+        )}
+        {rateLimited && (
+          <div
+            role="status"
+            className="mb-3 flex items-center justify-between gap-3 rounded-md border border-cyan-400/20 bg-cyan-400/[0.06] px-2.5 py-2"
+          >
+            <p className="text-[12px] text-zinc-300">
+              {waitSec > 0 ? (
+                <>
+                  Brief limit reached ({BRIEF_RATE_LIMIT}/min). Ready again in{" "}
+                  <span className="font-num font-semibold text-cyan-300">{waitSec}s</span>
+                </>
+              ) : (
+                "Brief limit reset — ready to generate again."
+              )}
+            </p>
+            {waitSec === 0 && (
+              <button
+                type="button"
+                onClick={regenerate}
+                className="shrink-0 rounded-md bg-cyan-400/15 px-2 py-1 text-[11px] font-semibold text-cyan-300 hover:bg-cyan-400/25"
+              >
+                Retry
+              </button>
+            )}
           </div>
         )}
 

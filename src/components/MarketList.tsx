@@ -125,7 +125,24 @@ function SkeletonRows() {
   );
 }
 
-function SetupPanel({ error }: { error: string }) {
+/** Empty list: an empty live catalog is not the same as filters hiding everything. */
+function NoMarkets({ catalogEmpty, onClear, onRefresh, className }: { catalogEmpty: boolean; onClear: () => void; onRefresh: () => void; className: string }) {
+  return (
+    <div className={className}>
+      <div className="text-sm text-zinc-400">{catalogEmpty ? "Panta returned no markets" : "No markets match"}</div>
+      <p className="mt-1 text-[11px] text-zinc-600">
+        {catalogEmpty
+          ? "The live catalog is empty right now. Nothing is filled in; refresh to check again."
+          : "Clear search, phase, or watchlist — sparse catalogs are common on cold books"}
+      </p>
+      <button type="button" onClick={catalogEmpty ? onRefresh : onClear} className="btn btn-secondary btn-sm mt-3">
+        {catalogEmpty ? "Refresh" : "Clear filters"}
+      </button>
+    </div>
+  );
+}
+
+function SetupPanel({ error, onRetry, retrying }: { error: string; onRetry: () => void; retrying: boolean }) {
   const auth = isApiKeyError(error);
   return (
     <div className="flex flex-col items-center justify-center px-6 py-16 text-center animate-fade-in">
@@ -133,12 +150,12 @@ function SetupPanel({ error }: { error: string }) {
         P
       </span>
       <h2 className="mt-4 text-lg font-semibold tracking-tight text-zinc-50">
-        {auth ? "Connect Panta API" : "Desk unavailable"}
+        {auth ? "Connect Panta API" : "Couldn't load markets"}
       </h2>
       <p className="mt-2 max-w-sm text-sm text-zinc-500">
         {auth
           ? "Add your key to unlock the live market catalog."
-          : "Live catalog could not load. Check the proxy and try again."}
+          : "The Panta market feed didn't respond. Nothing is shown until it does. Check your connection and try again."}
       </p>
       {auth && (
         <code className="mt-4 rounded-md border border-line bg-inset px-3 py-2 font-num text-[12px] text-cyan-300">
@@ -156,14 +173,20 @@ function SetupPanel({ error }: { error: string }) {
           {error.length > 120 ? `${error.slice(0, 120)}…` : error}
         </p>
       )}
-      <a
-        href="https://docs.panta.market/"
-        target="_blank"
-        rel="noreferrer"
-        className="mt-6 inline-flex items-center rounded-md bg-cyan-400 px-4 py-2 text-sm font-semibold text-bg transition hover:bg-cyan-300 active:scale-[0.98]"
-      >
-        {auth ? "Get API key →" : "API docs →"}
-      </a>
+      {auth ? (
+        <a
+          href="https://docs.panta.market/"
+          target="_blank"
+          rel="noreferrer"
+          className="btn btn-primary mt-6"
+        >
+          Get API key →
+        </a>
+      ) : (
+        <button type="button" onClick={onRetry} disabled={retrying} className="btn btn-primary mt-6">
+          {retrying ? "Retrying…" : "Try again"}
+        </button>
+      )}
     </div>
   );
 }
@@ -522,7 +545,7 @@ export function MarketList() {
         </div>
 
         {showSetup ? (
-          <SetupPanel error={error!} />
+          <SetupPanel error={error!} onRetry={() => void catalog.refetch()} retrying={busy} />
         ) : (
           <>
             {error && !showSetup && (
@@ -586,24 +609,17 @@ export function MarketList() {
                   );
                 })}
                 {!busy && !error && filtered.length === 0 && (
-                  <div className="col-span-full px-4 py-14 text-center">
-                    <div className="text-sm text-zinc-400">No markets match</div>
-                    <p className="mt-1 text-[11px] text-zinc-600">
-                      Clear search, phase, or watchlist — sparse catalogs are common on cold books
-                    </p>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setQ("");
-                        setWatchOnly(false);
-                        setCategory("");
-                        setPhase("");
-                      }}
-                      className="mt-3 rounded-md border border-line px-3 py-1.5 text-[11px] text-zinc-400 hover:text-zinc-200"
-                    >
-                      Clear filters
-                    </button>
-                  </div>
+                  <NoMarkets
+                    className="col-span-full px-4 py-14 text-center"
+                    catalogEmpty={items.length === 0}
+                    onRefresh={() => void catalog.refetch()}
+                    onClear={() => {
+                      setQ("");
+                      setWatchOnly(false);
+                      setCategory("");
+                      setPhase("");
+                    }}
+                  />
                 )}
               </div>
             ) : (
@@ -675,24 +691,17 @@ export function MarketList() {
                 })}
 
                 {!busy && !error && filtered.length === 0 && (
-                  <div className="px-4 py-14 text-center">
-                    <div className="text-sm text-zinc-400">No markets match</div>
-                    <p className="mt-1 text-[11px] text-zinc-600">
-                      Clear search, phase, or watchlist — sparse catalogs are common on cold books
-                    </p>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setQ("");
-                        setWatchOnly(false);
-                        setCategory("");
-                        setPhase("");
-                      }}
-                      className="mt-3 rounded-md border border-line px-3 py-1.5 text-[11px] text-zinc-400 hover:text-zinc-200"
-                    >
-                      Clear filters
-                    </button>
-                  </div>
+                  <NoMarkets
+                    className="px-4 py-14 text-center"
+                    catalogEmpty={items.length === 0}
+                    onRefresh={() => void catalog.refetch()}
+                    onClear={() => {
+                      setQ("");
+                      setWatchOnly(false);
+                      setCategory("");
+                      setPhase("");
+                    }}
+                  />
                 )}
               </div>
             )}
@@ -733,7 +742,7 @@ export function MarketList() {
         )}
       </Panel>
       <aside className="hidden lg:block lg:sticky lg:top-16">
-        <HotTapeRail markets={filtered} watchIds={watchIds} />
+        <HotTapeRail markets={filtered} watchIds={watchIds} catalogState={showSkeleton ? "loading" : showSetup ? "error" : "ready"} />
       </aside>
       </div>
     </div>

@@ -49,9 +49,12 @@ function activityScore(m: Market): number {
 export function HotTapeRail({
   markets,
   watchIds = [],
+  catalogState = "ready",
 }: {
   markets: Market[];
   watchIds?: string[];
+  /** Catalog status from the desk, so the rail doesn't read "quiet" while it is loading or down. */
+  catalogState?: "loading" | "error" | "ready";
 }) {
   const targets = useMemo(() => {
     const byId = new Map(markets.map((m) => [m.marketId, m]));
@@ -83,7 +86,7 @@ export function HotTapeRail({
 
   // Shared per-market tape cache (same entries MarketDetail uses).
   const queries = useTradesFor(targets.map((m) => m.marketId));
-  const busy = queries.some((q) => q.isPending && q.fetchStatus !== "idle");
+  const busy = catalogState === "loading" || queries.some((q) => q.isPending && q.fetchStatus !== "idle");
   const settled = queries.filter((q) => q.isSuccess || q.isError).length;
   const allFailed = queries.length > 0 && queries.every((q) => q.isError);
   const hits = useMemo(() => {
@@ -97,7 +100,9 @@ export function HotTapeRail({
   }, [targets, queries]);
   const scanned = settled;
   const skipped =
-    targets.length === 0
+    catalogState === "error" && targets.length === 0
+      ? "Waiting for the market catalog to load."
+      : targets.length === 0
       ? "No visible markets to scan yet."
       : allFailed
         ? "Hot tape skipped — trade fan-out unavailable."
@@ -128,7 +133,7 @@ export function HotTapeRail({
         )}
         {!busy && skipped && hits.length === 0 && (
           <div className="px-3.5 py-8 text-center">
-            <div className="type-body text-zinc-400">Tape quiet</div>
+            <div className="type-body text-zinc-400">{catalogState === "error" && targets.length === 0 ? "Tape unavailable" : "Tape quiet"}</div>
             <p className="type-meta mt-1 leading-relaxed">
               {skipped}
             </p>

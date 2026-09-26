@@ -23,7 +23,7 @@ const STATES: { id: TradeStateId; label: string }[] = [
 export function ExecutionShowcase() {
   const [state, setState] = useState<TradeStateId>("quote_ready");
   return (
-    <section id="execution" className="relative scroll-mt-20 overflow-hidden py-14 sm:py-16" aria-labelledby="exec-title">
+    <section id="execution" className="relative scroll-mt-20 overflow-hidden pb-14 pt-10 sm:pb-16 sm:pt-12" aria-labelledby="exec-title">
       <div
         className="pointer-events-none absolute inset-0 -z-10"
         style={{ background: "radial-gradient(ellipse 55% 60% at 50% 55%, rgba(18,214,245,0.07), transparent 70%)" }}
@@ -31,7 +31,7 @@ export function ExecutionShowcase() {
       />
       <div className="mx-auto max-w-[1120px] px-5 text-center sm:px-8">
         <p className="eyebrow">Execution</p>
-        <h2 id="exec-title" className="h-section mx-auto mt-3 max-w-3xl">
+        <h2 id="exec-title" className="h-section mx-auto mt-3 max-w-4xl">
           Clear when it works. Clearer when it doesn&apos;t.
         </h2>
         <p className="text-lede mx-auto mt-3 max-w-2xl">

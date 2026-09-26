@@ -41,7 +41,8 @@ export function AiBrief({
       const res = await fetch("/api/brief", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ market, tape, tone: nextTone }),
+        // Server fetches + sanitizes market/tape itself; send only id + tone.
+        body: JSON.stringify({ marketId: market.marketId, tone: nextTone }),
       });
       const json = (await res.json()) as BriefPayload & {
         code?: string;

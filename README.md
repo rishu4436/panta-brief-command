@@ -10,10 +10,10 @@ Dark-glass **prediction desk** on Solana powered by the [Panta API](https://docs
 | Slice | Status |
 | --- | --- |
 | **Intel** — market catalog, detail odds, trade tape, AI Brief | Working |
-| **Execute** — primary buy quote → build VT → wallet sign → broadcast → submit → verify → `POST /trades/` | Working |
+| **Execute** — primary buy quote → build VT → pre-sign check → wallet sign → broadcast → on-chain confirm → submit → verify (polled ≤30s) → `POST /trades/` | Working |
 | **Book** — positions list + win / creator-fee claim build → sign → broadcast | Working |
 | **UI** — modern dark glass trading terminal | Working |
-| Server proxy `/api/panta/*` with `X-Api-Key` | Working |
+| Server proxy `/api/panta/*` — explicit route + method allowlist, server key only | Working |
 
 ### Stubbed / deferred
 
@@ -39,7 +39,7 @@ Open http://localhost:3000
 
 1. **Intel** — catalog loads via `GET /markets/`. Open a market for detail odds (`GET /markets/{id}/`) + tape (`GET /markets/{id}/trades/`).
 2. Click **Generate brief** — templated desk narrative from real detail + tape fields (or OpenAI if `OPENAI_API_KEY` is set).
-3. **Execute** — connect Phantom/Solflare → Quote → Build VT → Sign & send → Submit → Verify → Attribute (`POST /trades/`).
+3. **Execute** — connect Phantom/Solflare → Quote → Build VT → pre-sign check → Sign & send → confirm → Submit → Verify → report (`POST /trades/`). "Attributed" only shows when Panta returns `processed` or the trade appears in `GET /account/trades/`.
 4. **Book** — Refresh positions (`GET /positions/?wallet=`) → claim build for win or creator fees.
 
 ## Env vars
@@ -60,9 +60,11 @@ Base `https://live-api.panta.market/api/v1` (trailing slashes required):
 - `POST /primaryorderquote/`, `POST /primaryorderbuild/`, `POST /primaryordersubmit/`, `POST /primaryorderverify/`
 - `GET /positions/?wallet=`
 - `POST /claim/build/`, `POST /claim/creator-fees/build/`
-- `POST /trades/`
+- `POST /trades/`, `GET /account/trades/`
 
-Browser calls `/api/panta/*`; the Next.js route forwards with `X-Api-Key`.
+Browser calls `/api/panta/*`; the Next.js route forwards **only** the routes and methods listed in `src/lib/panta/routes.ts` (403 `ROUTE_NOT_ALLOWED` otherwise, 405 on a wrong method) and attaches the server's `X-Api-Key`. Client-supplied keys are ignored.
+
+`POST /api/brief` accepts only `{ marketId, tone }`; the server fetches market detail + tape from Panta, sanitizes and caps them, rate-limits per IP (5/min, in-memory), and caches per market+tone for 60s.
 
 ## Stack
 

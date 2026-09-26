@@ -1,5 +1,6 @@
 "use client";
 
+import { isValidAttributionRef } from "./panta/routes";
 import type { Json } from "./types";
 
 export class ApiError extends Error {
@@ -17,7 +18,10 @@ export class ApiError extends Error {
   }
 }
 
-/** Browser → Next.js proxy (/api/panta/*). Server injects X-Api-Key. */
+/**
+ * Browser → Next.js proxy (/api/panta/*). The server injects its own X-Api-Key;
+ * this client never sends a key. Only allowlisted routes are forwarded.
+ */
 export async function pantaFetch<T>(
   path: string,
   options: {
@@ -43,8 +47,11 @@ export async function pantaFetch<T>(
   const headers: Record<string, string> = {
     Accept: "application/json",
   };
-  if (options.userId?.trim()) {
-    headers["X-User-Id"] = options.userId.trim();
+  // Attribution reference (user-supplied metadata, not identity). Only sent
+  // when it passes the same charset check the proxy enforces.
+  const userId = options.userId?.trim();
+  if (userId && isValidAttributionRef(userId)) {
+    headers["X-User-Id"] = userId;
   }
 
   let body: string | undefined;

@@ -160,19 +160,21 @@ export async function maybeOpenAIBrief(
     noPrice: no,
     volumeUsdc: market.volumeUsdc,
     endTime: market.endTime,
-    recentTape: tape.slice(0, 12).map((t) => ({
+    // Tape rows arrive pre-normalized by sanitizeTape(): human `shares` and
+    // `amountUsdc` only (see src/lib/panta/normalize.ts for unit contracts).
+    recentTape: tape.slice(0, 20).map((t) => ({
       side: t.side,
+      shares: (t as { shares?: string }).shares,
       amountUsdc: t.amountUsdc,
-      yesAmount: t.yesAmount,
-      noAmount: t.noAmount,
+      isPrimary: t.isPrimary,
       blockTime: t.blockTime,
-      wallet: t.wallet,
     })),
   };
 
   try {
     const res = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
+      signal: AbortSignal.timeout(20_000),
       headers: {
         Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
@@ -180,6 +182,7 @@ export async function maybeOpenAIBrief(
       body: JSON.stringify({
         model,
         temperature: 0.4,
+        max_completion_tokens: 700,
         messages: [
           {
             role: "system",

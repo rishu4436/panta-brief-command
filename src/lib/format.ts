@@ -190,7 +190,7 @@ function truncate(s: string, max: number): string {
 }
 
 const POLITICS_RE =
-  /\b(prime\s*minister|president|parliament|election|congress|senate|mp\b|minister|defense|defence|spending\s+review|white\s*house|cabinet|ballot|referendum|governor)\b/i;
+  /\b(prime\s*minister|president(ial)?|nomination|parliament|election|congress|senate|mp\b|minister|defense|defence|spending\s+review|white\s*house|cabinet|ballot|referendum|governor)\b/i;
 const SPORTS_RE =
   /\b(match|cup|league|fifa|nba|nfl|cricket|tennis|goal|championship|olympics|world\s*cup|vs\.?|versus)\b/i;
 

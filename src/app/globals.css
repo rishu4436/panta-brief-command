@@ -127,6 +127,7 @@ body {
   font-feature-settings: "cv11", "ss01";
 }
 
+@layer components {
 /* Tabular numerals for every probability, volume, fee, balance and price. */
 .font-num,
 .tabular {
@@ -162,8 +163,8 @@ body {
   color: #b9a0fa;
 }
 .h-hero {
-  font-size: clamp(2.375rem, 1.2rem + 4.6vw, 4.5rem);
-  line-height: 1.04;
+  font-size: clamp(2.375rem, 1rem + 3.6vw, 4rem);
+  line-height: 1.05;
   font-weight: 700;
   letter-spacing: -0.035em;
   color: var(--ink);
@@ -411,6 +412,8 @@ body {
   background: radial-gradient(50% 60% at 50% 50%, rgba(52, 120, 246, 0.14), transparent 70%);
 }
 
+}
+
 /* ---------- Wallet adapter (match tokens) ---------- */
 .wallet-adapter-button {
   font-family: var(--font-sans) !important;
@@ -499,6 +502,7 @@ body {
 ::-webkit-scrollbar-track {
   background: transparent;
 }
+@layer components {
 .scrollbar-none {
   -ms-overflow-style: none;
   scrollbar-width: none;
@@ -562,6 +566,8 @@ body {
   transform: translateY(-1px) scale(1.06);
 }
 
+}
+
 @media (prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto;
@@ -614,6 +620,7 @@ summary:focus:not(:focus-visible) {
   color: var(--bg);
 }
 
+@layer components {
 /* ==========================================================================
    Desk typography (dense, shared with landing tokens)
    ========================================================================== */
@@ -719,4 +726,6 @@ summary:focus:not(:focus-visible) {
   font-size: 0.875rem;
   font-weight: 500;
   letter-spacing: -0.01em;
+}
+
 }

@@ -168,6 +168,41 @@ function SetupPanel({ error }: { error: string }) {
   );
 }
 
+/**
+ * Market image with a fixed slot, so rows stay aligned when Panta has no image or the
+ * upstream URL 404s (the broken image is swapped for a neutral placeholder).
+ */
+function MarketThumb({ src, variant, untitled }: { src?: string; variant: "row" | "card"; untitled?: boolean }) {
+  const [failed, setFailed] = useState<string | null>(null);
+  const ok = src && failed !== src;
+  if (variant === "row") {
+    return ok ? (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={src}
+        alt=""
+        onError={() => setFailed(src)}
+        className="hidden h-10 w-10 shrink-0 rounded object-cover sm:block"
+      />
+    ) : (
+      <span aria-hidden="true" className="hidden h-10 w-10 shrink-0 rounded border border-line bg-elevated sm:block" />
+    );
+  }
+  return ok ? (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={src}
+      alt=""
+      onError={() => setFailed(src)}
+      className="h-28 w-full object-cover opacity-90 transition group-hover:opacity-100"
+    />
+  ) : (
+    <div className="flex h-16 items-center justify-center bg-elevated text-[10px] uppercase tracking-wider text-zinc-700">
+      {untitled ? "Untitled" : "No image"}
+    </div>
+  );
+}
+
 export function MarketList() {
   const router = useRouter();
   const pathname = usePathname();
@@ -510,8 +545,7 @@ export function MarketList() {
                       ref={track(m.marketId)}
                       data-hi={hi ? "1" : undefined}
                       onMouseEnter={() => setHighlight(idx)}
-                      style={{ animationDelay: `${Math.min(idx, 11) * 30}ms` }}
-                      className={`stagger-in relative overflow-hidden rounded-lg border bg-inset transition ${hi ? "border-cyan-400/45 ring-1 ring-cyan-400/25" : "border-line hover:border-line-strong"}`}
+                      className={`relative overflow-hidden rounded-lg border bg-inset transition ${hi ? "border-cyan-400/45 ring-1 ring-cyan-400/25" : "border-line hover:border-line-strong"}`}
                     >
                       <div className="absolute right-2 top-2 z-10">
                         <WatchStar marketId={m.marketId} size="sm" />
@@ -521,22 +555,7 @@ export function MarketList() {
                         onClick={() => openMarket(m.marketId)}
                         className="group flex min-h-[44px] flex-col active:scale-[0.99]"
                       >
-                      {thumb ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                          src={thumb}
-                          alt=""
-                          onError={(e) => {
-                            // Upstream image missing (404): hide it rather than show a broken icon.
-                            e.currentTarget.style.display = "none";
-                          }}
-                          className="h-28 w-full object-cover opacity-90 transition group-hover:opacity-100"
-                        />
-                      ) : (
-                        <div className="flex h-16 items-center justify-center bg-elevated text-[10px] uppercase tracking-wider text-zinc-700">
-                          {isUntitledMarket(m) ? "Untitled" : "No image"}
-                        </div>
-                      )}
+                      <MarketThumb src={thumb} variant="card" untitled={isUntitledMarket(m)} />
                       <div className="flex flex-1 flex-col gap-2 p-3">
                         <div
                           className={`market-title market-title--link ${
@@ -607,8 +626,7 @@ export function MarketList() {
                       ref={track(m.marketId)}
                       data-hi={hi ? "1" : undefined}
                       onMouseEnter={() => setHighlight(idx)}
-                      style={{ animationDelay: `${Math.min(idx, 11) * 30}ms` }}
-                      className={`stagger-in flex items-stretch gap-1 transition-colors ${hi ? "bg-cyan-400/[0.06] ring-1 ring-inset ring-cyan-400/30" : "hover:bg-elevated"}`}
+                      className={`flex items-stretch gap-1 transition-colors ${hi ? "bg-cyan-400/[0.06] ring-1 ring-inset ring-cyan-400/30" : "hover:bg-elevated"}`}
                     >
                       <div className="flex items-center pl-3">
                         <WatchStar marketId={m.marketId} size="sm" />
@@ -619,17 +637,7 @@ export function MarketList() {
                         className="group desk-row grid flex-1 grid-cols-1 items-center gap-3 px-3 desk-row-pad transition-colors sm:grid-cols-[1fr_88px_96px_110px] lg:grid-cols-[1fr_88px_96px_96px_110px]"
                       >
                       <div className="flex min-w-0 items-center gap-3">
-                        {thumb ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img
-                            src={thumb}
-                            alt=""
-                            onError={(e) => {
-                              e.currentTarget.style.display = "none";
-                            }}
-                            className="hidden h-10 w-10 shrink-0 rounded object-cover sm:block"
-                          />
-                        ) : null}
+                        <MarketThumb src={thumb} variant="row" />
                         <div className="min-w-0">
                           <div
                             className={`market-title market-title--link ${

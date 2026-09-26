@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useRef, useState } from "react";
+import { useRecents } from "@/hooks/useLocalIds";
 import { BrandMark } from "./BrandMark";
 import { WalletButton } from "./WalletButton";
 import { IconArrowRight, IconClose, IconMenu } from "./ui/Icons";
@@ -17,6 +18,7 @@ function useNavItems(): { marketing: boolean; items: NavItem[] } {
   const pathname = usePathname();
   const sp = useSearchParams();
   const marketing = isMarketingPath(pathname);
+  const { ids: recentIds } = useRecents();
   if (marketing) {
     return {
       marketing,
@@ -34,8 +36,17 @@ function useNavItems(): { marketing: boolean; items: NavItem[] } {
     marketing,
     items: [
       { href: "/desk", label: "Markets", active: pathname === "/desk" || onMarket },
-      // The brief lives beside the selected market in the workspace.
-      { href: onMarket ? `${pathname}#brief` : "/desk#brief", label: "Briefs", active: false },
+      // The brief lives beside the selected market in the workspace: jump to it on a market
+      // page, else to the most recently opened market's brief, else to the desk to pick one.
+      {
+        href: onMarket
+          ? `${pathname}#brief`
+          : recentIds[0]
+            ? `/markets/${encodeURIComponent(recentIds[0])}#brief`
+            : "/desk",
+        label: "Briefs",
+        active: false,
+      },
       { href: "/execute", label: "Trade", active: pathname.startsWith("/execute") },
       { href: "/book?tab=positions", label: "Positions", active: pathname.startsWith("/book") && tab !== "activity" && tab !== "claims" },
       { href: "/book?tab=activity", label: "Activity", active: pathname.startsWith("/book") && tab === "activity" },

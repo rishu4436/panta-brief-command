@@ -49,11 +49,14 @@ function priceStr(v: unknown): string | null {
 
 export function sanitizeMarket(raw: MarketCatalogItem): MarketCatalogItem {
   const description = cleanStr(raw.description, BRIEF_LIMITS.descriptionBytes * 4);
+  const resolutionRule = cleanStr(raw.resolutionRule, BRIEF_LIMITS.descriptionBytes * 4);
   return {
     marketId: cleanStr(raw.marketId, 64) || "",
     category: cleanStr(raw.category) || "",
-    title: cleanStr(raw.title) || "",
+    // Detail responses carry `question` too; use it when `title` is blank.
+    title: cleanStr(raw.title) || cleanStr((raw as { question?: unknown }).question) || "",
     description: description ? capBytes(description, BRIEF_LIMITS.descriptionBytes) : undefined,
+    resolutionRule: resolutionRule ? capBytes(resolutionRule, BRIEF_LIMITS.descriptionBytes) : undefined,
     phase: cleanStr(raw.phase, 32) || "",
     status: cleanStr(raw.status, 32),
     region: cleanStr(raw.region, 64),

@@ -11,6 +11,8 @@ export type MarketCatalogItem = {
   category: string;
   title: string;
   description?: string;
+  /** On-chain resolution rule text (detail endpoint); often set when description is empty. */
+  resolutionRule?: string;
   images?: string[];
   phase: string;
   marketType?: string;

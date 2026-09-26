@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import type { BriefMode, Market } from "@/lib/types";
+import { useState, type ReactNode } from "react";
+import type { BriefMode, BriefPayload, Market } from "@/lib/types";
 import type { MarketSignals } from "@/lib/panta/signals";
 import { BRIEF_MODES, BRIEF_RATE_LIMIT } from "@/lib/brief-modes";
 import { BriefRateLimitError, useBrief } from "@/lib/data/hooks";
@@ -9,26 +9,12 @@ import { useNow } from "@/hooks/useNow";
 import { describeErr } from "@/lib/errors";
 import { formatFriendlyIst } from "@/lib/format";
 import { BriefMarkdown } from "./BriefMarkdown";
+import { EvidenceLegend, EvidenceTag, type EvidenceLayer } from "./brief/EvidenceTag";
 import { StatusBadge } from "./ui/StatusBadge";
 import { IconSparkles } from "./ui/Icons";
 
-type Layer = "observed" | "derived" | "unknown";
-const LAYER: Record<Layer, { label: string; cls: string; hint: string }> = {
-  observed: { label: "Observed", cls: "border-cyan-400/35 text-cyan-200", hint: "Read directly from Panta market data" },
-  derived: { label: "Derived", cls: "border-blue-500/40 text-blue-200", hint: "Computed deterministically from observed data" },
-  unknown: { label: "Unknown", cls: "border-amber-400/40 text-amber-200", hint: "Missing or not available in the data" },
-};
-
-function LayerTag({ layer }: { layer: Layer }) {
-  return (
-    <span
-      title={LAYER[layer].hint}
-      className={`inline-flex w-fit rounded border px-1 py-px text-[9px] font-semibold uppercase tracking-wider ${LAYER[layer].cls}`}
-    >
-      {LAYER[layer].label}
-    </span>
-  );
-}
+type Layer = EvidenceLayer;
+const LayerTag = EvidenceTag;
 
 function pct(p: number | null | undefined): string {
   if (p == null || !Number.isFinite(p)) return "—";
@@ -78,7 +64,6 @@ export function AiBrief({
   const brief = q.data ?? null;
   const rateLimited = q.error instanceof BriefRateLimitError ? q.error : null;
   const error = q.error && !rateLimited ? describeErr(q.error) : null;
-  const s = brief?.signals ?? null;
   const now = useNow(rateLimited ? 1000 : 60_000);
   const waitSec = rateLimited ? Math.max(0, Math.ceil((rateLimited.retryAt - now) / 1000)) : 0;
 
@@ -88,8 +73,91 @@ export function AiBrief({
   };
 
   return (
-    <section
+    <AiBriefView
       id="brief"
+      brief={brief}
+      mode={mode}
+      busy={busy}
+      onModeChange={(m) => {
+        if (m === mode) regenerate();
+        else {
+          setMode(m);
+          setEnabled(true);
+        }
+      }}
+      headerAction={
+        <button type="button" onClick={regenerate} disabled={busy || waitSec > 0} className="btn btn-secondary btn-sm">
+          {busy ? "Reading…" : brief ? "Regenerate" : "Generate"}
+        </button>
+      }
+      notices={
+        <>
+          {error && (
+            <div className="mb-3 rounded-md border border-rose-500/25 bg-rose-500/10 px-2.5 py-2 text-xs text-rose-200">
+              {error}
+            </div>
+          )}
+          {rateLimited && (
+            <div
+              role="status"
+              className="mb-3 flex items-center justify-between gap-3 rounded-md border border-cyan-400/20 bg-cyan-400/[0.06] px-2.5 py-2"
+            >
+              <p className="text-[12px] text-zinc-300">
+                {waitSec > 0 ? (
+                  <>
+                    Brief limit reached ({BRIEF_RATE_LIMIT}/min). Ready again in{" "}
+                    <span className="font-num font-semibold text-cyan-300">{waitSec}s</span>
+                  </>
+                ) : (
+                  "Brief limit reset — ready to generate again."
+                )}
+              </p>
+              {waitSec === 0 && (
+                <button
+                  type="button"
+                  onClick={regenerate}
+                  className="shrink-0 rounded-md bg-cyan-400/15 px-2 py-1 text-[11px] font-semibold text-cyan-300 hover:bg-cyan-400/25"
+                >
+                  Retry
+                </button>
+              )}
+            </div>
+          )}
+        </>
+      }
+      showIdle={!error}
+    />
+  );
+}
+
+/**
+ * Presentational brief card. The market page feeds it live `/api/brief`
+ * payloads; the landing hero feeds it an illustrative payload computed by
+ * the same signals engine from sample data.
+ */
+export function AiBriefView({
+  id,
+  brief,
+  mode,
+  busy = false,
+  onModeChange,
+  headerAction,
+  notices,
+  showIdle = true,
+}: {
+  id?: string;
+  brief: BriefPayload | null;
+  mode: BriefMode;
+  busy?: boolean;
+  onModeChange?: (m: BriefMode) => void;
+  headerAction?: ReactNode;
+  notices?: ReactNode;
+  showIdle?: boolean;
+}) {
+  const s = brief?.signals ?? null;
+  return (
+    <section
+      id={id}
       className="card relative scroll-mt-20 overflow-hidden border-violet-500/25"
       aria-label="AI market brief"
       aria-busy={busy}
@@ -106,86 +174,40 @@ export function AiBrief({
             </StatusBadge>
           )}
         </div>
-        <div className="flex items-center gap-2">
-          <button type="button" onClick={regenerate} disabled={busy || waitSec > 0} className="btn btn-secondary btn-sm">
-            {busy ? "Reading…" : brief ? "Regenerate" : "Generate"}
-          </button>
-        </div>
+        {headerAction ? <div className="flex items-center gap-2">{headerAction}</div> : null}
       </div>
 
       {/* Mode tabs */}
       <div className="border-b border-line px-3 py-2.5">
-      <div
-        role="tablist"
-        aria-label="Brief mode"
-        className="segmented scrollbar-none flex w-full overflow-x-auto"
-      >
-        {BRIEF_MODES.map((m) => {
-          const active = mode === m.id;
-          return (
-            <button
-              key={m.id}
-              role="tab"
-              type="button"
-              aria-selected={active}
-              title={m.hint}
-              onClick={() => {
-                if (active) regenerate();
-                else {
-                  setMode(m.id);
-                  setEnabled(true);
-                }
-              }}
-              className="flex-1 whitespace-nowrap"
-            >
-              {m.label}
-            </button>
-          );
-        })}
-      </div>
+        <div role="tablist" aria-label="Brief mode" className="segmented scrollbar-none flex w-full overflow-x-auto">
+          {BRIEF_MODES.map((m) => {
+            const active = mode === m.id;
+            return (
+              <button
+                key={m.id}
+                role="tab"
+                type="button"
+                aria-selected={active}
+                title={m.hint}
+                onClick={() => onModeChange?.(m.id)}
+                className="flex-1 whitespace-nowrap"
+              >
+                {m.label}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       <div className="p-4">
-        {error && (
-          <div className="mb-3 rounded-md border border-rose-500/25 bg-rose-500/10 px-2.5 py-2 text-xs text-rose-200">
-            {error}
-          </div>
-        )}
-        {rateLimited && (
-          <div
-            role="status"
-            className="mb-3 flex items-center justify-between gap-3 rounded-md border border-cyan-400/20 bg-cyan-400/[0.06] px-2.5 py-2"
-          >
-            <p className="text-[12px] text-zinc-300">
-              {waitSec > 0 ? (
-                <>
-                  Brief limit reached ({BRIEF_RATE_LIMIT}/min). Ready again in{" "}
-                  <span className="font-num font-semibold text-cyan-300">{waitSec}s</span>
-                </>
-              ) : (
-                "Brief limit reset — ready to generate again."
-              )}
-            </p>
-            {waitSec === 0 && (
-              <button
-                type="button"
-                onClick={regenerate}
-                className="shrink-0 rounded-md bg-cyan-400/15 px-2 py-1 text-[11px] font-semibold text-cyan-300 hover:bg-cyan-400/25"
-              >
-                Retry
-              </button>
-            )}
-          </div>
-        )}
-
+        {notices}
         {!s && busy && <LoadingState />}
-        {!s && !busy && !error && (
+        {!s && !busy && showIdle && (
           <p className="type-body text-zinc-500">
             Deterministic signals from the live price and tape, then an interpretation. Pick a mode
             and generate.
           </p>
         )}
-
         {s && brief && (
           <div className={`transition-opacity ${busy ? "opacity-50" : "animate-fade-in"}`}>
             <p className="mb-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-ink-3">
@@ -193,14 +215,7 @@ export function AiBrief({
                 Data as of <span className="font-num text-ink-2">{formatFriendlyIst(s.computedAt)}</span>
               </span>
               {brief.cached ? <span>· cached</span> : null}
-              <span className="flex flex-wrap gap-1" aria-label="Evidence labels">
-                <LayerTag layer="observed" />
-                <LayerTag layer="derived" />
-                <span className="inline-flex rounded border border-violet-500/40 px-1 py-px text-[9px] font-semibold uppercase tracking-wider text-violet-200">
-                  Interpretation
-                </span>
-                <LayerTag layer="unknown" />
-              </span>
+              <EvidenceLegend />
             </p>
             {s.dataQuality.grade === "low" && (
               <div className="mb-3 rounded-md border border-amber-400/25 bg-amber-400/[0.06] px-2.5 py-2">
@@ -270,6 +285,7 @@ export function AiBrief({
             {/* Interpretation */}
             <div className="mt-4">
               <div className="mb-2 flex flex-wrap items-center gap-2">
+                <EvidenceTag layer="interpretation" />
                 <h3 className="text-[13px] font-semibold text-ink">
                   {brief.source === "openai" ? "AI interpretation" : "Interpretation"}
                 </h3>
@@ -455,3 +471,6 @@ function LoadingState() {
     </div>
   );
 }
+
+/** Evidence row, shared with the landing AI section so both read identically. */
+export { Row as BriefRow };

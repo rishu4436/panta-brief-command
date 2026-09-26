@@ -17,7 +17,7 @@ import { notifyStorage, pushRecent } from "@/lib/storage";
 import { AiBrief } from "./AiBrief";
 import { Panel } from "./Panel";
 import { PhaseBadge } from "./PhaseBadge";
-import { DualSideHero } from "./ProbBar";
+import { ProbabilityPanel } from "./desk/ProbabilityPanel";
 import { PrimaryBuyPanel } from "./PrimaryBuyPanel";
 import { TapeSparkline } from "./TapeSparkline";
 import { TradeTape } from "./TradeTape";
@@ -185,29 +185,14 @@ export function MarketDetail({ marketId }: { marketId: string }) {
           </div>
         </header>
 
-        <Panel title="Probability" subtitle="Live spot · blank means not priced yet">
-          <DualSideHero yes={yes} no={no} />
-          <dl className="mt-4 grid grid-cols-2 gap-3 border-t border-line pt-4 text-[12px] sm:grid-cols-4">
-            <div>
-              <dt className="text-ink-3">Volume</dt>
-              <dd className="font-num mt-0.5 text-[14px] font-medium text-ink">{vol}</dd>
-            </div>
-            <div>
-              <dt className="text-ink-3">Ends</dt>
-              <dd className="font-num mt-0.5 text-[14px] font-medium text-ink">{market.endTime ? `${formatEnd(market.endTime)} IST` : "—"}</dd>
-            </div>
-            <div>
-              <dt className="text-ink-3">Resolves</dt>
-              <dd className="font-num mt-0.5 text-[14px] font-medium text-ink">
-                {market.resolutionTime ? `${formatEnd(market.resolutionTime)} IST` : "—"}
-              </dd>
-            </div>
-            <div>
-              <dt className="text-ink-3">Prints in window</dt>
-              <dd className="font-num mt-0.5 text-[14px] font-medium text-ink">{tapeBusy ? "…" : tape.length}</dd>
-            </div>
-          </dl>
-        </Panel>
+        <ProbabilityPanel
+          yes={yes}
+          no={no}
+          volume={vol}
+          ends={market.endTime ? `${formatEnd(market.endTime)} IST` : "—"}
+          resolves={market.resolutionTime ? `${formatEnd(market.resolutionTime)} IST` : "—"}
+          prints={tapeBusy ? "…" : tape.length}
+        />
 
         <TapeSparkline items={tape} busy={tapeBusy} size="lg" />
       </div>

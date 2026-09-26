@@ -7,7 +7,7 @@ import { mergeMarket } from "@/lib/panta/markets";
 import type { Market } from "@/lib/panta/domain";
 import { catalogVolume, hasSpotPrice, impliedSide, isUntitledMarket, marketActivityRank, marketLabel } from "@/lib/format";
 import { SkeletonLoader } from "./ui/States";
-import { StatusBadge, phaseTone } from "./ui/StatusBadge";
+import { MarketListRow } from "./desk/MarketListRow";
 import { IconSearch } from "./ui/Icons";
 
 function pct(p: string | null) {
@@ -80,32 +80,18 @@ export function MarketSidebar({ activeId }: { activeId: string }) {
         ) : (
           <ul className="space-y-1">
             {rows.map((m) => {
-              const active = m.marketId === activeId;
               const { yes, no } = impliedSide(m);
-              const ph = phaseTone(m.phase);
               return (
                 <li key={m.marketId} ref={track(m.marketId)}>
-                  <Link
+                  <MarketListRow
                     href={`/markets/${m.marketId}`}
-                    aria-current={active ? "page" : undefined}
-                    className={`block rounded-lg border px-2.5 py-2 transition-colors ${
-                      active ? "border-cyan-400/45 bg-cyan-400/[0.07]" : "border-transparent hover:border-line hover:bg-elevated/60"
-                    }`}
-                  >
-                    <span className={`line-clamp-2 text-[12px] font-medium leading-snug ${isUntitledMarket(m) ? "italic text-ink-3" : "text-ink"}`}>
-                      {marketLabel(m)}
-                    </span>
-                    <span className="mt-1 flex items-center justify-between gap-2">
-                      <span className="font-num text-[11px]">
-                        <span className="text-emerald-300">{pct(yes)}</span>
-                        <span className="text-ink-3"> / </span>
-                        <span className="text-rose-300">{pct(no)}</span>
-                      </span>
-                      <StatusBadge tone={ph.tone} size="xs">
-                        {ph.label}
-                      </StatusBadge>
-                    </span>
-                  </Link>
+                    active={m.marketId === activeId}
+                    title={marketLabel(m)}
+                    untitled={isUntitledMarket(m)}
+                    yesLabel={pct(yes)}
+                    noLabel={pct(no)}
+                    phase={m.phase}
+                  />
                 </li>
               );
             })}

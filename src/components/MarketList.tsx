@@ -16,10 +16,11 @@ import {
 } from "@/lib/format";
 import { notifyStorage, pushRecent } from "@/lib/storage";
 import { mergeMarket } from "@/lib/panta/markets";
+import { LIFECYCLE_LABEL, lifecycleRank, type CatalogCounts, type CatalogSources } from "@/lib/panta/catalog";
 import type { Market } from "@/lib/types";
 import { useRecents, useWatchlist } from "@/hooks/useLocalIds";
 import { Panel } from "./Panel";
-import { PhaseBadge } from "./PhaseBadge";
+import { LifecycleBadge } from "./PhaseBadge";
 import { ProbBar } from "./ProbBar";
 import { WatchStar } from "./WatchStar";
 import { HotTapeRail } from "./HotTapeRail";
@@ -88,21 +89,6 @@ function hasAnySpot(m: Market): boolean {
     if (Number.isFinite(n)) return true;
   }
   return false;
-}
-
-function phaseMatches(m: Market, phase: string): boolean {
-  if (!phase) return true;
-  const want = phase.toLowerCase();
-  const p = (m.phase || "").toLowerCase();
-  const s = (m.status || "").toLowerCase();
-  if (want === "primary") {
-    // API status=primary often mixes cancelled/resolved — keep chip honest
-    return p === "primary" || s === "primary" || s === "open";
-  }
-  if (want === "secondary") {
-    return p === "secondary" || s === "secondary" || s === "secondary_active";
-  }
-  return p === want || s === want;
 }
 
 function SkeletonRows() {
@@ -226,6 +212,42 @@ function MarketThumb({ src, variant, untitled }: { src?: string; variant: "row" 
   );
 }
 
+/**
+ * Exact live counts from /api/catalog, plus where the rows came from. When
+ * Panta only has a handful of live markets this says so plainly — it is the
+ * real number, not a loading limit.
+ */
+function CatalogSummary({ counts, sources }: { counts: CatalogCounts | null; sources: CatalogSources | null }) {
+  if (!counts) return null;
+  const n = (v: number) => <span className="font-num font-semibold text-ink-2">{v}</span>;
+  return (
+    <div className="rounded-lg border border-line bg-surface px-3.5 py-2.5 text-[12px] text-ink-3" role="status" aria-label="Catalog counts">
+      <p>
+        {n(counts.live)} open ({n(counts.open)} primary · buyable here, {n(counts.trading)} secondary) · {n(counts.ended)} closed, awaiting result ·{" "}
+        {n(counts.resolved)} resolved · {n(counts.cancelled)} cancelled · {n(counts.total)} markets in total
+      </p>
+      {counts.live > 0 && counts.live < 20 ? (
+        <p className="mt-1">
+          Panta has {counts.live} open market{counts.live === 1 ? "" : "s"} right now, and every one is listed here. This is the full live set, not a
+          loading limit.
+        </p>
+      ) : null}
+      {sources ? (
+        <p className="mt-1 text-[11px] text-ink-3/80">
+          Sources: Panta list API {sources.listUnique} markets (capped at 50 per query)
+          {sources.chainAccounts != null
+            ? ` · ${sources.chainOnly} more found only in the markets' on-chain accounts (${sources.chainAccounts} on-chain)`
+            : " · on-chain discovery unavailable right now"}
+          {sources.detailHydrated ? ` · ${sources.detailHydrated} live markets refreshed from Panta market detail` : ""}
+          {sources.chainAccounts != null && sources.listOnly
+            ? ` · ${sources.listOnly} list rows hidden: no market account on Solana mainnet`
+            : ""}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 export function MarketList() {
   const router = useRouter();
   const pathname = usePathname();
@@ -233,7 +255,8 @@ export function MarketList() {
   const initialQ = searchParams.get("q") || "";
 
   const [category, setCategory] = useState("");
-  const [phase, setPhase] = useState(""); // All — API status=primary often ships thin/untitled
+  // Lifecycle filter ("" = all; live first by default sort).
+  const [phase, setPhase] = useState("");
   const [sort, setSort] = useState<SortMode>("default");
   const [view, setView] = useState<ViewMode>("rows");
   const [q, setQ] = useState(initialQ);
@@ -245,7 +268,14 @@ export function MarketList() {
   // Shared catalog cache: same filter → same entry as the landing strip,
   // command palette and execute picker; nothing here refetches on its own.
   const catalog = useCatalog({ category, status: phase });
-  const categories = useCategories().data ?? [];
+  const apiCategories = useCategories().data;
+  const all = useCatalog({});
+  // Chips: Panta's category list plus any category the catalog rows carry.
+  const categories = useMemo(() => {
+    const set = new Set((apiCategories ?? []).map((c) => c.toLowerCase()));
+    for (const m of all.items) if (m.category) set.add(m.category.toLowerCase());
+    return [...set].sort();
+  }, [apiCategories, all.items]);
   const busy = catalog.isFetching;
   const error = catalog.error ? describeErr(catalog.error) : null;
   const updatedAt = catalog.dataUpdatedAt || null;
@@ -293,7 +323,6 @@ export function MarketList() {
     const qq = q.trim().toLowerCase();
     let list = items.filter((m) => {
       if (watchOnly && !watchIds.includes(m.marketId)) return false;
-      if (!phaseMatches(m, phase)) return false;
       if (!qq) return true;
       const label = marketLabel(m).toLowerCase();
       return (
@@ -305,14 +334,7 @@ export function MarketList() {
       );
     });
 
-    const phaseRank = (p?: string) => {
-      const x = (p || "").toLowerCase();
-      if (x === "primary") return 0;
-      if (x === "secondary") return 1;
-      if (x === "resolved") return 2;
-      if (x === "cancelled") return 3;
-      return 4;
-    };
+    const lcRank = (m: Market) => lifecycleRank(m);
 
     if (sort === "volume") {
       list = [...list].sort((a, b) => volumeNum(b) - volumeNum(a));
@@ -323,25 +345,25 @@ export function MarketList() {
         return ae - be;
       });
     } else if (sort === "phase") {
-      list = [...list].sort(
-        (a, b) => phaseRank(a.phase) - phaseRank(b.phase),
-      );
+      list = [...list].sort((a, b) => lcRank(a) - lcRank(b));
     } else {
-      // Default: labeled + priced + active first so cold catalog doesn't look dead
+      // Default: live markets first (primary open, secondary), then closed,
+      // resolved, cancelled; within a group labeled + priced, then volume.
       list = [...list].sort((a, b) => {
+        const lr = lcRank(a) - lcRank(b);
+        if (lr !== 0) return lr;
         const al = hasHumanLabel(a) ? 0 : 1;
         const bl = hasHumanLabel(b) ? 0 : 1;
         if (al !== bl) return al - bl;
         const ap = hasAnySpot(a) ? 0 : 1;
         const bp = hasAnySpot(b) ? 0 : 1;
         if (ap !== bp) return ap - bp;
-        const pr = phaseRank(a.phase) - phaseRank(b.phase);
-        if (pr !== 0) return pr;
+        if (lcRank(a) >= 4) return (b.endTime ?? 0) - (a.endTime ?? 0);
         return volumeNum(b) - volumeNum(a);
       });
     }
     return list;
-  }, [items, q, sort, watchOnly, watchIds, phase]);
+  }, [items, q, sort, watchOnly, watchIds]);
 
   const showSetup = Boolean(error && items.length === 0);
   const showSkeleton = busy && items.length === 0 && !error;
@@ -418,7 +440,7 @@ export function MarketList() {
           <h1 className="mt-2 text-[28px] font-semibold tracking-[-0.02em] text-ink">Markets</h1>
           <p className="mt-1 text-[13px] text-ink-3">
             Live Panta catalog
-            <span> · open phase is not the same as liquidity · ↑↓ to move, Enter to open, / to search</span>
+            <span> · ↑↓ to move, Enter to open, / to search</span>
             {updatedAt ? (
               <span className="ml-1.5 font-num text-zinc-600">
                 · Updated {formatUpdated(updatedAt)} IST
@@ -440,6 +462,8 @@ export function MarketList() {
           </button>
         </div>
       </div>
+
+      <CatalogSummary counts={all.counts} sources={all.sources} />
 
       {recentIds.length > 0 && (
         <div className="flex flex-wrap items-center gap-2">
@@ -484,7 +508,7 @@ export function MarketList() {
               <option value="default">Sort: Default</option>
               <option value="volume">Sort: Volume</option>
               <option value="ending">Sort: Ending soon</option>
-              <option value="phase">Sort: Phase</option>
+              <option value="phase">Sort: Status</option>
             </select>
             <select
               value={phase}
@@ -492,9 +516,11 @@ export function MarketList() {
               aria-label="Filter by phase"
               className="field !w-auto"
             >
-              <option value="">All phases</option>
-              <option value="primary">Primary (open)</option>
-              <option value="secondary">Secondary</option>
+              <option value="">All markets</option>
+              <option value="live">Live (primary + secondary)</option>
+              <option value="open">{LIFECYCLE_LABEL.open} (buyable here)</option>
+              <option value="trading">{LIFECYCLE_LABEL.trading}</option>
+              <option value="ended">{LIFECYCLE_LABEL.ended}</option>
               <option value="resolved">Resolved</option>
               <option value="cancelled">Cancelled</option>
             </select>
@@ -591,7 +617,7 @@ export function MarketList() {
                           <div className="market-sub font-num">{marketSubtitle(m)}</div>
                         ) : null}
                         <div className="flex flex-wrap items-center gap-1.5">
-                          <PhaseBadge phase={m.phase} />
+                          <LifecycleBadge market={m} />
                           {shouldShowCategoryChip(m.category, m.title, m.description) ? (
                             <span className="rounded border border-line px-1 py-px text-[10px] text-zinc-500">
                               {m.category}
@@ -674,7 +700,7 @@ export function MarketList() {
                         </div>
                       </div>
                       <div>
-                        <PhaseBadge phase={m.phase} />
+                        <LifecycleBadge market={m} />
                       </div>
                       <div className="hidden font-num text-[12px] tabular-nums text-zinc-400 lg:block">
                         {formatVolumeUsdc(catalogVolume(m))}
@@ -708,7 +734,7 @@ export function MarketList() {
 
             {missingWatch.length > 0 && (
               <div className="border-t border-line px-3.5 py-3">
-                <div className="type-section mb-2">Watched · not on this page</div>
+                <div className="type-section mb-2">Watched · not in the current catalog</div>
                 <div className="flex flex-wrap gap-2">
                   {missingWatch.map((id) => (
                     <div key={id} className="flex items-center gap-1">
@@ -726,18 +752,6 @@ export function MarketList() {
               </div>
             )}
 
-            {catalog.hasNextPage && !watchOnly && (
-              <div className="flex justify-center border-t border-line py-3">
-                <button
-                  type="button"
-                  disabled={catalog.isFetchingNextPage}
-                  onClick={() => void catalog.fetchNextPage()}
-                  className="rounded-md border border-line bg-inset px-4 py-2 text-sm text-zinc-300 transition hover:border-line-strong hover:text-zinc-100 active:scale-[0.98] disabled:opacity-40"
-                >
-                  Load more
-                </button>
-              </div>
-            )}
           </>
         )}
       </Panel>

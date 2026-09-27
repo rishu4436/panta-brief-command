@@ -18,6 +18,7 @@ import {
   parseOrNull,
   toStrOrNull,
 } from "./client";
+import type { CatalogPayload } from "./catalog";
 import type { Market, MarketPage, Trade } from "./domain";
 import { normalizePantaTrade, type RawTradeRow } from "./normalize";
 
@@ -56,6 +57,7 @@ export const RawMarketSchema = z.looseObject({
   creationFee: numish,
   creatorAddress: optStr,
   oracle: optStr,
+  primaryPhaseEndTime: optNum,
 });
 export type RawMarket = z.infer<typeof RawMarketSchema>;
 
@@ -130,6 +132,7 @@ export function toMarket(r: RawMarket): Market {
     creationFee: r.creationFee ?? null,
     creatorAddress: r.creatorAddress ?? null,
     oracle: r.oracle ?? null,
+    primaryPhaseEndTime: r.primaryPhaseEndTime && r.primaryPhaseEndTime > 0 ? r.primaryPhaseEndTime : null,
   };
 }
 
@@ -224,9 +227,14 @@ export function mergeMarket(list: Market, detail: Market | null | undefined): Ma
     primaryYesPrice: pick(detail.primaryYesPrice, list.primaryYesPrice) ?? null,
     primaryNoPrice: pick(detail.primaryNoPrice, list.primaryNoPrice) ?? null,
     // A partial detail carries a stale phase; only trust a full record's.
-    phase: partial ? list.phase || detail.phase : detail.phase || list.phase,
-    status: partial ? list.status || detail.status : detail.status || list.status,
-    resolved: partial ? (list.resolved ?? detail.resolved) : (detail.resolved ?? list.resolved),
+    // A row read from the market's on-chain account already has the
+    // authoritative lifecycle, so it keeps it.
+    phase: partial || list.sources?.chain ? list.phase || detail.phase : detail.phase || list.phase,
+    status: partial || list.sources?.chain ? list.status || detail.status : detail.status || list.status,
+    resolved:
+      partial || list.sources?.chain ? (list.resolved ?? detail.resolved) : (detail.resolved ?? list.resolved),
+    primaryPhaseEndTime: pick(detail.primaryPhaseEndTime, list.primaryPhaseEndTime) ?? null,
+    category: detail.category || list.category,
   };
 }
 
@@ -290,4 +298,25 @@ export async function fetchMarketTrades(marketId: string): Promise<Trade[]> {
 export async function fetchCategories(): Promise<string[]> {
   const { data } = await pantaFetch("/categories/");
   return parseCategories(data);
+}
+
+/**
+ * Full catalog from our own server route (REST list union + on-chain Event
+ * accounts + detail for live markets). Rows are re-parsed so a bad row can't
+ * reach components.
+ */
+export async function fetchCatalog(): Promise<CatalogPayload> {
+  const res = await fetch("/api/catalog", { headers: { Accept: "application/json" } });
+  const json = (await res.json().catch(() => null)) as (CatalogPayload & { detail?: string; code?: string }) | null;
+  if (!res.ok || !json || !Array.isArray(json.items)) {
+    throw new Error(json?.detail || json?.code || `Catalog HTTP ${res.status}`);
+  }
+  const items: Market[] = [];
+  for (const row of json.items) {
+    const m = parseMarket(row);
+    if (!m) continue;
+    const src = (row as { sources?: Market["sources"] }).sources;
+    items.push(src ? { ...m, sources: src } : m);
+  }
+  return { ...json, items };
 }

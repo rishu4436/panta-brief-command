@@ -26,7 +26,7 @@ export const BASE58_PUBKEY = "[1-9A-HJ-NP-Za-km-z]{32,44}";
 export const BASE58_PUBKEY_RE = new RegExp(`^${BASE58_PUBKEY}$`);
 
 export const PROXY_ROUTES: readonly ProxyRoute[] = [
-  // MarketList, LiveStrip, CommandPalette, PrimaryBuyPanel picker
+  // fetchMarketPage (views now read the merged catalog from /api/catalog)
   {
     id: "markets.list",
     pattern: /^markets$/,

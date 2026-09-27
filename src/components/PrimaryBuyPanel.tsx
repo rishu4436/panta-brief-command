@@ -145,11 +145,12 @@ export function PrimaryBuyPanel({
   const marketIdValid = BASE58_PUBKEY_RE.test(marketId.trim());
   const quoteInputsValid = amountCheck.ok && attrCheck.ok && marketIdValid;
 
-  // Picker catalog: shared primary-phase catalog cache (same query as the
-  // landing strip); untitled rows get their detail through the shared ≤4
-  // limiter instead of a private fan-out.
-  const primaryCatalog = useCatalog({ status: "primary" });
-  const pickerRows = useMemo(() => primaryCatalog.items.slice(0, 24), [primaryCatalog.items]);
+  // Picker: every market whose primary buy window is open (the only markets
+  // this ticket can buy), from the shared full catalog. Untitled rows get
+  // their detail through the shared ≤4 limiter.
+  const primaryCatalog = useCatalog({ status: "open" });
+  const secondaryLive = primaryCatalog.counts?.trading ?? 0;
+  const pickerRows = primaryCatalog.items;
   const pickerIds = useMemo(
     () => new Set(pickerRows.filter((m) => !m.title).slice(0, 8).map((m) => m.marketId)),
     [pickerRows],
@@ -852,10 +853,12 @@ export function PrimaryBuyPanel({
                     >
                       <option value="">
                         {filteredCatalog.length
-                          ? "Select an open market…"
+                          ? `Select a primary market (${catalog.length} buyable)…`
                           : pickerQuery
                             ? "No matches — open Advanced to paste an ID"
-                            : "Loading catalog…"}
+                            : primaryCatalog.isPending
+                              ? "Loading catalog…"
+                              : "No primary market is buyable right now"}
                       </option>
                       {filteredCatalog.map((m) => (
                         <option key={m.marketId} value={m.marketId}>
@@ -864,6 +867,14 @@ export function PrimaryBuyPanel({
                       ))}
                     </select>
                   </div>
+                  {primaryCatalog.counts ? (
+                    <p className="mt-1 text-[11px] text-ink-3">
+                      {catalog.length} market{catalog.length === 1 ? " is" : "s are"} in the primary phase and buyable here.
+                      {secondaryLive > 0
+                        ? ` ${secondaryLive} more open market${secondaryLive === 1 ? " is" : "s are"} in secondary trading, which happens on panta.market, not in this ticket.`
+                        : ""}
+                    </p>
+                  ) : null}
                   {selectedMarket && <div className="mt-2">{marketBlock}</div>}
                 </>
               )}

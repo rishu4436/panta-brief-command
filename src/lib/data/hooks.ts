@@ -9,7 +9,6 @@
  */
 
 import {
-  useInfiniteQuery,
   useQueries,
   useQuery,
   useQueryClient,
@@ -18,11 +17,12 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Connection, PublicKey } from "@solana/web3.js";
 import { fetchAccountTrades } from "@/lib/panta/attribution";
-import type { Market, MarketPage } from "@/lib/panta/domain";
+import { filterCatalog, type CatalogFilter, type CatalogPayload } from "@/lib/panta/catalog";
+import type { Market } from "@/lib/panta/domain";
 import {
+  fetchCatalog,
   fetchCategories,
   fetchMarket,
-  fetchMarketPage,
   fetchMarketTrades,
   preferFuller,
 } from "@/lib/panta/markets";
@@ -30,15 +30,14 @@ import { fetchPositions } from "@/lib/panta/positions";
 import type { BriefMode, BriefPayload } from "@/lib/types";
 import { createLimiter } from "./limit";
 
-export const CATALOG_PAGE_SIZE = 50;
 /** Max concurrent detail fetches for list/book hydration. */
 export const HYDRATION_CONCURRENCY = 4;
 const hydrate = createLimiter(HYDRATION_CONCURRENCY);
 
-export type CatalogFilter = { category?: string; status?: string };
+export type { CatalogFilter };
 
 export const qk = {
-  catalog: (f: CatalogFilter) => ["markets", { category: f.category || "", status: f.status || "" }] as const,
+  catalog: () => ["catalog"] as const,
   market: (id: string) => ["market", id] as const,
   trades: (id: string) => ["trades", id] as const,
   categories: () => ["categories"] as const,
@@ -52,34 +51,24 @@ export const qk = {
 // Catalog
 // ---------------------------------------------------------------------------
 
-/** Paged catalog. Same filter → same cache entry for every view. */
+/**
+ * The full catalog (one cached server payload for every view); `filter` is
+ * applied client-side. There is no paging: /api/catalog already merges every
+ * reachable market (see src/lib/panta/catalog-server.ts).
+ */
 export function useCatalog(filter: CatalogFilter = {}, opts: { enabled?: boolean } = {}) {
-  const q = useInfiniteQuery({
-    queryKey: qk.catalog(filter),
-    queryFn: ({ pageParam }) =>
-      fetchMarketPage({
-        category: filter.category,
-        status: filter.status,
-        limit: CATALOG_PAGE_SIZE,
-        cursor: pageParam,
-      }),
-    initialPageParam: null as string | null,
-    getNextPageParam: (last: MarketPage) => last.nextCursor ?? undefined,
+  const q = useQuery({
+    queryKey: qk.catalog(),
+    queryFn: fetchCatalog,
     enabled: opts.enabled ?? true,
+    staleTime: 60_000,
   });
-  const items = useMemo(() => {
-    const seen = new Set<string>();
-    const out: Market[] = [];
-    for (const page of q.data?.pages ?? []) {
-      for (const m of page.items) {
-        if (seen.has(m.marketId)) continue;
-        seen.add(m.marketId);
-        out.push(m);
-      }
-    }
-    return out;
-  }, [q.data]);
-  return { ...q, items };
+  const { category, status } = filter;
+  const items = useMemo(
+    () => filterCatalog(q.data?.items ?? [], { category, status }),
+    [q.data, category, status],
+  );
+  return { ...q, items, counts: q.data?.counts ?? null, sources: q.data?.sources ?? null };
 }
 
 export function useCategories() {
@@ -88,13 +77,7 @@ export function useCategories() {
 
 /** Any cached catalog row for `id` (instant placeholder for detail views). */
 function catalogRow(qc: QueryClient, id: string): Market | undefined {
-  for (const [, data] of qc.getQueriesData<{ pages: MarketPage[] }>({ queryKey: ["markets"] })) {
-    for (const page of data?.pages ?? []) {
-      const hit = page.items.find((m) => m.marketId === id);
-      if (hit) return hit;
-    }
-  }
-  return undefined;
+  return qc.getQueryData<CatalogPayload>(qk.catalog())?.items.find((m) => m.marketId === id);
 }
 
 // ---------------------------------------------------------------------------

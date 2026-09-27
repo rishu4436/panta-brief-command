@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
+import { lifecycleRank } from "@/lib/panta/catalog";
 import { useNow } from "@/hooks/useNow";
 import Link from "next/link";
 import { useTradesFor } from "@/lib/data/hooks";
@@ -74,7 +75,8 @@ export function HotTapeRail({
 
     const ranked = [...markets]
       .filter((m) => !seen.has(m.marketId))
-      .sort((a, b) => activityScore(b) - activityScore(a));
+      // Live markets first (their tape is the one moving), then activity.
+      .sort((a, b) => lifecycleRank(a) - lifecycleRank(b) || activityScore(b) - activityScore(a));
 
     for (const m of ranked) {
       ordered.push(m);

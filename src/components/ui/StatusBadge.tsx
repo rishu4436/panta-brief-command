@@ -86,8 +86,10 @@ export function StatusBadge({
 /** Market phase → badge. Unknown API phases render as-is (neutral). */
 export function phaseTone(phase?: string | null): { tone: StatusTone; label: string } {
   const p = (phase || "").toLowerCase();
-  if (p === "primary") return { tone: "live", label: "Open" };
-  if (p === "secondary") return { tone: "info", label: "Secondary" };
+  // Accepts a Panta phase or a catalog Lifecycle (src/lib/panta/catalog.ts).
+  if (p === "primary" || p === "open") return { tone: "live", label: "Open" };
+  if (p === "secondary" || p === "trading") return { tone: "info", label: "Secondary" };
+  if (p === "ended") return { tone: "pending", label: "Closed" };
   if (p === "resolved") return { tone: "neutral", label: "Resolved" };
   if (p === "cancelled" || p === "canceled") return { tone: "error", label: "Cancelled" };
   return { tone: "neutral", label: phase ? phase : "Unknown" };

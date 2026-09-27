@@ -6,7 +6,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { needsDetail, useBrief, useCatalog, useHydratedDetails } from "@/lib/data/hooks";
 import { mergeMarket } from "@/lib/panta/markets";
 import type { Market } from "@/lib/panta/domain";
-import { catalogVolume, hasSpotPrice, impliedSide, isUntitledMarket, marketActivityRank, marketLabel, shouldShowCategoryChip } from "@/lib/format";
+import { catalogVolume, hasSpotPrice, impliedSide, isUntitledMarket, marketLabel, shouldShowCategoryChip } from "@/lib/format";
+import { isLiveMarket, marketLifecycle } from "@/lib/panta/catalog";
 import { SectionHeader } from "../ui/SectionHeader";
 import { StatusBadge, phaseTone } from "../ui/StatusBadge";
 import { EmptyState, ErrorState, Skeleton, SkeletonLoader } from "../ui/States";
@@ -14,10 +15,11 @@ import { IconArrowRight, IconSparkles } from "../ui/Icons";
 import { EvidenceTag } from "../brief/EvidenceTag";
 
 type Filter = "volume" | "ending" | "resolved";
-const isOpen = (m: Market) => marketActivityRank(m) <= 1;
-const isResolved = (m: Market) => marketActivityRank(m) === 3;
-const CANDIDATES = 8;
-const SHOWN = 6;
+const isOpen = (m: Market) => isLiveMarket(m);
+const isResolved = (m: Market) => marketLifecycle(m) === "resolved";
+/** Every open market is a candidate (the catalog is complete); the list shows up to SHOWN. */
+const SHOWN = 12;
+const RESOLVED_SHOWN = 6;
 
 function pct(p: string | null) {
   if (!hasSpotPrice(p)) return null;
@@ -84,10 +86,10 @@ function MarketRow({ m, selected, onSelect }: { m: Market; selected: boolean; on
   const { yes, no } = impliedSide(m);
   const y = pct(yes);
   const n = pct(no) ?? (y != null ? 100 - y : null);
-  const phase = phaseTone(m.phase || m.status);
+  const phase = phaseTone(marketLifecycle(m));
   const vol = fmtVol(m);
   const end = fmtDate(m.endTime);
-  const settled = marketActivityRank(m) === 3;
+  const settled = marketLifecycle(m) === "resolved";
   const badge = (
     <StatusBadge tone={phase.tone} size="xs">
       {phase.label}
@@ -247,11 +249,8 @@ export function MarketShowcase() {
         ? catalog.items
             .filter(isResolved)
             .sort((a, b) => (b.endTime ?? 0) - (a.endTime ?? 0))
-            .slice(0, CANDIDATES)
-        : catalog.items
-            .filter(isOpen)
-            .sort((a, b) => (catalogVolume(b) ?? 0) - (catalogVolume(a) ?? 0))
-            .slice(0, CANDIDATES),
+            .slice(0, RESOLVED_SHOWN * 2)
+        : catalog.items.filter(isOpen),
     [catalog.items, filter],
   );
   const visible = useMemo(() => new Set(seen ? candidates.map((m) => m.marketId) : []), [candidates, seen]);
@@ -271,8 +270,10 @@ export function MarketShowcase() {
               .filter((m) => Boolean(m.endTime))
               .sort((a, b) => (a.endTime ?? Infinity) - (b.endTime ?? Infinity))
           : merged;
-    return sorted.slice(0, SHOWN);
+    return sorted.slice(0, filter === "resolved" ? RESOLVED_SHOWN : SHOWN);
   }, [candidates, details, filter]);
+  const counts = catalog.counts;
+  const openTotal = counts?.live ?? 0;
 
   const selectedId = picked && markets.some((m) => m.marketId === picked) ? picked : (markets[0]?.marketId ?? null);
   const selected = markets.find((m) => m.marketId === selectedId) ?? null;
@@ -287,7 +288,7 @@ export function MarketShowcase() {
           eyebrow="Live markets"
           id="markets-title"
           title="Markets worth watching."
-          description="The only live section on this page: open Panta markets, priced now. Select a row for its brief."
+          description="The only live section on this page: every open Panta market, priced now. Select a row for its brief."
           action={
             <Link href="/desk" className="btn btn-secondary">
               Explore All Markets <IconArrowRight className="h-4 w-4" />
@@ -311,7 +312,11 @@ export function MarketShowcase() {
           </div>
           <p className="flex items-center gap-2 text-[12px] text-ink-3">
             <span className="live-dot h-1.5 w-1.5 rounded-full bg-cyan-400" aria-hidden="true" />
-            Live from the Panta API · {filter === "resolved" ? "settled markets" : "open markets"}
+            {filter === "resolved"
+              ? "Live from Panta · recently settled markets"
+              : counts
+                ? `Live from Panta · ${counts.live} open (${counts.open} primary, ${counts.trading} secondary)`
+                : "Live from Panta · open markets"}
           </p>
         </div>
 
@@ -357,10 +362,13 @@ export function MarketShowcase() {
                 Checking more markets…
               </p>
             ) : null}
-            {filter !== "resolved" && markets.length > 0 && markets.length < 4 && !hydratingMore ? (
+            {filter !== "resolved" && markets.length > 0 && !hydratingMore && counts ? (
               <p className="mt-3 text-[12px] text-ink-3">
-                Only {markets.length} open market{markets.length === 1 ? "" : "s"} in the latest catalog page {markets.length === 1 ? "has" : "have"} a title and a live price right now.
-                The desk lists every market, including resolved ones.
+                {markets.length >= openTotal
+                  ? `That is every open market on Panta right now (${openTotal}). Primary markets can be bought on the desk; secondary markets trade on panta.market.`
+                  : `Showing ${markets.length} of ${openTotal} open markets${
+                      markets.length < Math.min(openTotal, SHOWN) ? " (the rest have no live price or title yet)" : ""
+                    }. The desk lists all of them, plus closed and resolved markets.`}
               </p>
             ) : null}
           </div>

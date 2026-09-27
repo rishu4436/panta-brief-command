@@ -87,6 +87,13 @@ export type Market = {
    * question or prices) even after retries. See markets.ts.
    */
   partial?: boolean;
+  /** End of the primary (buy) window, unix seconds — detail / on-chain `primaryPhaseEndTime`. */
+  primaryPhaseEndTime?: number | null;
+  /**
+   * Where this catalog row came from (server catalog only): the Panta REST
+   * list, the market's on-chain Event account, and/or the Panta detail record.
+   */
+  sources?: { list: boolean; chain: boolean; detail: boolean };
 };
 
 export type MarketPage = { items: Market[]; nextCursor: string | null };

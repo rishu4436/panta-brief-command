@@ -5,7 +5,8 @@ import { useMemo, useState } from "react";
 import { useCatalog, useHydratedDetails, useViewportIds } from "@/lib/data/hooks";
 import { mergeMarket } from "@/lib/panta/markets";
 import type { Market } from "@/lib/panta/domain";
-import { catalogVolume, hasSpotPrice, impliedSide, isUntitledMarket, marketActivityRank, marketLabel } from "@/lib/format";
+import { catalogVolume, hasSpotPrice, impliedSide, isUntitledMarket, marketLabel } from "@/lib/format";
+import { isLiveMarket, lifecycleRank, marketLifecycle } from "@/lib/panta/catalog";
 import { SkeletonLoader } from "./ui/States";
 import { MarketListRow } from "./desk/MarketListRow";
 import { IconSearch } from "./ui/Icons";
@@ -29,10 +30,12 @@ export function MarketSidebar({ activeId }: { activeId: string }) {
     const qq = q.trim().toLowerCase();
     const merged: Market[] = catalog.items.map((m) => mergeMarket(m, details.get(m.marketId)));
     return merged
-      .filter((m) => (openOnly ? marketActivityRank(m) <= 1 : true))
+      .filter((m) => (openOnly ? isLiveMarket(m) : true))
       .filter((m) => !qq || marketLabel(m).toLowerCase().includes(qq) || (m.category || "").toLowerCase().includes(qq))
       .sort((a, b) => {
-        // Titled first, then priced, then by volume — the same honesty as the desk default.
+        // Live first, then titled, then priced, then by volume — like the desk default.
+        const lr = lifecycleRank(a) - lifecycleRank(b);
+        if (lr) return lr;
         const t = Number(isUntitledMarket(a)) - Number(isUntitledMarket(b));
         if (t) return t;
         const p = Number(!hasSpotPrice(impliedSide(a).yes)) - Number(!hasSpotPrice(impliedSide(b).yes));
@@ -90,7 +93,7 @@ export function MarketSidebar({ activeId }: { activeId: string }) {
                     untitled={isUntitledMarket(m)}
                     yesLabel={pct(yes)}
                     noLabel={pct(no)}
-                    phase={m.phase}
+                    phase={marketLifecycle(m)}
                   />
                 </li>
               );

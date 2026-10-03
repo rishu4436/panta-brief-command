@@ -5,6 +5,7 @@ import { printConcentrationLine, sizeConcentrationLine } from "@/lib/concentrati
 import { BriefRow } from "../AiBrief";
 import { EVIDENCE, EvidenceTag, type EvidenceLayer } from "../brief/EvidenceTag";
 import { IconSparkles } from "../ui/Icons";
+import { briefSection } from "@/lib/brief-sections";
 import { SAMPLE_BRIEF, SAMPLE_NARRATIVE, SAMPLE_RESOLVES_LABEL, SAMPLE_SIGNALS as S } from "./sample";
 
 const pct = (v: number | null | undefined, d = 0) => (v == null ? "—" : `${(v * 100).toFixed(d)}%`);
@@ -54,8 +55,8 @@ const TABS: { id: string; label: string; rows: Line[] }[] = [
   },
 ];
 
-/** The template's Observation paragraph (exact output, pinned by a test). */
-const INTERPRETATION = (SAMPLE_NARRATIVE.match(/### Observation\n([\s\S]*?)\n\n###/)?.[1] ?? "").trim();
+/** The template's Observation paragraph (exact output, pinned by a test): restated data, so tagged Observed. */
+const OBSERVATION = briefSection(SAMPLE_NARRATIVE, "Observation");
 
 export function AIBriefShowcase() {
   const [tab, setTab] = useState(TABS[0].id);
@@ -129,16 +130,21 @@ export function AIBriefShowcase() {
             </div>
 
             <p className="mb-1.5 mt-4 flex flex-wrap items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-ink-3">
-              2 · Interpretation
+              2 · Written brief
               <span className="rounded border border-violet-500/40 px-1.5 py-0.5 text-[10px] font-normal normal-case tracking-normal text-violet-200">
                 Template · AI unavailable
               </span>
             </p>
             <div className="rounded-xl border border-violet-500/20 bg-inset p-3">
-              <div className="mb-1.5">
-                <EvidenceTag layer="interpretation" />
+              <div className="mb-1.5 flex items-center gap-2">
+                <EvidenceTag layer="observed" />
+                <span className="text-[11px] text-ink-3">Observation</span>
               </div>
-              <p className="type-body">{INTERPRETATION}</p>
+              <p className="type-body">{OBSERVATION}</p>
+              <p className="type-meta mt-2 flex items-center gap-2">
+                <EvidenceTag layer="interpretation" />
+                With AI on, an Interpretation section follows; the template writes none.
+              </p>
             </div>
             <figcaption className="mt-3 text-[12px] text-ink-3">
               Sample market and tape, run through the real signals engine and brief template. Not a forecast or advice.

@@ -157,7 +157,11 @@ function BriefPreview({ market, enabled, loading }: { market: Market | null; ena
   const q = useBrief(id, "desk", 0, enabled && Boolean(id));
   const b = q.data && q.data.market.marketId === id ? q.data : null;
   const s = b?.signals;
+  // Show the LLM's Interpretation (tagged as such) when there is one; otherwise
+  // the Observation, tagged Observed: restated data is never labelled interpretation.
+  const interp = b && b.source === "openai" ? section(b.narrative, "Interpretation") : "";
   const obs = b ? section(b.narrative, "Observation") : "";
+  const blurb = interp ? { text: interp, layer: "interpretation" as const } : obs ? { text: obs, layer: "observed" as const } : null;
   const yes = s?.probability.yes;
   const flow = s?.flow.yesFlowShare;
 
@@ -217,10 +221,10 @@ function BriefPreview({ market, enabled, loading }: { market: Market | null; ena
             <EvidenceTag layer="derived" className="mt-0.5 shrink-0" />
             <span className="line-clamp-3">{s?.headline}</span>
           </p>
-          {obs ? (
+          {blurb ? (
             <p className="mt-2 flex items-start gap-2 text-[12.5px] leading-relaxed text-ink-3">
-              <EvidenceTag layer="interpretation" className="mt-0.5 shrink-0" />
-              <span className="line-clamp-4">{obs}</span>
+              <EvidenceTag layer={blurb.layer} className="mt-0.5 shrink-0" />
+              <span className="line-clamp-4">{blurb.text}</span>
             </p>
           ) : null}
           <div className="mt-auto flex flex-wrap items-center justify-between gap-x-2 pt-2 text-[11px] text-ink-3">

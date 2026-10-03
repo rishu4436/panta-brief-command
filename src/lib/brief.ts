@@ -5,21 +5,19 @@ import "server-only";
  *
  * Both paths (OpenAI and the deterministic template) read the same
  * MarketSignals object from src/lib/panta/signals.ts. Neither recomputes
- * numbers, and neither gives buy/sell recommendations. Every brief has four
- * sections: Observation · Evidence · Risk · Execution considerations.
+ * numbers, and neither gives buy/sell recommendations. Every brief has five
+ * sections (src/lib/brief-sections.ts): Observation (restated data) ·
+ * Evidence (computed signals) · Interpretation (LLM only; the template says
+ * it writes none) · Risk · Execution considerations.
  */
 
 import { catalogText, type MarketSignals } from "./panta/signals";
 import { BRIEF_MODES } from "./brief-modes";
 import { printConcentrationLine, sizeConcentrationLine } from "./concentration";
 import type { BriefMode, Market } from "./types";
+import { BRIEF_SECTION_HEADERS, TEMPLATE_INTERPRETATION } from "./brief-sections";
 
-const SECTION_HEADERS = [
-  "### Observation",
-  "### Evidence",
-  "### Risk",
-  "### Execution considerations",
-] as const;
+const SECTION_HEADERS = BRIEF_SECTION_HEADERS;
 
 /**
  * Deterministic guard: phrases that read as trading advice. An LLM answer that
@@ -210,9 +208,12 @@ export function buildTemplateBrief(
     bullets(evidence),
     "",
     SECTION_HEADERS[2],
-    risk.join("\n"),
+    TEMPLATE_INTERPRETATION,
     "",
     SECTION_HEADERS[3],
+    risk.join("\n"),
+    "",
+    SECTION_HEADERS[4],
     bullets(s.execution.lines),
     "",
     `_Deterministic template · ${modeLabel} · signals v${s.version} · no recommendation_`,
@@ -239,8 +240,9 @@ const SYSTEM_PROMPT = [
   "3. Never give buy, sell, hold, or sizing recommendations. Do not say what the reader should do, which side to prefer, or that a trade 'requires conviction'. Describe; do not advise.",
   "4. If a field is null, say it is unavailable and why (a reason field is usually provided).",
   "4b. probability.raw contains Panta's raw price fields for evidence only. When probability.source is \"unavailable\" (e.g. reason \"inconsistent_prices\"), say the implied probability is unavailable; never present raw prices as probabilities or odds.",
-  "5. Output markdown with exactly these four sections, in order: `### Observation`, `### Evidence`, `### Risk`, `### Execution considerations`. Evidence and Risk are bullet lists. Execution considerations restates the factual execution lines (phase, quote required, TTLs) without advice.",
-  "6. Under 220 words.",
+  "5. Output markdown with exactly these five sections, in order: `### Observation`, `### Evidence`, `### Interpretation`, `### Risk`, `### Execution considerations`.",
+  "5a. Keep the three kinds of statement apart. Observation: what the market data shows right now, restated (no reading into it). Evidence: bullet list of the signal values the brief rests on, quoted exactly. Interpretation: what that evidence MAY indicate, hedged (\"may\", \"could\", \"is consistent with\"), introducing no new numbers or facts and no advice; if the data is too thin, say so. Risk: bullet list. Execution considerations: restate the factual execution lines (phase, quote required, quote expiry) without advice.",
+  "6. Under 260 words.",
 ].join("\n");
 
 export async function maybeOpenAIBrief(

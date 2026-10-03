@@ -3,7 +3,14 @@
 import type { ReactNode } from "react";
 
 /** Minimal markdown for desk briefs: headings, bold, italics, lists, paragraphs. */
-export function BriefMarkdown({ source }: { source: string }) {
+export function BriefMarkdown({
+  source,
+  headingAside,
+}: {
+  source: string;
+  /** Optional element shown before a `### ` heading (e.g. its evidence tag). */
+  headingAside?: (heading: string) => ReactNode;
+}) {
   const blocks = source.replace(/\r\n/g, "\n").split(/\n{2,}/);
 
   return (
@@ -15,8 +22,9 @@ export function BriefMarkdown({ source }: { source: string }) {
         if (first.startsWith("### ")) {
           return (
             <div key={i}>
-              <h4 className="type-section">
-                {inline(first.slice(4))}
+              <h4 className="type-section flex flex-wrap items-center gap-2">
+                {headingAside ? headingAside(first.slice(4)) : null}
+                <span>{inline(first.slice(4))}</span>
               </h4>
               <BodyLines lines={lines.slice(1)} />
             </div>

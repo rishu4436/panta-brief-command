@@ -11,6 +11,7 @@ import { describeErr } from "@/lib/errors";
 import { formatFriendlyIst } from "@/lib/format";
 import { BriefMarkdown } from "./BriefMarkdown";
 import { EvidenceLegend, EvidenceTag, type EvidenceLayer } from "./brief/EvidenceTag";
+import { briefSectionLayer } from "@/lib/brief-sections";
 import { StatusBadge } from "./ui/StatusBadge";
 import { BriefFeedback } from "./brief/BriefFeedback";
 import { track } from "@/lib/telemetry";
@@ -306,9 +307,8 @@ export function AiBriefView({
             {/* Interpretation */}
             <div className="mt-4">
               <div className="mb-2 flex flex-wrap items-center gap-2">
-                <EvidenceTag layer="interpretation" />
                 <h3 className="text-[13px] font-semibold text-ink">
-                  {brief.source === "openai" ? "AI interpretation" : "Interpretation"}
+                  {brief.source === "openai" ? "AI brief" : "Template brief"}
                 </h3>
                 <span className="rounded border border-violet-500/40 px-1.5 py-0.5 text-[10px] text-violet-200">
                   {brief.source === "openai" ? "LLM · potential interpretation" : "Template · AI unavailable"}
@@ -319,11 +319,19 @@ export function AiBriefView({
                 </span>
               </div>
               <div className="rounded-xl border border-violet-500/20 bg-inset p-3">
-                <BriefMarkdown source={brief.narrative} />
+                {/* Each section says what it is: Observation (observed), Evidence (derived), Interpretation. */}
+                <BriefMarkdown
+                  source={brief.narrative}
+                  headingAside={(h) => {
+                    const layer = briefSectionLayer(h);
+                    return layer ? <EvidenceTag layer={layer} /> : null;
+                  }}
+                />
               </div>
               <p className="type-meta mt-2">
-                Blocks above are computed deterministically from the live price and tape. The
-                interpretation is descriptive — not a recommendation to buy or sell.
+                Blocks above are computed deterministically from the live price and tape. In the brief,
+                Observation restates that data, Evidence lists the computed signals, and only the
+                Interpretation section is a reading of them — descriptive, not a recommendation to buy or sell.
               </p>
               {feedback ? <BriefFeedback brief={brief} /> : null}
             </div>

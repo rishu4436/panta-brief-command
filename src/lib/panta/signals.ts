@@ -515,7 +515,7 @@ export function computeMarketSignals(
   if (primaryOpen) {
     lines.push("Primary YES and NO available · quote required before sizing");
     lines.push("Fill price comes from the bonding-curve quote (avgPrice), not the spot label");
-    lines.push("Quotes last ~90s; builds ~120s (Panta session TTLs)");
+    lines.push("Each quote carries Panta's own expiry (expiresAt); the ticket counts down to it and won't build or sign after it");
   } else if (resolved) {
     lines.push("Resolved · no new buys");
     lines.push("Holders of the winning side can build a win claim in Book");

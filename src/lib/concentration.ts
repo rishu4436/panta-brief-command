@@ -6,7 +6,7 @@
 
 import type { MarketSignals } from "./panta/signals";
 
-const pct = (n: number) => `${(n * 100).toFixed(0)}%`;
+const pct = (n: number) => `${(n * 100).toFixed(1)}%`;
 
 /** Print concentration counts trades per wallet, not size. */
 export function printConcentrationLine(s: MarketSignals): string {

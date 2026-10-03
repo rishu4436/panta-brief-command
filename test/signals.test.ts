@@ -97,7 +97,7 @@ describe("wallet concentration", () => {
     const ids = s.riskFlags.map((f) => f.id);
     expect(ids).toContain("concentrated_prints");
     expect(ids).toContain("concentrated_size");
-    expect(s.riskFlags.find((f) => f.id === "concentrated_prints")!.label).toMatch(/top wallet made 80% of prints/);
+    expect(s.riskFlags.find((f) => f.id === "concentrated_prints")!.label).toMatch(/top wallet made 80.0% of prints/);
   });
 
   it("falls back to USDC only when every wallet print has USDC", () => {

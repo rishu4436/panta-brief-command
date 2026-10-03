@@ -442,13 +442,13 @@ export function computeMarketSignals(
   }
   const printTop = tapeBlock.printConcentration.topWalletShareOfPrints;
   if (count >= T.thinTapePrints && printTop != null && printTop >= T.concentratedPrintShare) {
-    add("concentrated_prints", `Print concentration — top wallet made ${pct(printTop)} of prints`);
+    add("concentrated_prints", `Print concentration — top wallet made ${pct(printTop, 1)} of prints`);
   }
   const sizeTop = tapeBlock.sizeConcentration;
   if (count >= T.thinTapePrints && sizeTop.topWalletShareOfSize != null && sizeTop.topWalletShareOfSize >= T.concentratedSizeShare) {
     add(
       "concentrated_size",
-      `Size concentration — top wallet holds ${pct(sizeTop.topWalletShareOfSize)} of traded ${sizeTop.basis === "usdc" ? "USDC" : "shares"}`,
+      `Size concentration — top wallet holds ${pct(sizeTop.topWalletShareOfSize, 1)} of traded ${sizeTop.basis === "usdc" ? "USDC" : "shares"}`,
     );
   }
   if (divergence.gapPts != null && Math.abs(divergence.gapPts) >= T.divergentGapPts) {

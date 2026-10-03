@@ -6,7 +6,7 @@ import { sanitizeMarket, sanitizeTape } from "@/lib/panta/sanitize";
 import { getMarketServer, getMarketTradesServer, UpstreamError } from "@/lib/panta/server";
 import { computeMarketSignals } from "@/lib/panta/signals";
 import { clientIp } from "@/lib/rate-limit";
-import { limitShared, SharedCache, type LimitResult } from "@/lib/shared-store";
+import { limitShared, SharedCache, storeHeaderValue, type LimitResult } from "@/lib/shared-store";
 import type { BriefMode, BriefPayload } from "@/lib/types";
 
 /**
@@ -36,6 +36,8 @@ function limitHeaders(rl: LimitResult): Record<string, string> {
     "X-RateLimit-Remaining": String(rl.remaining),
     "X-RateLimit-Reset": new Date(rl.resetAt).toISOString(),
     "X-RateLimit-Store": rl.store,
+    // Explicit: memory = per instance, not shared (no Redis configured, or it failed).
+    "X-Store-Status": storeHeaderValue(rl.store),
   };
 }
 
@@ -47,9 +49,11 @@ function fail(status: number, code: string, detail?: string, headers?: Record<st
 }
 
 async function buildBrief(marketId: string, mode: BriefMode): Promise<BriefPayload> {
+  // A failed tape fetch must surface as an error, not as an empty tape: an
+  // empty array would be reported as "No recent prints" (and cached for 60s).
   const [detail, trades] = await Promise.all([
     getMarketServer(marketId),
-    getMarketTradesServer(marketId, SIGNAL_TAPE_ROWS).catch(() => []),
+    getMarketTradesServer(marketId, SIGNAL_TAPE_ROWS),
   ]);
   if (!detail) throw new UpstreamError(404, "MARKET_NOT_FOUND");
   const market = sanitizeMarket(detail);
@@ -126,7 +130,7 @@ export async function POST(req: NextRequest) {
     );
   } catch (err) {
     if (err instanceof UpstreamError) {
-      return fail(err.status, err.code, undefined, rlh);
+      return fail(err.status, err.code, err.detail, rlh);
     }
     return fail(500, "BRIEF_FAILED", undefined, rlh);
   }

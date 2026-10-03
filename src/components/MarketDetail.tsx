@@ -1,5 +1,7 @@
 "use client";
 
+import { rawPriceNote } from "@/lib/panta/prices";
+import { printsLabel, tapeState } from "@/lib/tape-status";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useMarket, useMarketTrades } from "@/lib/data/hooks";
@@ -82,6 +84,9 @@ export function MarketDetail({ marketId }: { marketId: string }) {
   const updatedAt = detail.isPlaceholderData ? null : detail.dataUpdatedAt || null;
   const tape = trades.data ?? [];
   const tapeBusy = trades.isPending;
+  // Failed / empty / loaded are kept apart (a failure is never "0 prints").
+  const tapeSt = tapeState(trades);
+  const tapeError = tapeSt.kind === "failed" ? tapeSt.message : tapeSt.kind === "ok" ? tapeSt.refreshFailed : null;
   const load = () => void detail.refetch();
 
   // Record the visit (localStorage only; no React state involved).
@@ -121,7 +126,7 @@ export function MarketDetail({ marketId }: { marketId: string }) {
 
   if (!market) return null;
 
-  const { yes, no } = impliedSide(market);
+  const { yes, no, unavailable, probability } = impliedSide(market);
   const heading = marketLabel(market);
   const desc = (market.description || market.resolutionRule || "").trim();
   const descIsDupe =
@@ -188,13 +193,15 @@ export function MarketDetail({ marketId }: { marketId: string }) {
         <ProbabilityPanel
           yes={yes}
           no={no}
+          unavailable={unavailable}
+          note={rawPriceNote(probability)}
           volume={vol}
           ends={market.endTime ? `${formatEnd(market.endTime)} IST` : "—"}
           resolves={market.resolutionTime ? `${formatEnd(market.resolutionTime)} IST` : "—"}
-          prints={tapeBusy ? "…" : tape.length}
+          prints={printsLabel(tapeSt)}
         />
 
-        <TapeSparkline items={tape} busy={tapeBusy} size="lg" />
+        <TapeSparkline items={tape} busy={tapeBusy} size="lg" error={tapeError} />
       </div>
 
       {/* Right: AI brief */}
@@ -209,7 +216,7 @@ export function MarketDetail({ marketId }: { marketId: string }) {
 
       {/* Centre: activity + context */}
       <div className="min-w-0 space-y-4 self-start lg:col-start-1 lg:row-start-3 xl:col-start-2">
-        <TradeTape items={tape} busy={tapeBusy} />
+        <TradeTape items={tape} busy={tapeBusy} error={tapeError} />
 
         <Panel title="Context">
           {showDesc ? (

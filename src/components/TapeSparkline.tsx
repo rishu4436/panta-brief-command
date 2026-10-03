@@ -78,7 +78,18 @@ const RANGES = [
  * Range = how many of the most recent sided prints to include (the tape has
  * no per-trade price, so there is no price or time-range chart to offer).
  */
-export function TapeSparkline({ items, busy, size = "md" }: { items: Trade[]; busy?: boolean; size?: "md" | "lg" }) {
+export function TapeSparkline({
+  items,
+  busy,
+  size = "md",
+  error = null,
+}: {
+  items: Trade[];
+  busy?: boolean;
+  size?: "md" | "lg";
+  /** Tape request failed: shown as an error, never as "no flow". */
+  error?: string | null;
+}) {
   const [range, setRange] = useState<(typeof RANGES)[number]["id"]>("all");
   const sided = useMemo(
     () =>
@@ -115,7 +126,15 @@ export function TapeSparkline({ items, busy, size = "md" }: { items: Trade[]; bu
         ) : null
       }
     >
-      {busy && items.length === 0 ? (
+      {error && items.length === 0 ? (
+        <div
+          className={`flex flex-col items-center justify-center rounded-xl border border-dashed border-amber-400/30 bg-amber-400/[0.04] px-3 text-center ${hCls}`}
+          data-tape-state="failed"
+        >
+          <div className="text-[13px] font-medium text-amber-200">Tape request failed</div>
+          <p className="type-meta mt-1 break-all">{error}. Flow is unknown, not zero.</p>
+        </div>
+      ) : busy && items.length === 0 ? (
         <div className={`skeleton w-full ${hCls}`} />
       ) : !enough || !path ? (
         <div className={`flex flex-col items-center justify-center rounded-xl border border-dashed border-line bg-inset/60 px-3 text-center ${hCls}`}>

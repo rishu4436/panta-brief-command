@@ -12,9 +12,12 @@ function rowSide(t: Trade): string {
 export function TradeTape({
   items,
   busy,
+  error = null,
 }: {
   items: Trade[];
   busy?: boolean;
+  /** Tape request failed (or its last refresh did). */
+  error?: string | null;
 }) {
   const now = useNow(30_000);
   return (
@@ -28,7 +31,18 @@ export function TradeTape({
           </div>
         )}
 
-        {!busy || items.length > 0 ? (
+        {error ? (
+          <div
+            role="alert"
+            data-tape-state="failed"
+            className={`border-b border-amber-400/25 bg-amber-400/[0.06] px-3.5 py-2 text-[12px] text-amber-200 ${items.length === 0 ? "py-8 text-center" : ""}`}
+          >
+            <div className="font-medium">{items.length === 0 ? "Tape request failed" : "Tape refresh failed — showing the last loaded prints"}</div>
+            <p className="type-meta mt-0.5 break-all">{error}</p>
+          </div>
+        ) : null}
+
+        {(!busy || items.length > 0) && !(error && items.length === 0) ? (
           <div className="type-col sticky top-0 z-10 grid grid-cols-[52px_1fr_88px_72px] gap-2 border-b border-line bg-surface/95 px-3.5 py-1.5 backdrop-blur-sm sm:grid-cols-[52px_1fr_100px_88px_72px]">
             <span>Side</span>
             <span>Size</span>
@@ -84,7 +98,7 @@ export function TradeTape({
             );
           })}
         </div>
-        {!busy && items.length === 0 && (
+        {!busy && !error && items.length === 0 && (
           <div className="px-4 py-10 text-center">
             <div className="type-body text-zinc-500">No prints yet</div>
             <p className="type-meta mt-1">

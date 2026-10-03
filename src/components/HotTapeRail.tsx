@@ -5,6 +5,7 @@ import { lifecycleRank } from "@/lib/panta/catalog";
 import { useNow } from "@/hooks/useNow";
 import Link from "next/link";
 import { useTradesFor } from "@/lib/data/hooks";
+import { hotTapeSummary } from "@/lib/tape-status";
 import {
   catalogVolume,
   formatRelativeTime,
@@ -90,7 +91,9 @@ export function HotTapeRail({
   const queries = useTradesFor(targets.map((m) => m.marketId));
   const busy = catalogState === "loading" || queries.some((q) => q.isPending && q.fetchStatus !== "idle");
   const settled = queries.filter((q) => q.isSuccess || q.isError).length;
-  const allFailed = queries.length > 0 && queries.every((q) => q.isError);
+  // A failed tape request is an error, never a quiet book.
+  const failed = queries.filter((q) => q.isError && !q.data).length;
+  const succeeded = queries.filter((q) => q.data !== undefined).length;
   const hits = useMemo(() => {
     const out: TapeHit[] = [];
     targets.forEach((m, i) => {
@@ -101,16 +104,14 @@ export function HotTapeRail({
     return out.sort((a, b) => (b.trade.blockTime ?? 0) - (a.trade.blockTime ?? 0)).slice(0, MAX_ROWS);
   }, [targets, queries]);
   const scanned = settled;
-  const skipped =
-    catalogState === "error" && targets.length === 0
-      ? "Waiting for the market catalog to load."
-      : targets.length === 0
-      ? "No visible markets to scan yet."
-      : allFailed
-        ? "Hot tape skipped — trade fan-out unavailable."
-        : !busy && hits.length === 0
-          ? `Quiet on ${targets.length} scanned book${targets.length === 1 ? "" : "s"} — no recent prints yet.`
-          : null;
+  const summary = hotTapeSummary({
+    catalogError: catalogState === "error",
+    targets: targets.length,
+    failed,
+    succeeded,
+    busy,
+    hits: hits.length,
+  });
 
   const now = useNow(30_000);
 
@@ -121,6 +122,7 @@ export function HotTapeRail({
         <span className="font-num text-[9px] text-zinc-600">
           ≤{MAX_PARALLEL} mkts
           {scanned > 0 ? ` · ${scanned} scanned` : ""}
+          {failed > 0 ? ` · ${failed} failed` : ""}
         </span>
       }
       flush
@@ -133,11 +135,11 @@ export function HotTapeRail({
             ))}
           </div>
         )}
-        {!busy && skipped && hits.length === 0 && (
-          <div className="px-3.5 py-8 text-center">
-            <div className="type-body text-zinc-400">{catalogState === "error" && targets.length === 0 ? "Tape unavailable" : "Tape quiet"}</div>
+        {!busy && summary && hits.length === 0 && (
+          <div className="px-3.5 py-8 text-center" data-tape-state={summary.title === "Tape quiet" ? "empty" : "failed"}>
+            <div className={`type-body ${summary.title === "Tape quiet" ? "text-zinc-400" : "text-amber-200"}`}>{summary.title}</div>
             <p className="type-meta mt-1 leading-relaxed">
-              {skipped}
+              {summary.message}
             </p>
             <p className="mt-2 text-[10px] text-zinc-700">
               No invented prints — open a market with volume to watch live flow.

@@ -7,7 +7,7 @@ import "server-only";
  */
 
 import type { Market, Trade } from "./domain";
-import { fetchMarketWithRetry, parseMarket, parseTrades } from "./markets";
+import { fetchMarketWithRetry, parseMarket, parseTradesStrict, TapeDataError } from "./markets";
 
 export const PANTA_UPSTREAM =
   process.env.PANTA_API_BASE_URL?.replace(/\/$/, "") || "https://live-api.panta.market/api/v1";
@@ -20,6 +20,8 @@ export class UpstreamError extends Error {
   constructor(
     public status: number,
     public code: string,
+    /** Which upstream call failed and how (safe to show; no secrets). */
+    public detail?: string,
   ) {
     super(code);
   }
@@ -37,7 +39,7 @@ export async function pantaServerGet(path: string, timeoutMs = 10_000): Promise<
       signal: AbortSignal.timeout(timeoutMs),
     });
   } catch {
-    throw new UpstreamError(502, "PANTA_UNREACHABLE");
+    throw new UpstreamError(502, "PANTA_UNREACHABLE", "unreachable or timed out");
   }
   if (!res.ok) {
     let code = `PANTA_HTTP_${res.status}`;
@@ -47,7 +49,7 @@ export async function pantaServerGet(path: string, timeoutMs = 10_000): Promise<
     } catch {
       /* non-JSON error */
     }
-    throw new UpstreamError(res.status === 404 ? 404 : 502, code);
+    throw new UpstreamError(res.status === 404 ? 404 : 502, code, `HTTP ${res.status}`);
   }
   return res.json();
 }
@@ -58,9 +60,32 @@ export async function getMarketServer(marketId: string): Promise<Market | null> 
   return fetchMarketWithRetry(() => pantaServerGet(path));
 }
 
+/**
+ * Market tape. Throws on any failure (HTTP error, unreachable, malformed
+ * page) — never returns [] for a failed request, so callers can't report a
+ * failure as "no recent prints" or cache it as data.
+ */
 export async function getMarketTradesServer(marketId: string, limit = 50): Promise<Trade[]> {
-  const raw = await pantaServerGet(`/markets/${encodeURIComponent(marketId)}/trades/?limit=${limit}`);
-  return parseTrades(raw);
+  let raw: unknown;
+  try {
+    raw = await pantaServerGet(`/markets/${encodeURIComponent(marketId)}/trades/?limit=${limit}`);
+  } catch (e) {
+    if (e instanceof UpstreamError) {
+      // A missing tape for a market is still an upstream failure here, not "no prints".
+      throw new UpstreamError(
+        e.status === 503 ? 503 : 502,
+        e.code,
+        `Panta trades request failed: ${e.detail ? `${e.detail} ` : ""}${e.code}`,
+      );
+    }
+    throw e;
+  }
+  try {
+    return parseTradesStrict(raw);
+  } catch (e) {
+    if (e instanceof TapeDataError) throw new UpstreamError(502, "PANTA_TRADES_MALFORMED", e.message);
+    throw e;
+  }
 }
 
 /** Soft variant for metadata: null instead of throwing. */

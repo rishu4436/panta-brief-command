@@ -156,6 +156,24 @@ export function parseMarketPage(raw: unknown): MarketPage {
   return { items, nextCursor: page.nextCursor ?? null };
 }
 
+/** A trades response that is not a readable tape page (never treated as "no prints"). */
+export class TapeDataError extends Error {
+  constructor() {
+    super("Panta returned a trades response that could not be read");
+    this.name = "TapeDataError";
+  }
+}
+
+/** Strict: throws TapeDataError on a malformed page instead of returning []. */
+export function parseTradesStrict(raw: unknown): Trade[] {
+  const items = raw && typeof raw === "object" ? (raw as { items?: unknown }).items : undefined;
+  if (!Array.isArray(items)) throw new TapeDataError();
+  const out = parseTrades(raw);
+  // Rows came back but none could be read: that is missing data, not zero prints.
+  if (items.length > 0 && out.length === 0) throw new TapeDataError();
+  return out;
+}
+
 export function parseTrades(raw: unknown): Trade[] {
   const page = parseOrNull(RawTradesSchema, raw, "market trades");
   if (!page) return [];
@@ -226,6 +244,8 @@ export function mergeMarket(list: Market, detail: Market | null | undefined): Ma
     noPrice: pick(detail.noPrice, list.noPrice) ?? null,
     primaryYesPrice: pick(detail.primaryYesPrice, list.primaryYesPrice) ?? null,
     primaryNoPrice: pick(detail.primaryNoPrice, list.primaryNoPrice) ?? null,
+    secondaryYesPrice: pick(detail.secondaryYesPrice, list.secondaryYesPrice) ?? null,
+    secondaryNoPrice: pick(detail.secondaryNoPrice, list.secondaryNoPrice) ?? null,
     // A partial detail carries a stale phase; only trust a full record's.
     // A row read from the market's on-chain account already has the
     // authoritative lifecycle, so it keeps it.
@@ -292,7 +312,8 @@ export async function fetchMarket(marketId: string): Promise<Market | null> {
 
 export async function fetchMarketTrades(marketId: string): Promise<Trade[]> {
   const { data } = await pantaFetch(`/markets/${encodeURIComponent(marketId)}/trades/`);
-  return parseTrades(data);
+  // Errors propagate (TanStack keeps them as errors, never as an empty tape).
+  return parseTradesStrict(data);
 }
 
 export async function fetchCategories(): Promise<string[]> {

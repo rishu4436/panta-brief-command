@@ -74,7 +74,7 @@ describe("/api/feedback", () => {
     const { feedback: POST } = await load(store);
     const res = await POST(post("/api/feedback", feedback));
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ ok: true, stored: "redis" });
+    expect(await res.json()).toEqual({ ok: true, stored: "redis", shared: true, warning: null });
     const [row] = store.lists.get("evidence:feedback") as FeedbackRow[];
     expect(row).toMatchObject({ marketId: MARKET, useful: "up", accurate: "down", briefSource: "template" });
     expect(row.comment).toBe("Flow read was helpful but price lagged");
@@ -85,7 +85,10 @@ describe("/api/feedback", () => {
   it("falls back to a JSON-lines log without a store", async () => {
     const { feedback: POST } = await load(null);
     const res = await POST(post("/api/feedback", feedback));
-    expect((await res.json()).stored).toBe("file");
+    const j = await res.json();
+    expect(j).toMatchObject({ stored: "file", shared: false });
+    expect(j.warning).toMatch(/not shared between instances/);
+    expect(res.headers.get("x-evidence-store")).toBe("mode=file; configured=false; shared=false");
     const lines = readFileSync(path.join(dir, "feedback.jsonl"), "utf8").trim().split("\n");
     expect(JSON.parse(lines[0]).mode).toBe("flow");
   });
@@ -176,5 +179,33 @@ describe("summarize", () => {
     expect(s.visitors.unique).toBe(0);
     expect(s.feedback.total).toBe(0);
     expect(s.events.firstAt).toBeNull();
+  });
+});
+
+describe("admin diagnostics", () => {
+  it("reports memory mode + ephemeral warning without a store (secret required)", async () => {
+    vi.stubEnv("ADMIN_EXPORT_SECRET", SECRET);
+    const { exportGET } = await load(null);
+    const url = "http://localhost/api/admin/export?kind=diagnostics";
+    expect((await exportGET(new NextRequest(url))).status).toBe(401);
+    const res = await exportGET(new NextRequest(url, { headers: { authorization: `Bearer ${SECRET}` } }));
+    expect(res.status).toBe(200);
+    const j = await res.json();
+    expect(j.store).toMatchObject({ mode: "memory", configured: false, ephemeral: true });
+    expect(j.store.warning).toMatch(/UPSTASH_REDIS_REST_URL/);
+    expect(j.probe).toBeNull();
+    expect(j.evidenceStore).toBe("file");
+    vi.unstubAllEnvs();
+  });
+  it("reports redis mode and a live probe with a store", async () => {
+    vi.stubEnv("ADMIN_EXPORT_SECRET", SECRET);
+    const { exportGET } = await load(new ListStore());
+    const res = await exportGET(
+      new NextRequest("http://localhost/api/admin/export?kind=diagnostics", { headers: { authorization: `Bearer ${SECRET}` } }),
+    );
+    const j = await res.json();
+    expect(j.store).toMatchObject({ mode: "redis", configured: true, ephemeral: false, warning: null });
+    expect(j.probe).toMatchObject({ ok: true });
+    vi.unstubAllEnvs();
   });
 });

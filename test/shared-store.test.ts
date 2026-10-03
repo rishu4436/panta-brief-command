@@ -2,7 +2,12 @@ import { NextRequest } from "next/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { BRIEF_RATE_LIMIT } from "@/lib/brief-modes";
 import {
+  __resetStoreHealthForTests,
   __setSharedStoreForTests,
+  guardStore,
+  STORE_TIMEOUT_MS,
+  storeHeaderValue,
+  storeStatus,
   limitShared,
   SharedCache,
   upstashFromEnv,
@@ -16,13 +21,16 @@ class FakeStore implements SharedStore {
   kv = new Map<string, string>();
   lists = new Map<string, string[]>();
   fail = false;
+  /** Simulate a hung Upstash call (never resolves). */
+  hang = false;
   calls = 0;
-  private guard() {
+  private async guard() {
     this.calls += 1;
+    if (this.hang) await new Promise(() => {});
     if (this.fail) throw new Error("upstash down");
   }
   async incrWindow(key: string, windowMs: number) {
-    this.guard();
+    await this.guard();
     const now = Date.now();
     const w = this.windows.get(key);
     if (!w || w.expiresAt <= now) {
@@ -33,21 +41,21 @@ class FakeStore implements SharedStore {
     return { count: w.count, ttlMs: w.expiresAt - now };
   }
   async getJson<T>(key: string) {
-    this.guard();
+    await this.guard();
     const v = this.kv.get(key);
     return v == null ? null : (JSON.parse(v) as T);
   }
   async setJson(key: string, value: unknown) {
-    this.guard();
+    await this.guard();
     this.kv.set(key, JSON.stringify(value));
   }
   async pushList(key: string, value: unknown, max: number) {
-    this.guard();
+    await this.guard();
     const l = [JSON.stringify(value), ...(this.lists.get(key) ?? [])].slice(0, max);
     this.lists.set(key, l);
   }
   async readList<T>(key: string, max: number) {
-    this.guard();
+    await this.guard();
     return (this.lists.get(key) ?? []).slice(0, max).map((r) => JSON.parse(r) as T);
   }
 }
@@ -153,5 +161,110 @@ describe("/api/brief with a shared store", () => {
     expect(blocked.status).toBe(429);
     expect(Number(blocked.headers.get("retry-after"))).toBeGreaterThan(0);
     expect(Number(blocked.headers.get("retry-after"))).toBeLessThanOrEqual(30);
+  });
+});
+
+describe("fail fast + explicit status", () => {
+  afterEach(() => __resetStoreHealthForTests());
+
+  it("a hung Redis call times out quickly and falls back to memory", async () => {
+    const store = new FakeStore();
+    store.hang = true;
+    __setSharedStoreForTests(store);
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const t0 = Date.now();
+    const r = await limitShared(`hang-${Math.random()}`, 2, 60_000);
+    const ms = Date.now() - t0;
+    expect(r).toMatchObject({ ok: true, store: "memory" });
+    expect(ms).toBeLessThan(STORE_TIMEOUT_MS + 400);
+    const st = storeStatus();
+    expect(st).toMatchObject({ mode: "redis", configured: true, ephemeral: false });
+    expect(st.lastError).toMatch(/rate limit: StoreTimeoutError/);
+    expect(st.warning).toMatch(/last call failed/);
+    expect(storeHeaderValue(r.store)).toBe("mode=memory; configured=true; shared=false; fallback=true");
+  });
+
+  it("cache read timeout still computes and serves the value", async () => {
+    const store = new FakeStore();
+    store.hang = true;
+    __setSharedStoreForTests(store);
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const c = new SharedCache<number>("hang", 60_000);
+    const r = await c.getOrCompute("k", async () => 3);
+    expect(r).toMatchObject({ value: 3, cached: false, store: "memory" });
+  });
+
+  it("a Redis error is recorded without credentials", async () => {
+    vi.stubEnv("UPSTASH_REDIS_REST_TOKEN", "tok-SECRET-123");
+    vi.stubEnv("UPSTASH_REDIS_REST_URL", "https://x.upstash.io");
+    await expect(
+      guardStore("probe", async () => {
+        throw new Error("401 for token tok-SECRET-123 at https://x.upstash.io");
+      }),
+    ).rejects.toThrow();
+    const st = storeStatus();
+    expect(st.lastError).toContain("[redacted]");
+    expect(st.lastError).not.toContain("tok-SECRET-123");
+    expect(st.env).toEqual({ url: "UPSTASH_REDIS_REST_URL", token: "UPSTASH_REDIS_REST_TOKEN" });
+    vi.unstubAllEnvs();
+  });
+
+  it("success records lastOkAt and clears the warning", async () => {
+    __setSharedStoreForTests(new FakeStore());
+    await limitShared(`ok-${Math.random()}`, 2, 60_000);
+    const st = storeStatus();
+    expect(st.lastOkAt).not.toBeNull();
+    expect(st.warning).toBeNull();
+    expect(storeHeaderValue("redis")).toBe("mode=redis; configured=true; shared=true");
+  });
+
+  it("memory mode (local/test, no env) is explicit about being ephemeral", () => {
+    __setSharedStoreForTests(undefined);
+    const st = storeStatus({ NODE_ENV: "production" });
+    expect(st).toMatchObject({ mode: "memory", configured: false, ephemeral: true, production: true });
+    expect(st.env).toEqual({ url: null, token: null });
+    expect(st.warning).toMatch(/not shared between instances/);
+  });
+
+  it("KV_* aliases count as configured", () => {
+    __setSharedStoreForTests(undefined);
+    expect(storeStatus({ KV_REST_API_URL: "https://x", KV_REST_API_TOKEN: "t" })).toMatchObject({
+      configured: true,
+      env: { url: "KV_REST_API_URL", token: "KV_REST_API_TOKEN" },
+    });
+  });
+
+  it("the Upstash client is built with no retries and an abort timeout", async () => {
+    vi.resetModules();
+    const ctor = vi.fn();
+    vi.doMock("@upstash/redis", () => ({
+      Redis: class {
+        constructor(cfg: unknown) {
+          ctor(cfg);
+        }
+      },
+    }));
+    const mod = await import("@/lib/shared-store");
+    mod.upstashFromEnv({ UPSTASH_REDIS_REST_URL: "https://x.upstash.io", UPSTASH_REDIS_REST_TOKEN: "t" });
+    const cfg = ctor.mock.calls[0][0] as { retry: { retries: number }; signal: () => AbortSignal };
+    expect(cfg.retry).toEqual({ retries: 0 });
+    expect(typeof cfg.signal).toBe("function");
+    expect(cfg.signal()).toBeInstanceOf(AbortSignal);
+    vi.doUnmock("@upstash/redis");
+  });
+
+  it("/api/brief labels a memory-mode response explicitly", async () => {
+    vi.resetModules();
+    (await import("@/lib/shared-store")).__setSharedStoreForTests(null);
+    const { POST } = await import("@/app/api/brief/route");
+    const res = await POST(
+      new NextRequest("http://localhost/api/brief", {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-forwarded-for": "198.51.100.77" },
+        body: JSON.stringify({ marketId: "3wdVRLDiMeuWRjGcFq2FZgAyCLhswTwNSKEHgNFRSZNB", mode: "moon" }),
+      }),
+    );
+    expect(res.headers.get("x-ratelimit-store")).toBe("memory");
+    expect(res.headers.get("x-store-status")).toBe("mode=memory; configured=false; shared=false");
   });
 });

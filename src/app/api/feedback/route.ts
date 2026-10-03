@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cleanComment, FeedbackInput, type FeedbackRow } from "@/lib/evidence/schema";
 import { readLimitedJson, reject } from "@/lib/evidence/http";
-import { appendEvidence } from "@/lib/evidence/store";
+import { appendEvidence, evidenceStoreInfo } from "@/lib/evidence/store";
+import { storeHeaderValue } from "@/lib/shared-store";
 
 /** POST /api/feedback — one rating of an AI brief ("Useful? / Accurate?" + optional comment). */
 export async function POST(req: NextRequest) {
@@ -12,7 +13,10 @@ export async function POST(req: NextRequest) {
   const row: FeedbackRow = { ...parsed.data, comment: cleanComment(parsed.data.comment), t: new Date().toISOString() };
   try {
     const stored = await appendEvidence("feedback", row);
-    return NextResponse.json({ ok: true, stored }, { headers: { "Cache-Control": "no-store" } });
+    return NextResponse.json(
+      { ok: true, ...evidenceStoreInfo(stored) },
+      { headers: { "Cache-Control": "no-store", "X-Evidence-Store": storeHeaderValue(stored) } },
+    );
   } catch {
     return reject(500, "FEEDBACK_NOT_STORED");
   }

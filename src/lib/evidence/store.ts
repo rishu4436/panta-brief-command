@@ -11,7 +11,7 @@ import "server-only";
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { sharedStore } from "@/lib/shared-store";
+import { EPHEMERAL_WARNING, guardStore, sharedStore, storeStatus } from "@/lib/shared-store";
 
 export type EvidenceKind = "feedback" | "events";
 export type EvidenceStore = "redis" | "file";
@@ -23,11 +23,23 @@ function logPath(kind: EvidenceKind) {
   return { dir, file: path.join(dir, `${kind}.jsonl`) };
 }
 
+/** What a client is told about where its row went (never pretends to be shared). */
+export function evidenceStoreInfo(stored: EvidenceStore): { stored: EvidenceStore; shared: boolean; warning: string | null } {
+  if (stored === "redis") return { stored, shared: true, warning: null };
+  return {
+    stored,
+    shared: false,
+    warning: storeStatus().configured
+      ? "Shared store call failed; this row was written to the instance's temporary disk and may be lost."
+      : EPHEMERAL_WARNING,
+  };
+}
+
 export async function appendEvidence(kind: EvidenceKind, row: unknown): Promise<EvidenceStore> {
   const store = sharedStore();
   if (store) {
     try {
-      await store.pushList(`evidence:${kind}`, row, MAX_ROWS[kind]);
+      await guardStore("evidence write", () => store.pushList(`evidence:${kind}`, row, MAX_ROWS[kind]));
       return "redis";
     } catch (e) {
       console.warn(`[evidence] shared store write failed, using file log:`, e instanceof Error ? e.message : e);
@@ -44,7 +56,7 @@ export async function readEvidence<T>(kind: EvidenceKind, max = MAX_ROWS[kind]):
   const store = sharedStore();
   if (store) {
     try {
-      return { rows: await store.readList<T>(`evidence:${kind}`, max), store: "redis" };
+      return { rows: await guardStore("evidence read", () => store.readList<T>(`evidence:${kind}`, max)), store: "redis" };
     } catch (e) {
       console.warn(`[evidence] shared store read failed, using file log:`, e instanceof Error ? e.message : e);
     }

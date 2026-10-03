@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { track } from "@/lib/telemetry";
 import Link from "next/link";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
@@ -8,6 +8,7 @@ import { useWalletModal } from "@solana/wallet-adapter-react-ui";
 import { useInvalidateAttribution, useMarketDetails, usePositions } from "@/lib/data/hooks";
 import { describeErr } from "@/lib/errors";
 import { shortAddr } from "@/lib/format";
+import { useClaimTicket, type ClaimAttr, type ClaimResult } from "@/lib/claim-ticket";
 import {
   marketProbability,
   positionMark,
@@ -41,13 +42,6 @@ type ClaimMode = ClaimKind;
  * - not-attributable → creator-fee claims (Panta docs: POST /trades/ rejects
  *                them with TX_MISMATCH), so they are never reported
  */
-type ClaimAttr =
-  | "idle"
-  | "reporting"
-  | "reported"
-  | "attributed"
-  | "report-failed"
-  | "not-attributable";
 
 const LEDGER_CHECK_DELAYS_MS = [1500, 3000, 5000] as const;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -93,22 +87,24 @@ export function BookPanel({ tab, onTabChange }: { tab: BookTab; onTabChange: (t:
   const priceByMarket: Record<string, MarketProbability> = {};
   for (const [id, m] of details) priceByMarket[id] = marketProbability(m);
 
-  const [claimBusy, setClaimBusy] = useState(false);
-  const [claimError, setClaimError] = useState<string | null>(null);
-  const [claimMsg, setClaimMsg] = useState<string | null>(null);
-  const [claimSig, setClaimSig] = useState<string | null>(null);
-  const [mode, setMode] = useState<ClaimMode>("win");
-  const [claimAttr, setClaimAttr] = useState<ClaimAttr>("idle");
-  const [claimMarketId, setClaimMarketId] = useState("");
-  const [claimPhase, setClaimPhase] = useState<"idle" | "confirming" | "pending" | "confirmed" | "failed">("idle");
+  // Claim ticket keyed to the connected wallet: switching, disconnecting or
+  // reconnecting clears it, and late results from another wallet's run are dropped.
+  const [ticket, dispatchTicket] = useClaimTicket(wallet);
+  const {
+    busy: claimBusy,
+    error: claimError,
+    msg: claimMsg,
+    sig: claimSig,
+    mode,
+    attr: claimAttr,
+    marketId: claimMarketId,
+    phase: claimPhase,
+  } = ticket;
+  const setClaimMarketId = (marketId: string) => dispatchTicket({ type: "setMarket", marketId });
+  const setMode = (m: ClaimMode) => dispatchTicket({ type: "setMode", mode: m });
 
   const fillClaim = (marketId: string) => {
-    setClaimMarketId(marketId);
-    setMode("win");
-    setClaimError(null);
-    setClaimMsg(null);
-    setClaimSig(null);
-    setClaimAttr("idle");
+    dispatchTicket({ type: "fill", marketId });
     onTabChange("claims");
     requestAnimationFrame(() => {
       ticketRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
@@ -116,12 +112,12 @@ export function BookPanel({ tab, onTabChange }: { tab: BookTab; onTabChange: (t:
   };
 
   /** Poll GET /account/trades/?kind=claim for the signature → "attributed". */
-  const checkClaimLedger = async (sig: string) => {
+  const checkClaimLedger = async (sig: string, owner: string) => {
     for (const delay of LEDGER_CHECK_DELAYS_MS) {
       await sleep(delay);
       try {
         if (await isInLedger(sig, "claim")) {
-          setClaimAttr("attributed");
+          dispatchTicket({ type: "update", owner, patch: { attr: "attributed" } });
           onAttributionUpdate();
           return;
         }
@@ -132,14 +128,13 @@ export function BookPanel({ tab, onTabChange }: { tab: BookTab; onTabChange: (t:
   };
 
   const runClaim = async () => {
-    setClaimBusy(true);
-    setClaimError(null);
-    setClaimMsg(null);
-    setClaimSig(null);
-    setClaimAttr("idle");
-    setClaimPhase("idle");
+    // Every result of this run is tagged with the wallet it started under.
+    const owner = wallet;
+    if (!owner) return;
+    const update = (patch: ClaimResult) => dispatchTicket({ type: "update", owner, patch });
+    dispatchTicket({ type: "start", owner });
     try {
-      if (!publicKey || !signTransaction) {
+      if (!publicKey || !signTransaction || publicKey.toBase58() !== owner) {
         throw new Error("Connect a signing wallet");
       }
       if (!claimMarketId.trim()) throw new Error("marketId required");
@@ -169,21 +164,17 @@ export function BookPanel({ tab, onTabChange }: { tab: BookTab; onTabChange: (t:
         skipPreflight: false,
         preflightCommitment: "confirmed",
       });
-      setClaimSig(sig);
-      setClaimPhase("confirming");
-      setClaimMsg(`Claim broadcast · ${shortAddr(sig, 6)} · confirming…`);
+      update({ sig, phase: "confirming", msg: `Claim broadcast · ${shortAddr(sig, 6)} · confirming…` });
       const outcome = await confirmSignature(connection, sig, data.recentBlockhash, lvbh);
       if (outcome.status !== "confirmed") {
-        setClaimPhase(outcome.status === "pending" ? "pending" : "failed");
-        setClaimMsg(`Claim broadcast · ${shortAddr(sig, 6)}`);
+        update({ phase: outcome.status === "pending" ? "pending" : "failed", msg: `Claim broadcast · ${shortAddr(sig, 6)}` });
         throw new Error(outcome.message);
       }
-      setClaimPhase("confirmed");
-      setClaimMsg(`Claim confirmed · ${shortAddr(sig, 6)}`);
+      update({ phase: "confirmed", msg: `Claim confirmed · ${shortAddr(sig, 6)}` });
       // Win claims are reported for attribution; creator-fee claims must not
       // be (docs: POST /trades/ returns TX_MISMATCH), so they stay unattributed.
       if (isAttributableClaim(mode)) {
-        setClaimAttr("reporting");
+        update({ attr: "reporting" });
         try {
           const { state } = await reportTrade({
             signature: sig,
@@ -191,20 +182,20 @@ export function BookPanel({ tab, onTabChange }: { tab: BookTab; onTabChange: (t:
             marketId: claimMarketId.trim(),
           });
           // `processed` = attribution stored (docs trades/report); anything else is only "reported".
-          setClaimAttr(state);
+          update({ attr: state });
           onAttributionUpdate();
-          if (state !== "attributed") void checkClaimLedger(sig);
+          if (state !== "attributed") void checkClaimLedger(sig, owner);
         } catch {
-          setClaimAttr("report-failed");
+          update({ attr: "report-failed" });
         }
       } else {
-        setClaimAttr("not-attributable");
+        update({ attr: "not-attributable" });
       }
       load();
     } catch (e) {
-      setClaimError(describeErr(e));
+      update({ error: describeErr(e) });
     } finally {
-      setClaimBusy(false);
+      update({ busy: false });
     }
   };
 

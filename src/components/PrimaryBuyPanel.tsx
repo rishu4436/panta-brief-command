@@ -9,11 +9,11 @@ import { isInLedger, reportTrade } from "@/lib/panta/attribution";
 import { ApiError } from "@/lib/panta/client";
 import { mergeMarket } from "@/lib/panta/markets";
 import { checkBuild, requestBuild, requestQuote, submitOrder, verifyOrder } from "@/lib/panta/orders";
-import { verifyVaultAuthorityOnChain } from "@/lib/panta/primary-order";
+import { verifyVaultAuthorityOnChain, type PrimaryBuyCheck } from "@/lib/panta/primary-order";
 import { checkMainnet } from "@/lib/network";
 import { describeErr } from "@/lib/errors";
 import { marketLabel, shortAddr } from "@/lib/format";
-import { assertFeePayer, programLabel, type InstructionCheck } from "@/lib/panta/instructions";
+import { assertFeePayer, programLabel } from "@/lib/panta/instructions";
 import { BASE58_PUBKEY_RE } from "@/lib/panta/routes";
 import {
   MAX_AMOUNT_USDC,
@@ -128,7 +128,7 @@ export function PrimaryBuyPanel({
   const [buildBinding, setBuildBinding] = useState<BuildBinding | null>(null);
   const [verifyStartedAt, setVerifyStartedAt] = useState<number | null>(null);
   const [build, setBuild] = useState<PrimaryBuild | null>(null);
-  const [ixCheck, setIxCheck] = useState<InstructionCheck | null>(null);
+  const [ixCheck, setIxCheck] = useState<PrimaryBuyCheck | null>(null);
   const [signature, setSignature] = useState<string | null>(null);
   const [lastValidBlockHeight, setLastValidBlockHeight] = useState<number | null>(null);
   const [txPhase, setTxPhase] = useState<TxPhase>("idle");
@@ -287,7 +287,7 @@ export function PrimaryBuyPanel({
       { quoteId: activeQuote.quoteId, wallet: publicKey!.toBase58(), maxSlippageBps: slippageCheck.value },
       ref,
     );
-    const check = checkBuild(data, activeQuote, publicKey!);
+    const check = checkBuild(data, activeQuote, publicKey!, builtFor.slippageBps);
     setBuild(data);
     setBuildBinding({ ...builtFor, buildWallet: data.wallet || null });
     setIxCheck(check);
@@ -345,7 +345,7 @@ export function PrimaryBuyPanel({
     const net = await checkMainnet(connection);
     if (!net.ok) throw new PresignStop(net.message);
     // Re-run the pre-sign check right before signing (defense in depth).
-    const check = checkBuild(built, q || quote, publicKey!);
+    const check = checkBuild(built, q || quote, publicKey!, buildBinding.slippageBps);
     setIxCheck(check);
     if (!check.ok) throw new PresignStop(check.reason);
     // Vault authority seeds are not public: prove it is a Panta-owned vault
@@ -1067,10 +1067,14 @@ export function PrimaryBuyPanel({
                   <dd className="font-num text-ink">{build.amountUsdc} USDC</dd>
                 </div>
                 <div>
-                  <dt className="text-ink-3">Quote</dt>
+                  <dt className="text-ink-3">Quoted (estimate)</dt>
                   <dd className="font-num text-ink">
-                    ~{build.expectedShares} shares @ {quote.avgPrice}
+                    ~{quote.shares} shares · avg {quote.avgPrice}
                   </dd>
+                </div>
+                <div>
+                  <dt className="text-ink-3">Estimated shares at build</dt>
+                  <dd className="font-num text-ink">~{build.expectedShares}</dd>
                 </div>
                 <div>
                   <dt className="text-ink-3">Fees</dt>
@@ -1081,8 +1085,12 @@ export function PrimaryBuyPanel({
                   <dd className="font-num text-ink">{shortAddr(publicKey?.toBase58(), 4)}</dd>
                 </div>
                 <div>
-                  <dt className="text-ink-3">Max slippage</dt>
-                  <dd className="font-num text-ink">{slippageCheck.ok ? `${(slippageCheck.value / 100).toFixed(2)}%` : "—"}</dd>
+                  <dt className="text-ink-3">Max slippage (checked at build)</dt>
+                  <dd className="font-num text-ink">
+                    {ixCheck?.ok
+                      ? `${(ixCheck.verified.economics.maxSlippageBps / 100).toFixed(2)}% · floor ${ixCheck.verified.economics.slippageFloorShares} shares`
+                      : "—"}
+                  </dd>
                 </div>
                 <div className="col-span-2">
                   <dt className="text-ink-3">Programs</dt>
@@ -1093,6 +1101,11 @@ export function PrimaryBuyPanel({
               </dl>
               <p className="mt-3 flex gap-2 text-[12px] text-emerald-300/90">
                 <span aria-hidden="true">✓</span> Checked: your wallet is the fee payer and only signer; every program is on the allowlist.
+              </p>
+              <p className="mt-2 rounded-lg border border-amber-400/25 bg-amber-400/[0.06] px-3 py-2 text-[12px] leading-relaxed text-amber-100/90">
+                <span className="font-semibold">No on-chain price limit.</span> Panta checked your max slippage when it built this
+                order. The signed instruction carries only the side and the USDC amount — no minimum-shares limit — so if the price
+                moves before it lands you receive whatever the curve gives for {build.amountUsdc} USDC. Share counts above are estimates.
               </p>
               <p className="mt-2 rounded-lg border border-amber-400/25 bg-amber-400/[0.06] px-3 py-2 text-[12px] leading-relaxed text-amber-100/90">
                 Prediction markets involve risk and you can lose the full amount. Your wallet shows the transaction next;

@@ -93,24 +93,24 @@ describe("pre-sign instruction validation", () => {
 describe("quote/build cross-check (checkBuild)", () => {
   it("a synthetic build without a decodable Panta order fails closed", () => {
     // Valid builds are covered with a real Panta build in primary-order.test.ts.
-    const r = checkBuild({ ...build(), amountUsdc: "1" }, quote, wallet);
+    const r = checkBuild({ ...build(), amountUsdc: "1" }, quote, wallet, 100);
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.reason).toMatch(/Signing blocked/);
   });
 
   it("quote id mismatch is caught", () => {
-    const r = checkBuild(build({ quoteId: "q2" }), quote, wallet);
+    const r = checkBuild(build({ quoteId: "q2" }), quote, wallet, 100);
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.reason).toMatch(/active quote/);
   });
 
   it("market or side mismatch is caught", () => {
-    expect(checkBuild(build({ marketId: Keypair.generate().publicKey.toBase58() }), quote, wallet).ok).toBe(false);
-    expect(checkBuild(build({ side: "no" }), quote, wallet).ok).toBe(false);
+    expect(checkBuild(build({ marketId: Keypair.generate().publicKey.toBase58() }), quote, wallet, 100).ok).toBe(false);
+    expect(checkBuild(build({ side: "no" }), quote, wallet, 100).ok).toBe(false);
   });
 
   it("build for another wallet is caught", () => {
-    const r = checkBuild(build({ wallet: other.toBase58() }), quote, wallet);
+    const r = checkBuild(build({ wallet: other.toBase58() }), quote, wallet, 100);
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.reason).toMatch(/wallet/);
   });

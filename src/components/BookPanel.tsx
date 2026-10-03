@@ -20,7 +20,9 @@ import { bookMark } from "@/lib/panta/position-value";
 import { assertMainnet } from "@/lib/network";
 import { buildClaim, isAttributableClaim } from "@/lib/panta/claims";
 import type { ClaimKind } from "@/lib/panta/domain";
-import { assertFeePayer, validatePantaInstructions } from "@/lib/panta/instructions";
+import { assertFeePayer } from "@/lib/panta/instructions";
+import { verifyClaimBuild, verifyCreatorFeeVaultOnChain } from "@/lib/panta/claim-build";
+import { verifyVaultAuthorityOnChain } from "@/lib/panta/primary-order";
 import {
   confirmSignature,
   instructionsToVersionedTx,
@@ -71,6 +73,11 @@ export function BookPanel({ tab, onTabChange }: { tab: BookTab; onTabChange: (t:
   const ticketRef = useRef<HTMLDivElement>(null);
 
   const wallet = connected && publicKey ? publicKey.toBase58() : null;
+  /** Latest connected wallet, read by async claim runs right before signing. */
+  const walletRef = useRef(wallet);
+  useEffect(() => {
+    walletRef.current = wallet;
+  }, [wallet]);
   useEffect(() => {
     track("book_opened");
   }, []);
@@ -142,19 +149,19 @@ export function BookPanel({ tab, onTabChange }: { tab: BookTab; onTabChange: (t:
       // The RPC must be Solana mainnet (genesis hash) before building or signing.
       await assertMainnet(connection);
       // Parsed strictly (zod) by the claims adapter before anything is signed.
-      const data = await buildClaim(mode, {
-        wallet: publicKey.toBase58(),
-        marketId: claimMarketId.trim(),
-      });
-      if (!data.instructions.length) {
-        throw new Error("Build returned no instructions");
-      }
-      if (data.wallet && data.wallet !== publicKey.toBase58()) {
-        throw new Error("Claim build wallet does not match the connected wallet. Signing blocked.");
-      }
-      // Same pre-sign allowlist as primary buys (Panta USDC program + standard programs).
-      const check = validatePantaInstructions(data.instructions, publicKey);
+      const requestedMarket = claimMarketId.trim();
+      const data = await buildClaim(mode, { wallet: owner, marketId: requestedMarket });
+      // Strict claim check (src/lib/panta/claim-build.ts): wallet, market and
+      // claim kind must match; the instruction is decoded and every account
+      // re-derived (payout to your own USDC account); nothing else may ride along.
+      const check = verifyClaimBuild(data, { kind: mode, marketId: requestedMarket }, publicKey);
       if (!check.ok) throw new Error(check.reason);
+      // Accounts whose seeds aren't public are proven on-chain (fail closed on RPC error).
+      const chainErr =
+        check.kind === "win"
+          ? await verifyVaultAuthorityOnChain(connection, check.verified.vaultAccount)
+          : await verifyCreatorFeeVaultOnChain(connection, check.verified.vaultAccount, requestedMarket, owner);
+      if (chainErr) throw new Error(chainErr);
       const lvbh = await resolveLastValidBlockHeight(connection, data.lastValidBlockHeight);
       const tx = instructionsToVersionedTx(
         data.instructions,
@@ -163,6 +170,8 @@ export function BookPanel({ tab, onTabChange }: { tab: BookTab; onTabChange: (t:
       );
       assertFeePayer(tx, publicKey);
       await assertMainnet(connection);
+      // Wallet switched while the build was being checked: never sign for it.
+      if (walletRef.current !== owner) throw new Error("Wallet changed during the claim. Signing blocked.");
       const signed = await signTransaction(tx);
       const sig = await connection.sendRawTransaction(signed.serialize(), {
         skipPreflight: false,
@@ -182,8 +191,8 @@ export function BookPanel({ tab, onTabChange }: { tab: BookTab; onTabChange: (t:
         try {
           const { state } = await reportTrade({
             signature: sig,
-            wallet: publicKey.toBase58(),
-            marketId: claimMarketId.trim(),
+            wallet: owner,
+            marketId: requestedMarket,
           });
           // `processed` = attribution stored (docs trades/report); anything else is only "reported".
           update({ attr: state });

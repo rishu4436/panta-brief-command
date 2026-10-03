@@ -30,6 +30,18 @@
  *                                            stored in market config)
  *   9 SPL Token · 10 Associated Token · 11 System
  *
+ * Slippage / price protection (docs orders/build + the 17-byte layout above):
+ * maxSlippageBps is enforced by Panta at BUILD time only ("Rejected if the
+ * curve has moved beyond maxSlippageBps (QUOTE_STALE)"). The instruction
+ * carries no minimum-shares argument and no limit account (all 12 accounts
+ * are identified above; 13 real orders decode to disc|side|amount only), so
+ * NOTHING on-chain protects against the curve moving between build and
+ * landing: the buyer gets whatever the curve gives for the deposit.
+ * build.expectedShares is Panta's estimate at build time and can legitimately
+ * differ from quote.shares. Client-side we only enforce what is bound: the
+ * build's own estimate must be within the user's max slippage of the quote,
+ * and the build fee may not exceed the quoted fee (see checkPrimaryEconomics).
+ *
  * Amount tolerance: ZERO base units. Quote and build amounts are decimal
  * strings ("2.50"); both are converted exactly (no floats) to USDC base units
  * (1e-6) and must be equal to each other and to the instruction amount.
@@ -83,6 +95,76 @@ export function userPositionAddress(market: PublicKey, wallet: PublicKey): Publi
   return PublicKey.findProgramAddressSync([Buffer.from("position"), market.toBuffer(), wallet.toBuffer()], PANTA)[0];
 }
 
+/** Exact non-negative decimal (≤ 9 dp) scaled to 1e9; null if unreadable. */
+export function decimalToNano(v: unknown): bigint | null {
+  if (typeof v !== "string" && typeof v !== "number") return null;
+  const str = String(v).trim();
+  const m = /^(\d+)(?:\.(\d{1,9}))?$/.exec(str);
+  if (!m) return null;
+  return BigInt(m[1]) * BigInt(1_000_000_000) + BigInt((m[2] || "").padEnd(9, "0"));
+}
+
+function nanoToStr(n: bigint): string {
+  const neg = n < BigInt(0);
+  const a = neg ? -n : n;
+  const whole = a / BigInt(1_000_000_000);
+  // Truncated to 6 dp (a floor never rounds up), trailing zeros dropped.
+  const frac = (a % BigInt(1_000_000_000)).toString().padStart(9, "0").slice(0, 6).replace(/0+$/, "");
+  return `${neg ? "-" : ""}${whole}${frac ? `.${frac}` : ""}`;
+}
+
+export type PrimaryEconomics = {
+  quotedShares: string;
+  /** Panta's estimate when the order was built (not a guaranteed fill). */
+  expectedShares: string;
+  /** quote.shares × (1 − maxSlippageBps): the floor Panta checked at build. */
+  slippageFloorShares: string;
+  maxSlippageBps: number;
+  feeUsdc: string;
+  /** Always false: primary_order_usdc has no on-chain minimum-shares limit. */
+  onChainMinShares: false;
+};
+
+/**
+ * Economic consistency of a build vs its quote. Bound values fail closed;
+ * values that may legitimately move (expected shares within slippage, a lower
+ * fee) are passed through for the review to label as estimates.
+ */
+export function checkPrimaryEconomics(
+  built: PrimaryBuild,
+  quote: Quote,
+  maxSlippageBps: number | null | undefined,
+): PrimaryEconomics | { ok: false; reason: string } {
+  if (maxSlippageBps == null || !Number.isInteger(maxSlippageBps) || maxSlippageBps < 0 || maxSlippageBps > 5000) {
+    return fail("Max slippage for this build is unknown.");
+  }
+  const quoted = decimalToNano(quote.shares);
+  if (quoted == null || quoted <= BigInt(0)) return fail("Quoted shares are missing or unreadable.");
+  const expected = decimalToNano(built.expectedShares);
+  if (expected == null || expected <= BigInt(0)) return fail("Build did not report readable expected shares.");
+  const floor = (quoted * BigInt(10_000 - maxSlippageBps)) / BigInt(10_000);
+  if (expected < floor) {
+    return fail(
+      `Build expects ${built.expectedShares} shares, below your ${(maxSlippageBps / 100).toFixed(2)}% slippage floor (${nanoToStr(floor)}) from the quoted ${quote.shares}.`,
+    );
+  }
+  const amount = usdcToBase(quote.amountUsdc);
+  const qFee = usdcToBase(quote.feeUsdc);
+  const bFee = usdcToBase(built.feeUsdc);
+  if (qFee == null) return fail("Quoted fee is missing or unreadable.");
+  if (bFee == null) return fail("Build fee is missing or unreadable.");
+  if (bFee > qFee) return fail(`Build fee (${built.feeUsdc} USDC) is higher than the quoted fee (${quote.feeUsdc} USDC).`);
+  if (amount == null || bFee >= amount) return fail("Build fee is not smaller than the amount.");
+  return {
+    quotedShares: quote.shares,
+    expectedShares: built.expectedShares,
+    slippageFloorShares: nanoToStr(floor),
+    maxSlippageBps,
+    feeUsdc: built.feeUsdc,
+    onChainMinShares: false,
+  };
+}
+
 export type PrimaryOrderData = { side: "yes" | "no"; amountBase: bigint };
 
 /** Decode primary_order_usdc data; null unless it is exactly the known layout. */
@@ -114,6 +196,7 @@ export type VerifiedPrimaryBuy = {
     vaultTokenAccount: string;
     treasuryTokenAccount: string;
     memoBindsQuote: boolean;
+    economics: PrimaryEconomics;
   };
 };
 export type PrimaryBuyCheck = VerifiedPrimaryBuy | { ok: false; reason: string };
@@ -129,7 +212,7 @@ function key(v: string): PublicKey | null {
 }
 
 type Acc = BuiltInstruction["accounts"][number];
-function accIs(a: Acc | undefined, expected: string | PublicKey, opts: { writable?: boolean; signer?: boolean } = {}) {
+export function accIs(a: Acc | undefined, expected: string | PublicKey, opts: { writable?: boolean; signer?: boolean } = {}) {
   if (!a) return false;
   const want = typeof expected === "string" ? expected : expected.toBase58();
   if (a.pubkey !== want) return false;
@@ -138,7 +221,8 @@ function accIs(a: Acc | undefined, expected: string | PublicKey, opts: { writabl
   return true;
 }
 
-function checkComputeBudget(ixs: BuiltInstruction[]): string | null {
+/** Optional ComputeBudget instructions: only SetComputeUnitLimit / Price, bounded. */
+export function checkComputeBudget(ixs: BuiltInstruction[]): string | null {
   let limit: bigint | null = null;
   let price: bigint | null = null;
   for (const ix of ixs) {
@@ -158,10 +242,36 @@ function checkComputeBudget(ixs: BuiltInstruction[]): string | null {
 }
 
 /**
+ * CreateIdempotent (1) / Create (0 or empty) of the wallet's own USDC account,
+ * paid by the wallet. The only Associated-Token instruction a build may carry.
+ */
+export function isCreateOwnUsdcAta(ix: BuiltInstruction, wallet: PublicKey): boolean {
+  const w = wallet.toBase58();
+  const d = Buffer.from(ix.data, "base64");
+  const okData = d.length === 0 || (d.length === 1 && (d[0] === 0 || d[0] === 1));
+  const a = ix.accounts;
+  return (
+    okData &&
+    a.length === 6 &&
+    accIs(a[0], w, { signer: true }) &&
+    accIs(a[1], ataAddress(wallet)) &&
+    accIs(a[2], w) &&
+    accIs(a[3], USDC_MINT) &&
+    accIs(a[4], SYSTEM_PROGRAM) &&
+    accIs(a[5], TOKEN_PROGRAM)
+  );
+}
+
+/**
  * Full pre-sign check of a primary-buy build against the approved quote and
  * the connected wallet. Fails closed on any missing or mismatched field.
  */
-export function verifyPrimaryBuyBuild(built: PrimaryBuild, quote: Quote | null, wallet: PublicKey): PrimaryBuyCheck {
+export function verifyPrimaryBuyBuild(
+  built: PrimaryBuild,
+  quote: Quote | null,
+  wallet: PublicKey,
+  maxSlippageBps: number | null | undefined,
+): PrimaryBuyCheck {
   const w = wallet.toBase58();
   if (!quote) return fail("No approved quote to check the build against.");
   // --- metadata: every field required, every field must match
@@ -183,6 +293,8 @@ export function verifyPrimaryBuyBuild(built: PrimaryBuild, quote: Quote | null, 
   }
   const market = key(quote.marketId);
   if (!market) return fail("Quoted market id is not a valid address.");
+  const economics = checkPrimaryEconomics(built, quote, maxSlippageBps);
+  if ("ok" in economics) return economics;
 
   // --- generic allowlist (programs, signers, sizes)
   const generic: InstructionCheck = validatePantaInstructions(built.instructions, wallet);
@@ -201,19 +313,7 @@ export function verifyPrimaryBuyBuild(built: PrimaryBuild, quote: Quote | null, 
       continue;
     }
     if (ix.programId === ATA_PROGRAM) {
-      // CreateIdempotent (1) / Create (0 or empty) of the buyer's own USDC account only.
-      const d = Buffer.from(ix.data, "base64");
-      const okData = d.length === 0 || (d.length === 1 && (d[0] === 0 || d[0] === 1));
-      const a = ix.accounts;
-      const okAccounts =
-        a.length === 6 &&
-        accIs(a[0], w, { signer: true }) &&
-        accIs(a[1], userAta) &&
-        accIs(a[2], w) &&
-        accIs(a[3], USDC_MINT) &&
-        accIs(a[4], SYSTEM_PROGRAM) &&
-        accIs(a[5], TOKEN_PROGRAM);
-      if (!okData || !okAccounts) return fail("Associated-token instruction is not 'create my USDC account'.");
+      if (!isCreateOwnUsdcAta(ix, wallet)) return fail("Associated-token instruction is not 'create my USDC account'.");
       continue;
     }
     if (MEMO_PROGRAMS.has(ix.programId)) {
@@ -277,6 +377,7 @@ export function verifyPrimaryBuyBuild(built: PrimaryBuild, quote: Quote | null, 
       vaultTokenAccount: a[4].pubkey,
       treasuryTokenAccount: a[8].pubkey,
       memoBindsQuote,
+      economics,
     },
   };
 }
@@ -291,6 +392,21 @@ export type AccountInfoReader = {
  * it must be an account owned by the Panta program carrying the
  * vault-authority discriminator (9 bytes: discriminator + bump). Only the
  * Panta program can create such an account. RPC failure fails closed.
+ *
+ * LIMITATION (checked 3 Oct 2026 against 42 win claims + 13 primary orders):
+ * this proves "a Panta vault authority", NOT "this market's" vault authority.
+ *  - The VA account is 9 bytes (discriminator + bump): no market back-reference.
+ *  - The market (Anchor "account:Event", 2982 bytes, creator at [8..40]) does
+ *    not contain the VA or the vault token account anywhere in its data.
+ *  - The PDA seeds were not recoverable (~440k candidate seed sets tried,
+ *    incl. every 1–32-byte window of the Event data); no IDL is published.
+ * So market → vault authority cannot be proven from public data. What is
+ * proven: the vault token account is ATA(VA, USDC) (derived locally), the VA
+ * is Panta-owned with the VA discriminator, and in the fixtures each market
+ * maps to exactly one VA (42 win claims, 26 markets, 26 distinct VAs; 12
+ * markets with several claimants). Binding VA to the market is left to the
+ * Panta program's own account constraints at execution (an assumption we
+ * cannot verify without the program source/IDL).
  */
 export async function verifyVaultAuthorityOnChain(rpc: AccountInfoReader, vaultAuthority: string): Promise<string | null> {
   let info: Awaited<ReturnType<AccountInfoReader["getAccountInfo"]>>;

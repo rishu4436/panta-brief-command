@@ -37,11 +37,11 @@ const build = (over: Partial<PrimaryBuild> = {}): PrimaryBuild =>
 
 describe("audit: wallet switch between build and sign", () => {
   it("a build for the previous wallet is blocked for the new wallet", () => {
-    expect(checkBuild(build(), quote, switched).ok).toBe(false);
+    expect(checkBuild(build(), quote, switched, 100).ok).toBe(false);
   });
   it("even if Panta omits build.wallet, the old wallet's signer account blocks it", () => {
     // Missing build.wallet now fails closed before the signer check.
-    const r = checkBuild(build({ wallet: "" }), quote, switched);
+    const r = checkBuild(build({ wallet: "" }), quote, switched, 100);
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.reason).toMatch(/which wallet/);
   });
@@ -53,13 +53,13 @@ describe("audit: wallet switch between build and sign", () => {
 
 describe("audit: former gaps (fixed in P2)", () => {
   it("a build whose amountUsdc differs from the quote is blocked", () => {
-    const r = checkBuild(build({ amountUsdc: "100.00" }), quote, wallet);
+    const r = checkBuild(build({ amountUsdc: "100.00" }), quote, wallet, 100);
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.reason).toMatch(/Build amount/);
   });
   it("a build that omits quoteId/marketId/side fails closed", () => {
-    expect(checkBuild(build({ quoteId: "" }), quote, wallet).ok).toBe(false);
-    expect(checkBuild(build({ marketId: "" }), quote, wallet).ok).toBe(false);
-    expect(checkBuild(build({ side: null }), quote, wallet).ok).toBe(false);
+    expect(checkBuild(build({ quoteId: "" }), quote, wallet, 100).ok).toBe(false);
+    expect(checkBuild(build({ marketId: "" }), quote, wallet, 100).ok).toBe(false);
+    expect(checkBuild(build({ side: null }), quote, wallet, 100).ok).toBe(false);
   });
 });

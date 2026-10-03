@@ -106,8 +106,13 @@ export function parseOrderStatus(raw: unknown): OrderVerify {
  * then decode and verify the instructions (./primary-order). Any missing or
  * mismatched field blocks signing (fail closed).
  */
-export function checkBuild(built: PrimaryBuild, quote: Quote | null, wallet: PublicKey): PrimaryBuyCheck {
-  return verifyPrimaryBuyBuild(built, quote, wallet);
+export function checkBuild(
+  built: PrimaryBuild,
+  quote: Quote | null,
+  wallet: PublicKey,
+  maxSlippageBps: number | null | undefined,
+): PrimaryBuyCheck {
+  return verifyPrimaryBuyBuild(built, quote, wallet, maxSlippageBps);
 }
 
 // ---------------------------------------------------------------------------

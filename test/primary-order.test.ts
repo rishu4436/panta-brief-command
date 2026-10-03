@@ -51,68 +51,68 @@ describe("decoding", () => {
 
 describe("checkBuild (strict)", () => {
   it("valid live build passes and reports what was verified", () => {
-    const r = checkBuild(build(), quote, wallet);
+    const r = checkBuild(build(), quote, wallet, 100);
     expect(r.ok).toBe(true);
     if (r.ok) {
       expect(r.verified).toMatchObject({ amountBase: "2500000", side: "no", marketId: quote.marketId, memoBindsQuote: true });
     }
   });
   it("amount mismatch (build metadata) — even by one base unit", () => {
-    expect(reason(checkBuild(build({ amountUsdc: "100.00" }), quote, wallet))).toMatch(/Build amount/);
-    expect(reason(checkBuild(build({ amountUsdc: "2.500001" }), quote, wallet))).toMatch(/Build amount/);
-    expect(reason(checkBuild(build({ amountUsdc: "2.5" }), quote, wallet))).toBe("ok"); // same base units
+    expect(reason(checkBuild(build({ amountUsdc: "100.00" }), quote, wallet, 100))).toMatch(/Build amount/);
+    expect(reason(checkBuild(build({ amountUsdc: "2.500001" }), quote, wallet, 100))).toMatch(/Build amount/);
+    expect(reason(checkBuild(build({ amountUsdc: "2.5" }), quote, wallet, 100))).toBe("ok"); // same base units
   });
   it("market mismatch", () => {
-    expect(reason(checkBuild(build({ marketId: Keypair.generate().publicKey.toBase58() }), quote, wallet))).toMatch(/market/);
+    expect(reason(checkBuild(build({ marketId: Keypair.generate().publicKey.toBase58() }), quote, wallet, 100))).toMatch(/market/);
   });
   it("side mismatch", () => {
-    expect(reason(checkBuild(build({ side: "yes" }), quote, wallet))).toMatch(/side/);
+    expect(reason(checkBuild(build({ side: "yes" }), quote, wallet, 100))).toMatch(/side/);
   });
   it("quoteId mismatch", () => {
-    expect(reason(checkBuild(build({ quoteId: "qt_other" }), quote, wallet))).toMatch(/active quote/);
+    expect(reason(checkBuild(build({ quoteId: "qt_other" }), quote, wallet, 100))).toMatch(/active quote/);
   });
   it("missing metadata fails closed", () => {
-    expect(reason(checkBuild(build({ quoteId: "" }), quote, wallet))).toMatch(/quoteId/);
-    expect(reason(checkBuild(build({ marketId: "" }), quote, wallet))).toMatch(/market/);
-    expect(reason(checkBuild(build({ side: null }), quote, wallet))).toMatch(/side/);
-    expect(reason(checkBuild(build({ wallet: "" }), quote, wallet))).toMatch(/wallet/);
-    expect(reason(checkBuild(build({ amountUsdc: "" }), quote, wallet))).toMatch(/amount/);
-    expect(reason(checkBuild(build(), null, wallet))).toMatch(/No approved quote/);
-    expect(reason(checkBuild(build(), { ...quote, amountUsdc: "" }, wallet))).toMatch(/Quote amount/);
+    expect(reason(checkBuild(build({ quoteId: "" }), quote, wallet, 100))).toMatch(/quoteId/);
+    expect(reason(checkBuild(build({ marketId: "" }), quote, wallet, 100))).toMatch(/market/);
+    expect(reason(checkBuild(build({ side: null }), quote, wallet, 100))).toMatch(/side/);
+    expect(reason(checkBuild(build({ wallet: "" }), quote, wallet, 100))).toMatch(/wallet/);
+    expect(reason(checkBuild(build({ amountUsdc: "" }), quote, wallet, 100))).toMatch(/amount/);
+    expect(reason(checkBuild(build(), null, wallet, 100))).toMatch(/No approved quote/);
+    expect(reason(checkBuild(build(), { ...quote, amountUsdc: "" }, wallet, 100))).toMatch(/Quote amount/);
   });
   it("wrong instruction amount (metadata says 2.50, instruction pays 250)", () => {
     const b = setData(build(), "2e89447431590df701" + Buffer.from(new BigUint64Array([BigInt(250_000_000)]).buffer).toString("hex"));
-    expect(reason(checkBuild(b, quote, wallet))).toMatch(/Instruction amount/);
+    expect(reason(checkBuild(b, quote, wallet, 100))).toMatch(/Instruction amount/);
   });
   it("wrong instruction side", () => {
-    expect(reason(checkBuild(setData(build(), "2e89447431590df700a025260000000000"), quote, wallet))).toMatch(/Instruction side/);
+    expect(reason(checkBuild(setData(build(), "2e89447431590df700a025260000000000"), quote, wallet, 100))).toMatch(/Instruction side/);
   });
   it("unrecognised Panta instruction data", () => {
-    expect(reason(checkBuild(setData(build(), "00112233"), quote, wallet))).toMatch(/primary_order_usdc/);
+    expect(reason(checkBuild(setData(build(), "00112233"), quote, wallet, 100))).toMatch(/primary_order_usdc/);
   });
   it("wrong program", () => {
     const b = build();
     pantaIx(b).programId = Keypair.generate().publicKey.toBase58();
-    expect(reason(checkBuild(b, quote, wallet))).toMatch(/unexpected program/);
+    expect(reason(checkBuild(b, quote, wallet, 100))).toMatch(/unexpected program/);
   });
   it("a bare SPL Token / System instruction is rejected", () => {
     const b = build();
     b.instructions.push({ programId: "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA", data: "AwAAAAAAAAAA", accounts: [{ pubkey: wallet.toBase58(), isSigner: true, isWritable: true }] });
-    expect(reason(checkBuild(b, quote, wallet))).toMatch(/Unexpected top-level/);
+    expect(reason(checkBuild(b, quote, wallet, 100))).toMatch(/Unexpected top-level/);
   });
   it("extra signer", () => {
     const b = build();
     pantaIx(b).accounts[3] = { pubkey: Keypair.generate().publicKey.toBase58(), isSigner: true, isWritable: false };
-    expect(reason(checkBuild(b, quote, wallet))).toMatch(/extra signer/);
+    expect(reason(checkBuild(b, quote, wallet, 100))).toMatch(/extra signer/);
   });
   it("wrong wallet (connected wallet differs from the build)", () => {
-    expect(reason(checkBuild(build(), quote, Keypair.generate().publicKey))).toMatch(/wallet/);
+    expect(reason(checkBuild(build(), quote, Keypair.generate().publicKey, 100))).toMatch(/wallet/);
   });
   it("redirected destination accounts are rejected", () => {
     const swap = (i: number) => {
       const b = build();
       pantaIx(b).accounts[i] = { ...pantaIx(b).accounts[i], pubkey: Keypair.generate().publicKey.toBase58() };
-      return reason(checkBuild(b, quote, wallet));
+      return reason(checkBuild(b, quote, wallet, 100));
     };
     expect(swap(4)).toMatch(/vault token account/); // vault
     expect(swap(7)).toMatch(/paying account/); // source of funds
@@ -124,24 +124,24 @@ describe("checkBuild (strict)", () => {
   it("an on-curve (wallet-like) vault authority is rejected", () => {
     const b = build();
     pantaIx(b).accounts[3] = { pubkey: Keypair.generate().publicKey.toBase58(), isSigner: false, isWritable: false };
-    expect(reason(checkBuild(b, quote, wallet))).toMatch(/vault authority|vault token/);
+    expect(reason(checkBuild(b, quote, wallet, 100))).toMatch(/vault authority|vault token/);
   });
   it("memo bound to another quote is rejected", () => {
     const b = build();
     const memo = b.instructions.find((i) => i.programId.startsWith("Memo"))!;
     memo.data = Buffer.from("panta:v1:usr_fixture:qt_other:" + b.orderId).toString("base64");
-    expect(reason(checkBuild(b, quote, wallet))).toMatch(/Memo/);
+    expect(reason(checkBuild(b, quote, wallet, 100))).toMatch(/Memo/);
   });
   it("ATA instruction for someone else's account is rejected", () => {
     const b = build();
     const ata = b.instructions.find((i) => i.programId.startsWith("AToken")) as BuiltInstruction;
     ata.accounts[2] = { ...ata.accounts[2], pubkey: Keypair.generate().publicKey.toBase58() };
-    expect(reason(checkBuild(b, quote, wallet))).toMatch(/Associated-token/);
+    expect(reason(checkBuild(b, quote, wallet, 100))).toMatch(/Associated-token/);
   });
   it("two Panta instructions are rejected", () => {
     const b = build();
     b.instructions.push(clone(pantaIx(b)));
-    expect(reason(checkBuild(b, quote, wallet))).toMatch(/exactly 1/);
+    expect(reason(checkBuild(b, quote, wallet, 100))).toMatch(/exactly 1/);
   });
   it("compiled tx: fee payer is the wallet and it is the only signer", () => {
     const tx = instructionsToVersionedTx(build().instructions, wallet, fixture.build.recentBlockhash);
@@ -163,5 +163,52 @@ describe("verifyVaultAuthorityOnChain", () => {
     expect(
       await verifyVaultAuthorityOnChain({ getAccountInfo: async () => { throw new Error("429"); } }, VA),
     ).toMatch(/Could not read/);
+  });
+});
+
+describe("economic consistency (quote vs build vs instruction)", () => {
+  // Live fixture: quote 5.027263 shares, build expectedShares 5.027263, fee 0.05 both.
+  it("reports quoted vs build-time estimate and that nothing on-chain enforces a minimum", () => {
+    const r = checkBuild(build(), quote, wallet, 100);
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.verified.economics).toEqual({
+        quotedShares: "5.027263",
+        expectedShares: "5.027263",
+        slippageFloorShares: "4.97699",
+        maxSlippageBps: 100,
+        feeUsdc: "0.05",
+        onChainMinShares: false,
+      });
+    }
+  });
+  it("the instruction encodes only side + amount (17 bytes): no min-shares field to bind", () => {
+    expect(Buffer.from(pantaIx(build()).data, "base64").length).toBe(17);
+  });
+  it("expectedShares may differ from quote.shares within max slippage (not assumed equal)", () => {
+    expect(reason(checkBuild(build({ expectedShares: "4.98" }), quote, wallet, 100))).toBe("ok");
+    expect(reason(checkBuild(build({ expectedShares: "5.2" }), quote, wallet, 100))).toBe("ok"); // curve moved in the buyer's favour
+  });
+  it("expectedShares below the slippage floor fails closed", () => {
+    expect(reason(checkBuild(build({ expectedShares: "4.97" }), quote, wallet, 100))).toMatch(/below your 1.00% slippage floor/);
+    expect(reason(checkBuild(build({ expectedShares: "4.98" }), quote, wallet, 0))).toMatch(/slippage floor/);
+  });
+  it("missing / unreadable / zero shares fail closed (never read as 0)", () => {
+    expect(reason(checkBuild(build({ expectedShares: "" }), quote, wallet, 100))).toMatch(/expected shares/);
+    expect(reason(checkBuild(build({ expectedShares: "abc" }), quote, wallet, 100))).toMatch(/expected shares/);
+    expect(reason(checkBuild(build({ expectedShares: "0" }), quote, wallet, 100))).toMatch(/expected shares/);
+    expect(reason(checkBuild(build(), { ...quote, shares: "" }, wallet, 100))).toMatch(/Quoted shares/);
+  });
+  it("unknown max slippage fails closed", () => {
+    expect(reason(checkBuild(build(), quote, wallet, null))).toMatch(/Max slippage/);
+    expect(reason(checkBuild(build(), quote, wallet, 5001))).toMatch(/Max slippage/);
+    expect(reason(checkBuild(build(), quote, wallet, 1.5))).toMatch(/Max slippage/);
+  });
+  it("fee: higher than quoted, missing, or not below the amount fails closed; lower is fine", () => {
+    expect(reason(checkBuild(build({ feeUsdc: "0.06" }), quote, wallet, 100))).toMatch(/higher than the quoted fee/);
+    expect(reason(checkBuild(build({ feeUsdc: "" }), quote, wallet, 100))).toMatch(/Build fee is missing/);
+    expect(reason(checkBuild(build(), { ...quote, feeUsdc: "" }, wallet, 100))).toMatch(/Quoted fee/);
+    expect(reason(checkBuild(build({ feeUsdc: "0.04" }), quote, wallet, 100))).toBe("ok");
+    expect(reason(checkBuild(build({ feeUsdc: "2.50" }), { ...quote, feeUsdc: "2.50" }, wallet, 100))).toMatch(/not smaller than the amount/);
   });
 });

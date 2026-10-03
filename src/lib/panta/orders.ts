@@ -18,7 +18,7 @@ import {
   parseSide,
 } from "./client";
 import type { OrderStatus, OrderVerify, PrimaryBuild, Quote, Side } from "./domain";
-import { validatePantaInstructions, type InstructionCheck } from "./instructions";
+import { verifyPrimaryBuyBuild, type PrimaryBuyCheck } from "./primary-order";
 
 const dec = numish.transform((v) => (v == null ? "" : String(v)));
 
@@ -102,31 +102,12 @@ export function parseOrderStatus(raw: unknown): OrderVerify {
 }
 
 /**
- * Cross-check a build against the active quote and the connected wallet,
- * then run the instruction allowlist (./instructions). Any mismatch blocks
- * signing.
+ * Cross-check a build against the approved quote and the connected wallet,
+ * then decode and verify the instructions (./primary-order). Any missing or
+ * mismatched field blocks signing (fail closed).
  */
-export function checkBuild(
-  built: PrimaryBuild,
-  quote: Quote | null,
-  wallet: PublicKey,
-): InstructionCheck {
-  const w = wallet.toBase58();
-  if (built.wallet && built.wallet !== w) {
-    return { ok: false, reason: "Build wallet does not match the connected wallet. Signing blocked." };
-  }
-  if (quote) {
-    if (built.quoteId && built.quoteId !== quote.quoteId) {
-      return { ok: false, reason: "Build does not match the active quote. Signing blocked." };
-    }
-    if (built.marketId && built.marketId !== quote.marketId) {
-      return { ok: false, reason: "Build market differs from the quoted market. Signing blocked." };
-    }
-    if (built.side && built.side !== quote.side) {
-      return { ok: false, reason: "Build side differs from the quoted side. Signing blocked." };
-    }
-  }
-  return validatePantaInstructions(built.instructions, wallet);
+export function checkBuild(built: PrimaryBuild, quote: Quote | null, wallet: PublicKey): PrimaryBuyCheck {
+  return verifyPrimaryBuyBuild(built, quote, wallet);
 }
 
 // ---------------------------------------------------------------------------

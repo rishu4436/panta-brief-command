@@ -119,10 +119,16 @@ export function validatePantaInstructions(
   return { ok: true, count: instructions.length, programs };
 }
 
-/** Compiled message fee payer (static account 0) must be the connected wallet. */
+/**
+ * Compiled message fee payer (static account 0) must be the connected wallet,
+ * and it must be the only required signer.
+ */
 export function assertFeePayer(tx: VersionedTransaction, wallet: PublicKey): void {
   const payer = tx.message.staticAccountKeys[0];
   if (!payer || !payer.equals(wallet)) {
     throw new Error("Fee payer is not the connected wallet. Signing blocked.");
+  }
+  if (tx.message.header.numRequiredSignatures !== 1) {
+    throw new Error("Transaction requires a signer other than your wallet. Signing blocked.");
   }
 }

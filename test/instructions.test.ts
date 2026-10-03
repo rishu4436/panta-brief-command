@@ -91,8 +91,11 @@ describe("pre-sign instruction validation", () => {
 });
 
 describe("quote/build cross-check (checkBuild)", () => {
-  it("a matching build passes", () => {
-    expect(checkBuild(build(), quote, wallet).ok).toBe(true);
+  it("a synthetic build without a decodable Panta order fails closed", () => {
+    // Valid builds are covered with a real Panta build in primary-order.test.ts.
+    const r = checkBuild({ ...build(), amountUsdc: "1" }, quote, wallet);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toMatch(/Signing blocked/);
   });
 
   it("quote id mismatch is caught", () => {

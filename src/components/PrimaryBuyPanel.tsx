@@ -9,6 +9,7 @@ import { isInLedger, reportTrade } from "@/lib/panta/attribution";
 import { ApiError } from "@/lib/panta/client";
 import { mergeMarket } from "@/lib/panta/markets";
 import { checkBuild, requestBuild, requestQuote, submitOrder, verifyOrder } from "@/lib/panta/orders";
+import { verifyVaultAuthorityOnChain } from "@/lib/panta/primary-order";
 import { describeErr } from "@/lib/errors";
 import { marketLabel, shortAddr } from "@/lib/format";
 import { assertFeePayer, programLabel, type InstructionCheck } from "@/lib/panta/instructions";
@@ -339,6 +340,13 @@ export function PrimaryBuyPanel({
     const check = checkBuild(built, q || quote, publicKey!);
     setIxCheck(check);
     if (!check.ok) throw new PresignStop(check.reason);
+    // Vault authority seeds are not public: prove it is a Panta-owned vault
+    // authority account on-chain (fails closed on RPC error).
+    const vaultErr = await verifyVaultAuthorityOnChain(connection, check.verified.vaultAuthority);
+    if (vaultErr) throw new PresignStop(vaultErr);
+    push(
+      `Decoded order · ${check.verified.side.toUpperCase()} ${(Number(check.verified.amountBase) / 1e6).toFixed(6)} USDC · market, vault, treasury, fee payer checked`,
+    );
 
     const lvbh = await resolveLastValidBlockHeight(connection, built.lastValidBlockHeight);
     const tx = instructionsToVersionedTx(built.instructions, publicKey!, built.recentBlockhash);

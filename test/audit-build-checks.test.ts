@@ -40,9 +40,10 @@ describe("audit: wallet switch between build and sign", () => {
     expect(checkBuild(build(), quote, switched).ok).toBe(false);
   });
   it("even if Panta omits build.wallet, the old wallet's signer account blocks it", () => {
+    // Missing build.wallet now fails closed before the signer check.
     const r = checkBuild(build({ wallet: "" }), quote, switched);
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.reason).toMatch(/extra signer/);
+    if (!r.ok) expect(r.reason).toMatch(/which wallet/);
   });
   it("the compiled fee payer is the connected wallet", () => {
     const tx = instructionsToVersionedTx(build().instructions, wallet, BLOCKHASH);
@@ -50,11 +51,15 @@ describe("audit: wallet switch between build and sign", () => {
   });
 });
 
-describe("audit: known gaps (documented, not fixed)", () => {
-  it("GAP P2: a build whose amountUsdc differs from the quote still passes checkBuild", () => {
-    expect(checkBuild(build({ amountUsdc: "100.00" }), quote, wallet).ok).toBe(true);
+describe("audit: former gaps (fixed in P2)", () => {
+  it("a build whose amountUsdc differs from the quote is blocked", () => {
+    const r = checkBuild(build({ amountUsdc: "100.00" }), quote, wallet);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toMatch(/Build amount/);
   });
-  it("GAP P2: a build that omits quoteId/marketId/side is not cross-checked", () => {
-    expect(checkBuild(build({ quoteId: "", marketId: "", side: null }), quote, wallet).ok).toBe(true);
+  it("a build that omits quoteId/marketId/side fails closed", () => {
+    expect(checkBuild(build({ quoteId: "" }), quote, wallet).ok).toBe(false);
+    expect(checkBuild(build({ marketId: "" }), quote, wallet).ok).toBe(false);
+    expect(checkBuild(build({ side: null }), quote, wallet).ok).toBe(false);
   });
 });

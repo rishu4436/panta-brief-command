@@ -27,7 +27,8 @@ import {
   preferFuller,
 } from "@/lib/panta/markets";
 import { fetchPositions } from "@/lib/panta/positions";
-import type { BriefMode, BriefPayload } from "@/lib/types";
+import { ApiError } from "@/lib/panta/client";
+import type { BriefMode, BriefPayload, Json } from "@/lib/types";
 import { createLimiter } from "./limit";
 
 /** Max concurrent detail fetches for list/book hydration. */
@@ -259,7 +260,8 @@ async function fetchBrief(marketId: string, mode: BriefMode): Promise<BriefPaylo
     const sec = Number(res.headers.get("retry-after") || "60");
     throw new BriefRateLimitError(Date.now() + (Number.isFinite(sec) ? sec : 60) * 1000);
   }
-  if (!res.ok) throw new Error(json.detail || json.code || `HTTP ${res.status}`);
+  // Body kept on the error so describeErr maps the code to readable text.
+  if (!res.ok) throw new ApiError(res.status, json as unknown as Json);
   return json;
 }
 

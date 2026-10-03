@@ -1,22 +1,30 @@
+import { humanError, isErrorCode } from "./error-messages";
+
+/**
+ * One line for the UI. Error bodies `{ code, detail }` go through the single
+ * code → message mapping (error-messages.ts); a raw code is never the whole
+ * message (it is kept as a short "ref" for support).
+ */
 export function describeErr(e: unknown): string {
   if (!e) return "Unknown error";
-  if (typeof e === "string") return e;
+  if (typeof e === "string") return isErrorCode(e) ? humanError(e) : e;
   if (e instanceof Error) {
     const any = e as Error & { body?: unknown; status?: number };
     if (any.body && typeof any.body === "object" && any.body !== null) {
       const b = any.body as Record<string, unknown>;
-      const code = b.code ? String(b.code) : undefined;
+      const code = b.code ? String(b.code) : b.error && isErrorCode(String(b.error)) ? String(b.error) : undefined;
       const detailRaw = b.detail ?? b.message;
       const detail = detailRaw
         ? typeof detailRaw === "string"
           ? detailRaw
           : JSON.stringify(detailRaw)
         : undefined;
-      if (code && detail) return `${code}: ${detail}`;
-      if (code) return code;
+      if (code) return humanError(code, detail, any.status);
       if (detail) return detail;
     }
-    return tidyWalletMessage(e.message) || "Error";
+    const msg = tidyWalletMessage(e.message);
+    if (msg && isErrorCode(msg)) return humanError(msg, null, any.status);
+    return msg || "Error";
   }
   try {
     return JSON.stringify(e);

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { humanError } from "@/lib/error-messages";
 import type { BriefPayload } from "@/lib/types";
 import { anonId, usageEnabled } from "@/lib/telemetry";
 
@@ -65,7 +66,7 @@ export function BriefFeedback({ brief }: { brief: BriefPayload }) {
       });
       if (!res.ok) {
         const j = (await res.json().catch(() => ({}))) as { detail?: string; code?: string };
-        throw new Error(res.status === 429 ? "Too many ratings in a minute, try again shortly." : j.detail || j.code || `HTTP ${res.status}`);
+        throw new Error(res.status === 429 ? "Too many ratings in a minute, try again shortly." : humanError(j.code, j.detail, res.status));
       }
       setState("sent");
       setSentKey(key);

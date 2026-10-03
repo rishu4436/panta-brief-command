@@ -7,8 +7,10 @@
  * through (looseObject). Only a row without a marketId is dropped.
  */
 
-import { z } from "zod";
+import { z } from "@/lib/zod";
+import type { Json } from "@/lib/types";
 import {
+  ApiError,
   devWarn,
   numish,
   optBool,
@@ -330,7 +332,7 @@ export async function fetchCatalog(): Promise<CatalogPayload> {
   const res = await fetch("/api/catalog", { headers: { Accept: "application/json" } });
   const json = (await res.json().catch(() => null)) as (CatalogPayload & { detail?: string; code?: string }) | null;
   if (!res.ok || !json || !Array.isArray(json.items)) {
-    throw new Error(json?.detail || json?.code || `Catalog HTTP ${res.status}`);
+    throw new ApiError(res.status, (json ?? { code: "CATALOG_UNAVAILABLE" }) as unknown as Json);
   }
   const items: Market[] = [];
   for (const row of json.items) {

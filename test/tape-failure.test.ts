@@ -110,7 +110,8 @@ describe("tape UI state", () => {
     expect(tapeState({ isPending: false, isError: true, data: [1, 2], error: err })).toMatchObject({
       kind: "ok",
       count: 2,
-      refreshFailed: "PANTA_HTTP_500",
+      // Readable text from the single code mapping; the raw code is only a ref.
+      refreshFailed: "Panta returned an error. Try again shortly. (ref PANTA_HTTP_500)",
     });
   });
   it("prints label never shows 0 for a failed request", () => {

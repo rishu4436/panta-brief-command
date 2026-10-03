@@ -33,10 +33,14 @@ import {
   classifyFailure,
   deriveTradeState,
   formatClock,
+  INPUT_STALE_REASONS,
   quoteDeadline,
+  quoteGuard,
   secondsLeft,
   type AttrPhase,
+  type BuildBinding,
   type FlowStage,
+  type TicketInputs,
   type StepId,
   type TradeStateId,
   type VerifyPhase,
@@ -115,6 +119,10 @@ export function PrimaryBuyPanel({
 
   const [quote, setQuote] = useState<Quote | null>(null);
   const [quoteReceivedAt, setQuoteReceivedAt] = useState(0);
+  /** Wallet the current quote was requested for (stale-quote guard). */
+  const [quoteWallet, setQuoteWallet] = useState<string | null>(null);
+  /** Wallet + slippage the current build was made with (stale-quote guard). */
+  const [buildBinding, setBuildBinding] = useState<BuildBinding | null>(null);
   const [verifyStartedAt, setVerifyStartedAt] = useState<number | null>(null);
   const [build, setBuild] = useState<PrimaryBuild | null>(null);
   const [ixCheck, setIxCheck] = useState<InstructionCheck | null>(null);
@@ -188,6 +196,7 @@ export function PrimaryBuyPanel({
 
   const resetAfterQuote = () => {
     setBuild(null);
+    setBuildBinding(null);
     setIxCheck(null);
     setSignature(null);
     setLastValidBlockHeight(null);
@@ -203,14 +212,32 @@ export function PrimaryBuyPanel({
     setVerifyStartedAt(null);
   };
 
-  /** Hard stop before anything that would open the wallet on an expired quote. */
-  const assertQuoteLive = (q: Quote | null) => {
-    if (!q) return;
-    const { deadlineMs } = quoteDeadline(q.expiresAt, quoteReceivedAt || Date.now());
-    if (Date.now() >= deadlineMs) {
-      setNow(Date.now());
-      throw new ExpiredStop("Quote expired before approval.");
-    }
+  const ticketInputs = (): TicketInputs => ({
+    marketId,
+    side,
+    amountUsdc: amountCheck.ok ? amountCheck.value : null,
+    wallet: publicKey ? publicKey.toBase58() : null,
+    slippageBps: slippageCheck.ok ? slippageCheck.value : null,
+  });
+
+  /**
+   * The one stale-quote guard (quoteGuard in trade-state), run immediately
+   * before build and again immediately before sign, in Guided and
+   * Step-by-step alike. Pass `forBuild` to also bind the build's wallet and
+   * slippage. Throws; nothing reaches the wallet on a stale quote.
+   */
+  const enforceQuoteGuard = (q: Quote | null, forBuild: BuildBinding | null) => {
+    const g = quoteGuard(
+      q,
+      q && quoteWallet ? { wallet: quoteWallet, receivedAtMs: quoteReceivedAt || Date.now() } : null,
+      ticketInputs(),
+      Date.now(),
+      forBuild,
+    );
+    if (g.ok) return;
+    setNow(Date.now());
+    if (g.reason === "expired") throw new ExpiredStop("Quote expired before approval.");
+    throw new PresignStop(g.message);
   };
 
   const runQuote = async () => {
@@ -229,6 +256,7 @@ export function PrimaryBuyPanel({
     );
     sessionAttrRef.current = ref;
     setQuote(data);
+    setQuoteWallet(publicKey!.toBase58());
     setQuoteReceivedAt(Date.now());
     setNow(Date.now());
     resetAfterQuote();
@@ -245,13 +273,17 @@ export function PrimaryBuyPanel({
     const activeQuote = q || quote;
     if (!activeQuote?.quoteId) throw new Error("Quote first");
     if (!slippageCheck.ok) throw new Error(slippageCheck.error);
+    // Stale / expired / other-wallet quote: never build from it.
+    enforceQuoteGuard(activeQuote, null);
     const ref = sessionAttrRef.current;
+    const builtFor: BuildBinding = { wallet: publicKey!.toBase58(), slippageBps: slippageCheck.value };
     const { build: data } = await requestBuild(
       { quoteId: activeQuote.quoteId, wallet: publicKey!.toBase58(), maxSlippageBps: slippageCheck.value },
       ref,
     );
     const check = checkBuild(data, activeQuote, publicKey!);
     setBuild(data);
+    setBuildBinding({ ...builtFor, buildWallet: data.wallet || null });
     setIxCheck(check);
     setSignature(null);
     setTxPhase("idle");
@@ -298,7 +330,11 @@ export function PrimaryBuyPanel({
     if (!built?.instructions?.length || !built.recentBlockhash) {
       throw new Error("Build first");
     }
-    assertQuoteLive(q || quote);
+    // Same guard as before build, now with the build's wallet + slippage:
+    // never sign for a market, side, amount, wallet or slippage the user has
+    // since changed, or after the quote deadline.
+    if (!buildBinding) throw new PresignStop("Build again before signing.");
+    enforceQuoteGuard(q || quote, buildBinding);
     // Re-run the pre-sign check right before signing (defense in depth).
     const check = checkBuild(built, q || quote, publicKey!);
     setIxCheck(check);
@@ -527,7 +563,8 @@ export function PrimaryBuyPanel({
     begin();
     try {
       setStage("sign");
-      assertQuoteLive(q);
+      if (!buildBinding) throw new PresignStop("Build again before signing.");
+      enforceQuoteGuard(q, buildBinding);
       setReviewOpen(false);
       setGuidedPhase("Approve in your wallet…");
       const sig = await runSignBroadcast(b, q);
@@ -658,12 +695,30 @@ export function PrimaryBuyPanel({
   const quoteSecondsLeft = deadline ? secondsLeft(deadline.deadlineMs, now) : null;
   const quoteTotalSeconds = deadline ? Math.max(1, Math.round((deadline.deadlineMs - (quoteReceivedAt || now)) / 1000)) : null;
   const quoteExpired = quoteSecondsLeft === 0;
+  // UI view of the same guard (quoteGuard): inputs/wallet changed → quote stale;
+  // slippage/wallet changed after build → the build is stale (review again).
+  const liveGuard = quote
+    ? quoteGuard(
+        quote,
+        quoteWallet ? { wallet: quoteWallet, receivedAtMs: quoteReceivedAt || now } : null,
+        ticketInputs(),
+        now,
+        build ? buildBinding : null,
+      )
+    : null;
   const quoteStale = Boolean(
-    quote &&
-      (quote.marketId !== marketId.trim() ||
-        (amountCheck.ok && Number(quote.amountUsdc) !== Number(amountCheck.value)) ||
-        (quote.side && quote.side !== side)),
+    liveGuard && !liveGuard.ok && (INPUT_STALE_REASONS.has(liveGuard.reason) || liveGuard.reason === "no_quote"),
   );
+  const buildStale = Boolean(
+    build &&
+      liveGuard &&
+      !liveGuard.ok &&
+      (liveGuard.reason === "slippage_changed" ||
+        liveGuard.reason === "slippage_invalid" ||
+        liveGuard.reason === "build_wallet_mismatch" ||
+        !buildBinding),
+  );
+  const staleMessage = liveGuard && !liveGuard.ok && liveGuard.reason !== "expired" ? liveGuard.message : null;
 
   const blockingHint = !marketIdValid
     ? "Pick a market to quote."
@@ -686,9 +741,10 @@ export function PrimaryBuyPanel({
     hasQuote: Boolean(quote),
     quoteExpired,
     quoteStale,
-    hasBuild: Boolean(build),
-    presignOk: ixCheck?.ok === true,
-    reviewOpen,
+    // A build made with another wallet/slippage is treated as no build: review again.
+    hasBuild: Boolean(build) && !buildStale,
+    presignOk: ixCheck?.ok === true && !buildStale,
+    reviewOpen: reviewOpen && !buildStale,
     hasSignature: Boolean(signature),
     txPhase,
     verifyPhase,
@@ -761,12 +817,12 @@ export function PrimaryBuyPanel({
       case "new_quote":
         return { onAction: () => void runGetQuote(), disabled: busy || !quoteInputsValid };
       case "review":
-        return { onAction: () => void runReview(), disabled: busy || !slippageCheck.ok || quoteExpired };
+        return { onAction: () => void runReview(), disabled: busy || !slippageCheck.ok || quoteExpired || quoteStale };
       case "approve":
         // The review panel below carries Back / Approve.
         return {};
       case "retry_sign":
-        return build && !quoteExpired ? { onAction: () => void runApprove(), disabled: busy } : { onAction: () => void runGetQuote(), disabled: busy || !quoteInputsValid, label: "Get a new quote" };
+        return build && !quoteExpired && !quoteStale && !buildStale ? { onAction: () => void runApprove(), disabled: busy } : { onAction: () => void runGetQuote(), disabled: busy || !quoteInputsValid, label: "Get a new quote" };
       case "check_confirmation":
       case "submit":
         return { onAction: () => void runFinishAttribution(), disabled: busy };
@@ -952,6 +1008,11 @@ export function PrimaryBuyPanel({
                 ttlSource={deadline?.source ?? "panta"}
                 stale={quoteStale && !signature}
               />
+              {(quoteStale || buildStale) && !signature && staleMessage ? (
+                <p className="mt-2 text-[12px] text-amber-200" role="status" data-testid="quote-stale-reason">
+                  {staleMessage}
+                </p>
+              ) : null}
             </div>
           )}
 
@@ -968,7 +1029,7 @@ export function PrimaryBuyPanel({
           />
 
           {/* Review step: shown before the wallet is invoked */}
-          {reviewOpen && build && quote && !signature && (
+          {reviewOpen && build && quote && !signature && !quoteStale && !buildStale && !quoteExpired && (
             <section aria-labelledby="review-title" className="mt-3 rounded-xl border border-blue-500/40 bg-blue-500/[0.06] p-4 animate-fade-in">
               <h3 id="review-title" className="text-[13px] font-semibold text-ink">
                 Transaction details
@@ -1025,7 +1086,7 @@ export function PrimaryBuyPanel({
                   <button type="button" className="btn btn-secondary" onClick={() => setReviewOpen(false)} disabled={busy}>
                     Back
                   </button>
-                  <button type="button" className="btn btn-primary" onClick={() => void runApprove()} disabled={busy || quoteExpired}>
+                  <button type="button" className="btn btn-primary" onClick={() => void runApprove()} disabled={busy || quoteExpired || quoteStale || buildStale}>
                     <IconWallet className="h-4 w-4" />
                     {quoteExpired ? "Quote expired" : "Approve in wallet"}
                   </button>
@@ -1063,10 +1124,10 @@ export function PrimaryBuyPanel({
               <button type="button" disabled={busy || !quoteInputsValid} onClick={() => void wrap(runQuote)()} className="btn btn-primary">
                 1 · Quote
               </button>
-              <button type="button" disabled={busy || !quote || !slippageCheck.ok || quoteExpired} onClick={() => void wrap(() => runBuild())()} className={btnGhost}>
+              <button type="button" disabled={busy || !quote || !slippageCheck.ok || quoteExpired || quoteStale} onClick={() => void wrap(() => runBuild())()} className={btnGhost}>
                 2 · Build + check
               </button>
-              <button type="button" disabled={busy || !build || ixCheck?.ok !== true || quoteExpired || Boolean(signature)} onClick={() => void wrap(() => runSignBroadcast())()} className={btnGhost}>
+              <button type="button" disabled={busy || !build || ixCheck?.ok !== true || quoteExpired || quoteStale || buildStale || Boolean(signature)} onClick={() => void wrap(() => runSignBroadcast())()} className={btnGhost}>
                 3 · Sign, send &amp; confirm
               </button>
               {signature && txPhase === "pending" && (

@@ -155,7 +155,7 @@ export const TRADE_STATES: Record<TradeStateId, TradeStateSpec> = {
     tone: "warning",
     icon: "pause",
     title: "Inputs changed",
-    explain: "Market, side or amount changed after this quote, so it no longer matches the ticket.",
+    explain: "Market, side, amount or wallet changed after this quote, so it no longer matches the ticket.",
     safe: "Nothing was signed and no funds moved.",
     action: "refresh_quote",
     actionLabel: "Get a new quote",
@@ -534,6 +534,136 @@ export function secondsLeft(deadlineMs: number, nowMs: number): number {
 export function formatClock(totalSec: number): string {
   const s = Math.max(0, Math.floor(totalSec));
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}
+
+// ---------------------------------------------------------------- quote vs inputs
+
+/**
+ * The single stale-quote rule, shared by Guided and Step-by-step and run
+ * immediately before build AND before sign (and for the UI state).
+ *
+ * A quote is bound to the market, side, amount and wallet it was requested
+ * with, and to its deadline. A build is additionally bound to the slippage
+ * cap and wallet it was built with. Anything else → stop; nothing may be
+ * sent to the wallet.
+ */
+export type QuoteStaleReason =
+  | "no_quote"
+  | "expired"
+  | "market_changed"
+  | "side_changed"
+  | "amount_changed"
+  | "amount_invalid"
+  | "wallet_changed"
+  | "slippage_changed"
+  | "slippage_invalid"
+  | "build_wallet_mismatch";
+
+export type QuoteGuardResult =
+  | { ok: true }
+  | { ok: false; reason: QuoteStaleReason; message: string; fix: "new_quote" | "rebuild" | "reconnect" };
+
+export type QuotedOrder = {
+  marketId: string;
+  side?: string | null;
+  amountUsdc: string;
+  expiresAt?: string | null;
+};
+
+export type TicketInputs = {
+  marketId: string;
+  side: string;
+  /** null when the amount input is currently invalid. */
+  amountUsdc: string | null;
+  /** Connected wallet (base58), null when disconnected. */
+  wallet: string | null;
+  /** null when the slippage input is currently invalid. */
+  slippageBps?: number | null;
+};
+
+/** What the quote / build were made with (recorded by the ticket). */
+export type QuoteBinding = {
+  /** Wallet the quote was requested for. */
+  wallet: string;
+  /** ms when the quote arrived (for the fallback TTL). */
+  receivedAtMs: number;
+};
+export type BuildBinding = { wallet: string; slippageBps: number; buildWallet?: string | null };
+
+const STALE_MSG: Record<QuoteStaleReason, string> = {
+  no_quote: "Get a quote first.",
+  expired: "Quote expired. Get a new quote before signing.",
+  market_changed: "Market changed since this quote. Get a new quote.",
+  side_changed: "Side changed since this quote. Get a new quote.",
+  amount_changed: "Amount changed since this quote. Get a new quote.",
+  amount_invalid: "Amount is no longer valid. Fix it and get a new quote.",
+  wallet_changed: "Connected wallet changed since this quote. Get a new quote for this wallet.",
+  slippage_changed: "Max slippage changed since this order was built. Review again to rebuild it.",
+  slippage_invalid: "Max slippage is not valid. Fix it before continuing.",
+  build_wallet_mismatch: "This order was built for a different wallet. It cannot be signed by the connected wallet.",
+};
+
+const stale = (reason: QuoteStaleReason, fix: "new_quote" | "rebuild" | "reconnect"): QuoteGuardResult => ({
+  ok: false,
+  reason,
+  message: STALE_MSG[reason],
+  fix,
+});
+
+export function quoteGuard(
+  quote: QuotedOrder | null,
+  binding: QuoteBinding | null,
+  inputs: TicketInputs,
+  nowMs: number,
+  build?: BuildBinding | null,
+): QuoteGuardResult {
+  if (!quote || !binding) return stale("no_quote", "new_quote");
+  if (quote.marketId !== inputs.marketId.trim()) return stale("market_changed", "new_quote");
+  if (quote.side && quote.side !== inputs.side) return stale("side_changed", "new_quote");
+  if (inputs.amountUsdc == null) return stale("amount_invalid", "new_quote");
+  if (Number(quote.amountUsdc) !== Number(inputs.amountUsdc)) return stale("amount_changed", "new_quote");
+  if (!inputs.wallet || inputs.wallet !== binding.wallet) return stale("wallet_changed", "new_quote");
+  if (nowMs >= quoteDeadline(quote.expiresAt, binding.receivedAtMs).deadlineMs) return stale("expired", "new_quote");
+  if (build) {
+    if (build.wallet !== inputs.wallet || (build.buildWallet && build.buildWallet !== inputs.wallet)) {
+      return stale("build_wallet_mismatch", "new_quote");
+    }
+    if (inputs.slippageBps == null) return stale("slippage_invalid", "rebuild");
+    if (inputs.slippageBps !== build.slippageBps) return stale("slippage_changed", "rebuild");
+  }
+  return { ok: true };
+}
+
+/** Reasons that mean the quote no longer describes the ticket (UI "Inputs changed"). */
+export const INPUT_STALE_REASONS: ReadonlySet<QuoteStaleReason> = new Set([
+  "market_changed",
+  "side_changed",
+  "amount_changed",
+  "amount_invalid",
+  "wallet_changed",
+]);
+
+/**
+ * True when the ticket inputs no longer describe the quoted order (market,
+ * side, amount or wallet changed, or the amount is no longer valid). Thin
+ * view over quoteGuard for the UI state; expiry is reported separately.
+ */
+export function isQuoteStale(
+  quote: { marketId: string; side?: string | null; amountUsdc: string } | null,
+  inputs: { marketId: string; side: string; amountUsdc: string | null; wallet?: string | null },
+  quoteWallet?: string | null,
+): boolean {
+  if (!quote) return false;
+  // Wallet is compared only when the caller supplies both sides.
+  const checkWallet = inputs.wallet !== undefined && quoteWallet !== undefined;
+  const w = checkWallet ? (inputs.wallet ?? null) : "-";
+  const g = quoteGuard(
+    { ...quote, expiresAt: null },
+    { wallet: checkWallet ? (quoteWallet ?? "") : "-", receivedAtMs: 0 },
+    { ...inputs, wallet: w },
+    0,
+  );
+  return !g.ok && INPUT_STALE_REASONS.has(g.reason);
 }
 
 // ---------------------------------------------------------------- derivation

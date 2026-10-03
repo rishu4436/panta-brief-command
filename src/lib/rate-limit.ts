@@ -32,15 +32,28 @@ export function rateLimit(
   return { ok: true, remaining: limit - w.count };
 }
 
-/** Client IP from x-forwarded-for (first hop), then x-real-ip, else "unknown". */
+/**
+ * Client IP for rate-limit keys.
+ *
+ * Trust assumption: this app is deployed on Vercel, whose edge sets these
+ * headers itself (vercel.com/docs/headers/request-headers): it OVERWRITES
+ * any client-supplied X-Forwarded-For with the connecting IP ("to prevent IP
+ * spoofing"), and sends the same value as x-real-ip and
+ * x-vercel-forwarded-for. x-vercel-forwarded-for is read first because it
+ * survives even if another proxy is put in front of Vercel and rewrites
+ * X-Forwarded-For. Only the first hop of each list is used.
+ *
+ * Off Vercel (self-hosted `next start` with no trusted proxy) all three are
+ * client-controlled and spoofable, so the per-IP limits are best-effort
+ * there; put a proxy in front that overwrites them.
+ */
+const IP_HEADERS = ["x-vercel-forwarded-for", "x-forwarded-for", "x-real-ip"] as const;
+
 export function clientIp(headers: Headers): string {
-  const xff = headers.get("x-forwarded-for");
-  if (xff) {
-    const first = xff.split(",")[0]?.trim();
+  for (const name of IP_HEADERS) {
+    const first = headers.get(name)?.split(",")[0]?.trim();
     if (first) return first.slice(0, 64);
   }
-  const real = headers.get("x-real-ip")?.trim();
-  if (real) return real.slice(0, 64);
   return "unknown";
 }
 

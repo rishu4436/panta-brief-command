@@ -16,6 +16,9 @@ import { guardStore, sharedStore, storeStatus } from "@/lib/shared-store";
  */
 export const dynamic = "force-dynamic";
 
+/** Every admin response (including 400/401/404) is uncacheable and unindexed. */
+const NO_STORE = { "Cache-Control": "no-store", "X-Robots-Tag": "noindex" } as const;
+
 function authorized(req: NextRequest, secret: string): boolean {
   const header = req.headers.get("authorization") || "";
   const given = header.startsWith("Bearer ") ? header.slice(7).trim() : "";
@@ -25,14 +28,24 @@ function authorized(req: NextRequest, secret: string): boolean {
 }
 
 export async function GET(req: NextRequest) {
+  try {
+    return await handle(req);
+  } catch (e) {
+    // Code + message only (no rows, no secrets); still never cached.
+    console.error("[admin/export] failed:", e instanceof Error ? e.message : e);
+    return NextResponse.json({ code: "EXPORT_FAILED" }, { status: 500, headers: NO_STORE });
+  }
+}
+
+async function handle(req: NextRequest): Promise<NextResponse> {
   const secret = process.env.ADMIN_EXPORT_SECRET?.trim() || "";
-  if (secret.length < 24) return NextResponse.json({ code: "NOT_FOUND" }, { status: 404 });
+  if (secret.length < 24) return NextResponse.json({ code: "NOT_FOUND" }, { status: 404, headers: NO_STORE });
   if (!authorized(req, secret)) {
-    return NextResponse.json({ code: "UNAUTHORIZED" }, { status: 401, headers: { "WWW-Authenticate": "Bearer" } });
+    return NextResponse.json({ code: "UNAUTHORIZED" }, { status: 401, headers: { ...NO_STORE, "WWW-Authenticate": "Bearer" } });
   }
   const kind = req.nextUrl.searchParams.get("kind") || "summary";
   const format = req.nextUrl.searchParams.get("format") || "json";
-  const headers = { "Cache-Control": "no-store", "X-Robots-Tag": "noindex" };
+  const headers = NO_STORE;
 
   if (kind === "summary") {
     const [events, feedback] = await Promise.all([
@@ -74,7 +87,7 @@ export async function GET(req: NextRequest) {
   if (kind !== "feedback" && kind !== "events") {
     return NextResponse.json(
       { code: "INVALID_KIND", detail: "kind must be summary, feedback, events or diagnostics" },
-      { status: 400 },
+      { status: 400, headers: NO_STORE },
     );
   }
   const { rows, store } = await readEvidence(kind);

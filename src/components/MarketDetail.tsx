@@ -82,11 +82,9 @@ export function MarketDetail({ marketId }: { marketId: string }) {
   const busy = detail.isPending;
   const error = detail.error ? describeErr(detail.error) : !id ? "Missing marketId" : null;
   const updatedAt = detail.isPlaceholderData ? null : detail.dataUpdatedAt || null;
-  const tape = trades.data ?? [];
-  const tapeBusy = trades.isPending;
-  // Failed / empty / loaded are kept apart (a failure is never "0 prints").
+  // Loading / failed / empty / loaded are kept apart (a failure is never "0 prints").
   const tapeSt = tapeState(trades);
-  const tapeError = tapeSt.kind === "failed" ? tapeSt.message : tapeSt.kind === "ok" ? tapeSt.refreshFailed : null;
+  const retryTape = () => void trades.refetch();
   const load = () => void detail.refetch();
 
   // Record the visit (localStorage only; no React state involved).
@@ -201,7 +199,7 @@ export function MarketDetail({ marketId }: { marketId: string }) {
           prints={printsLabel(tapeSt)}
         />
 
-        <TapeSparkline items={tape} busy={tapeBusy} size="lg" error={tapeError} />
+        <TapeSparkline state={tapeSt} onRetry={retryTape} size="lg" />
       </div>
 
       {/* Right: AI brief */}
@@ -216,7 +214,7 @@ export function MarketDetail({ marketId }: { marketId: string }) {
 
       {/* Centre: activity + context */}
       <div className="min-w-0 space-y-4 self-start lg:col-start-1 lg:row-start-3 xl:col-start-2">
-        <TradeTape items={tape} busy={tapeBusy} error={tapeError} />
+        <TradeTape state={tapeSt} onRetry={retryTape} />
 
         <Panel title="Context">
           {showDesc ? (

@@ -5,24 +5,29 @@
  */
 import { describeErr } from "@/lib/errors";
 
-export type TapeState =
+export type TapeState<T = unknown> =
   | { kind: "loading" }
   | { kind: "failed"; message: string }
   | { kind: "empty" }
-  | { kind: "ok"; count: number; refreshFailed: string | null };
+  | { kind: "ok"; items: T[]; count: number; refreshFailed: string | null };
 
-export function tapeState<T>(q: { isPending: boolean; isError: boolean; data: T[] | undefined; error: unknown }): TapeState {
+export function tapeState<T>(q: { isPending: boolean; isError: boolean; data: T[] | undefined; error: unknown }): TapeState<T> {
   if (q.isError && !q.data) return { kind: "failed", message: describeErr(q.error) };
   if (q.data === undefined) return q.isPending ? { kind: "loading" } : { kind: "failed", message: describeErr(q.error) };
   if (q.data.length === 0) {
     // A refetch error on top of an earlier empty result is still a failure now.
     return q.isError ? { kind: "failed", message: describeErr(q.error) } : { kind: "empty" };
   }
-  return { kind: "ok", count: q.data.length, refreshFailed: q.isError ? describeErr(q.error) : null };
+  return { kind: "ok", items: q.data, count: q.data.length, refreshFailed: q.isError ? describeErr(q.error) : null };
+}
+
+/** Rows to draw: only a successful tape has rows (never a stand-in [] for an error). */
+export function tapeRows<T>(s: TapeState<T>): T[] | null {
+  return s.kind === "ok" ? s.items : null;
 }
 
 /** "Prints in window" cell: a number only when the tape actually loaded. */
-export function printsLabel(s: TapeState): string {
+export function printsLabel(s: TapeState<unknown>): string {
   return s.kind === "loading" ? "…" : s.kind === "failed" ? "Unavailable" : s.kind === "empty" ? "0" : String(s.count);
 }
 

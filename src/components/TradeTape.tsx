@@ -3,103 +3,119 @@
 import type { Trade } from "@/lib/panta/domain";
 import { useNow } from "@/hooks/useNow";
 import { formatRelativeTime, formatTapeSize, shortAddr } from "@/lib/format";
+import type { TapeState } from "@/lib/tape-status";
 import { Panel } from "./Panel";
 
 function rowSide(t: Trade): string {
   return t.side ? t.side.toUpperCase() : "—";
 }
 
+function RetryButton({ onRetry }: { onRetry?: () => void }) {
+  if (!onRetry) return null;
+  return (
+    <button type="button" onClick={onRetry} className="mt-1.5 rounded border border-amber-400/40 px-2 py-0.5 text-[11px] font-medium text-amber-100 hover:bg-amber-400/10">
+      Retry
+    </button>
+  );
+}
+
 export function TradeTape({
-  items,
-  busy,
-  error = null,
+  state,
+  onRetry,
 }: {
-  items: Trade[];
-  busy?: boolean;
-  /** Tape request failed (or its last refresh did). */
-  error?: string | null;
+  /** Loading / failed / empty / loaded, kept apart: a failure is never "no prints". */
+  state: TapeState<Trade>;
+  /** Re-run the tape request (shown only on failure). */
+  onRetry?: () => void;
 }) {
   const now = useNow(30_000);
   return (
     <Panel title="Trade tape" flush>
       <div className="max-h-96 overflow-y-auto">
-        {busy && items.length === 0 && (
-          <div className="space-y-2 p-3">
+        {state.kind === "loading" && (
+          <div className="space-y-2 p-3" data-tape-state="loading">
             {Array.from({ length: 5 }).map((_, i) => (
               <div key={i} className="skeleton h-8 w-full" />
             ))}
           </div>
         )}
 
-        {error ? (
-          <div
-            role="alert"
-            data-tape-state="failed"
-            className={`border-b border-amber-400/25 bg-amber-400/[0.06] px-3.5 py-2 text-[12px] text-amber-200 ${items.length === 0 ? "py-8 text-center" : ""}`}
-          >
-            <div className="font-medium">{items.length === 0 ? "Tape request failed" : "Tape refresh failed — showing the last loaded prints"}</div>
-            <p className="type-meta mt-0.5 break-all">{error}</p>
+        {state.kind === "failed" && (
+          <div role="alert" data-tape-state="failed" className="border-b border-amber-400/25 bg-amber-400/[0.06] px-3.5 py-8 text-center text-[12px] text-amber-200">
+            <div className="font-medium">Tape request failed</div>
+            <p className="type-meta mt-0.5 break-all">{state.message}. Prints are unknown, not zero.</p>
+            <RetryButton onRetry={onRetry} />
           </div>
-        ) : null}
+        )}
 
-        {(!busy || items.length > 0) && !(error && items.length === 0) ? (
-          <div className="type-col sticky top-0 z-10 grid grid-cols-[52px_1fr_88px_72px] gap-2 border-b border-line bg-surface/95 px-3.5 py-1.5 backdrop-blur-sm sm:grid-cols-[52px_1fr_100px_88px_72px]">
-            <span>Side</span>
-            <span>Size</span>
-            <span className="hidden sm:inline">Wallet</span>
-            <span>Time</span>
-            <span className="text-right">Tag</span>
+        {state.kind === "ok" && state.refreshFailed && (
+          <div role="alert" data-tape-state="refresh-failed" className="border-b border-amber-400/25 bg-amber-400/[0.06] px-3.5 py-2 text-[12px] text-amber-200">
+            <div className="font-medium">Tape refresh failed — showing the last loaded prints</div>
+            <p className="type-meta mt-0.5 break-all">{state.refreshFailed}</p>
+            <RetryButton onRetry={onRetry} />
           </div>
-        ) : null}
+        )}
 
-        <div className="divide-y divide-line">
-          {items.map((t, i) => {
-            const side = rowSide(t);
-            const sideColor =
-              side === "YES"
-                ? "text-emerald-400"
-                : side === "NO"
-                  ? "text-rose-400"
-                  : "text-zinc-500";
-            return (
-              <div
-                key={`${t.signature || t.id || i}`}
-                className="grid grid-cols-[52px_1fr_88px_72px] items-center gap-2 px-3.5 py-1.5 text-[11px] transition-colors hover:bg-elevated sm:grid-cols-[52px_1fr_100px_88px_72px]"
-                title={
-                  t.blockTime
-                    ? new Date(t.blockTime * 1000).toLocaleString("en-IN", {
-                        timeZone: "Asia/Calcutta",
-                      }) + " IST"
-                    : undefined
-                }
-              >
-                <span className={`font-num font-semibold ${sideColor}`}>
-                  {side}
-                </span>
-                <span className="truncate font-num text-zinc-300">
-                  {formatTapeSize(t)}
-                </span>
-                <span className="hidden font-num text-[10px] text-zinc-600 sm:inline">
-                  {shortAddr(t.wallet, 4)}
-                </span>
-                <span className="font-num text-[10px] text-zinc-500">
-                  {formatRelativeTime(t.blockTime, now)}
-                </span>
-                <span className="text-right">
-                  {t.isPrimary ? (
-                    <span className="rounded border border-cyan-400/25 px-1 py-px text-[9px] uppercase tracking-wide text-cyan-400/80">
-                      primary
-                    </span>
-                  ) : (
-                    <span className="text-[9px] text-zinc-700">—</span>
-                  )}
-                </span>
-              </div>
-            );
-          })}
-        </div>
-        {!busy && !error && items.length === 0 && (
-          <div className="px-4 py-10 text-center">
+        {state.kind === "ok" && (
+          <>
+            <div className="type-col sticky top-0 z-10 grid grid-cols-[52px_1fr_88px_72px] gap-2 border-b border-line bg-surface/95 px-3.5 py-1.5 backdrop-blur-sm sm:grid-cols-[52px_1fr_100px_88px_72px]">
+              <span>Side</span>
+              <span>Size</span>
+              <span className="hidden sm:inline">Wallet</span>
+              <span>Time</span>
+              <span className="text-right">Tag</span>
+            </div>
+            <div className="divide-y divide-line">
+              {state.items.map((t, i) => {
+              const side = rowSide(t);
+              const sideColor =
+                side === "YES"
+                  ? "text-emerald-400"
+                  : side === "NO"
+                    ? "text-rose-400"
+                    : "text-zinc-500";
+              return (
+                <div
+                  key={`${t.signature || t.id || i}`}
+                  className="grid grid-cols-[52px_1fr_88px_72px] items-center gap-2 px-3.5 py-1.5 text-[11px] transition-colors hover:bg-elevated sm:grid-cols-[52px_1fr_100px_88px_72px]"
+                  title={
+                    t.blockTime
+                      ? new Date(t.blockTime * 1000).toLocaleString("en-IN", {
+                          timeZone: "Asia/Calcutta",
+                        }) + " IST"
+                      : undefined
+                  }
+                >
+                  <span className={`font-num font-semibold ${sideColor}`}>
+                    {side}
+                  </span>
+                  <span className="truncate font-num text-zinc-300">
+                    {formatTapeSize(t)}
+                  </span>
+                  <span className="hidden font-num text-[10px] text-zinc-600 sm:inline">
+                    {shortAddr(t.wallet, 4)}
+                  </span>
+                  <span className="font-num text-[10px] text-zinc-500">
+                    {formatRelativeTime(t.blockTime, now)}
+                  </span>
+                  <span className="text-right">
+                    {t.isPrimary ? (
+                      <span className="rounded border border-cyan-400/25 px-1 py-px text-[9px] uppercase tracking-wide text-cyan-400/80">
+                        primary
+                      </span>
+                    ) : (
+                      <span className="text-[9px] text-zinc-700">—</span>
+                    )}
+                  </span>
+                </div>
+              );
+            })}
+            </div>
+          </>
+        )}
+
+        {state.kind === "empty" && (
+          <div className="px-4 py-10 text-center" data-tape-state="empty">
             <div className="type-body text-zinc-500">No prints yet</div>
             <p className="type-meta mt-1">
               Quiet book — tape stays empty until a real fill lands. No invented prints.

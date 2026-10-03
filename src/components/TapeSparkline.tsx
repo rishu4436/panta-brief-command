@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import type { Trade } from "@/lib/panta/domain";
+import type { TapeState } from "@/lib/tape-status";
 import { Panel } from "./Panel";
 
 export type SparkPoint = {
@@ -78,18 +79,29 @@ const RANGES = [
  * Range = how many of the most recent sided prints to include (the tape has
  * no per-trade price, so there is no price or time-range chart to offer).
  */
+const NO_ROWS: Trade[] = [];
+
 export function TapeSparkline({
-  items,
-  busy,
+  items: itemsProp,
+  busy: busyProp,
   size = "md",
-  error = null,
+  error: errorProp = null,
+  state,
+  onRetry,
 }: {
-  items: Trade[];
+  items?: Trade[];
   busy?: boolean;
   size?: "md" | "lg";
   /** Tape request failed: shown as an error, never as "no flow". */
   error?: string | null;
+  /** Live tape state; when given it decides rows/loading/failure (rows only on success). */
+  state?: TapeState<Trade>;
+  /** Re-run the tape request (shown only on failure). */
+  onRetry?: () => void;
 }) {
+  const items = state ? (state.kind === "ok" ? state.items : NO_ROWS) : (itemsProp ?? NO_ROWS);
+  const busy = state ? state.kind === "loading" : busyProp;
+  const error = state ? (state.kind === "failed" ? state.message : null) : errorProp;
   const [range, setRange] = useState<(typeof RANGES)[number]["id"]>("all");
   const sided = useMemo(
     () =>
@@ -133,6 +145,11 @@ export function TapeSparkline({
         >
           <div className="text-[13px] font-medium text-amber-200">Tape request failed</div>
           <p className="type-meta mt-1 break-all">{error}. Flow is unknown, not zero.</p>
+          {onRetry ? (
+            <button type="button" onClick={onRetry} className="mt-2 rounded border border-amber-400/40 px-2 py-0.5 text-[11px] font-medium text-amber-100 hover:bg-amber-400/10">
+              Retry
+            </button>
+          ) : null}
         </div>
       ) : busy && items.length === 0 ? (
         <div className={`skeleton w-full ${hCls}`} />

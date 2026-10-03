@@ -14,6 +14,7 @@ import { EvidenceLegend, EvidenceTag, type EvidenceLayer } from "./brief/Evidenc
 import { StatusBadge } from "./ui/StatusBadge";
 import { BriefFeedback } from "./brief/BriefFeedback";
 import { track } from "@/lib/telemetry";
+import { PROBABILITY_UNAVAILABLE_TEXT, rawPriceNote } from "@/lib/panta/prices";
 import { IconSparkles } from "./ui/Icons";
 
 type Layer = EvidenceLayer;
@@ -36,6 +37,7 @@ const PROB_SOURCE_LABEL: Record<string, string> = {
   spot: "Live spot",
   settled: "Settled",
   primary_curve: "Primary curve",
+  unavailable: "Probability unavailable",
 };
 
 const QUALITY_STYLE: Record<string, string> = {
@@ -294,7 +296,7 @@ export function AiBriefView({
               </Row>
               <Row label="Not in data" layer="unknown">
                 <ul className="space-y-1 text-[12px] leading-5 text-ink-2">
-                  {s.probability.yes == null && <li>Live price for this market</li>}
+                  {s.probability.yes == null && <li>{s.probability.reason === "inconsistent_prices" ? "A usable probability (Panta\u2019s YES/NO prices are inconsistent)" : "Live price for this market"}</li>}
                   {s.tape.count === 0 && <li>Recent trade flow (no prints in the window)</li>}
                   <li>Order-book depth, off-chain news and who the traders are</li>
                 </ul>
@@ -372,11 +374,16 @@ function ProbabilityBlock({ s }: { s: MarketSignals }) {
         </div>
       )}
       <p className="type-meta mt-1.5 font-num">
-        {source ? PROB_SOURCE_LABEL[source] : "No live price"}
+        {s.probability.reason ? PROBABILITY_UNAVAILABLE_TEXT[s.probability.reason].short : PROB_SOURCE_LABEL[source]}
         {s.phase && !s.resolved ? ` · ${s.phase} phase` : ""}
         {resolvesIn ? ` · resolves in ${resolvesIn}` : s.resolution.passed ? " · resolution time passed" : ""}
         {lastPrint ? ` · last print ${lastPrint} ago` : ""}
       </p>
+      {s.probability.reason && s.probability.reason !== "missing_prices" ? (
+        <p className="type-meta mt-1 text-amber-200/80" title={rawPriceNote(s.probability)}>
+          {PROBABILITY_UNAVAILABLE_TEXT[s.probability.reason].long} {rawPriceNote(s.probability)}.
+        </p>
+      ) : null}
     </div>
   );
 }

@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 import { useCatalog, useHydratedDetails, useViewportIds } from "@/lib/data/hooks";
 import { mergeMarket } from "@/lib/panta/markets";
 import type { Market } from "@/lib/panta/domain";
+import { PROBABILITY_UNAVAILABLE_TEXT, rawPriceNote } from "@/lib/panta/prices";
 import { catalogVolume, hasSpotPrice, impliedSide, isUntitledMarket, marketLabel } from "@/lib/format";
 import { isLiveMarket, lifecycleRank, marketLifecycle } from "@/lib/panta/catalog";
 import { SkeletonLoader } from "./ui/States";
@@ -83,7 +84,8 @@ export function MarketSidebar({ activeId }: { activeId: string }) {
         ) : (
           <ul className="space-y-1">
             {rows.map((m) => {
-              const { yes, no } = impliedSide(m);
+              const { yes, no, unavailable, probability } = impliedSide(m);
+              const bad = unavailable === "inconsistent_prices" || unavailable === "incomplete_prices";
               return (
                 <li key={m.marketId} ref={track(m.marketId)}>
                   <MarketListRow
@@ -91,8 +93,9 @@ export function MarketSidebar({ activeId }: { activeId: string }) {
                     active={m.marketId === activeId}
                     title={marketLabel(m)}
                     untitled={isUntitledMarket(m)}
-                    yesLabel={pct(yes)}
-                    noLabel={pct(no)}
+                    yesLabel={bad ? "n/a" : pct(yes)}
+                    noLabel={bad ? "n/a" : pct(no)}
+                    priceNote={bad && unavailable ? `${PROBABILITY_UNAVAILABLE_TEXT[unavailable].long} ${rawPriceNote(probability)}.` : undefined}
                     phase={marketLifecycle(m)}
                   />
                 </li>

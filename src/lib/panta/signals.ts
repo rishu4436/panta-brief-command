@@ -12,7 +12,8 @@
  */
 
 import type { Market, Trade } from "./domain";
-import { humanAmount, marketVolumeUsdc } from "./normalize";
+import { marketVolumeUsdc } from "./normalize";
+import { marketProbability, type MarketProbability, type ProbabilitySource, type ProbabilityUnavailableReason } from "./prices";
 
 export const SIGNALS_VERSION = 2;
 
@@ -35,7 +36,7 @@ export const SIGNAL_THRESHOLDS = {
 } as const;
 
 export type DataQualityGrade = "high" | "medium" | "low";
-export type ProbabilitySource = "spot" | "settled" | "primary_curve";
+export type { ProbabilitySource } from "./prices";
 export type RiskSeverity = "warn" | "info";
 
 export type RiskFlag = { id: string; label: string; severity: RiskSeverity };
@@ -49,7 +50,11 @@ export type MarketSignals = {
   probability: {
     yes: number | null;
     no: number | null;
-    source: ProbabilitySource | null;
+    source: ProbabilitySource;
+    /** Why there is no probability (null when there is one). */
+    reason: ProbabilityUnavailableReason | null;
+    /** Raw Panta price fields as received (evidence; never used as odds). */
+    raw: MarketProbability["raw"];
   };
   probabilityChange: {
     value: number | null;
@@ -135,11 +140,6 @@ const round = (n: number, dp = 4) => {
   return Math.round(n * f) / f;
 };
 
-function prob(v: unknown): number | null {
-  const n = humanAmount(v as string | number | null | undefined);
-  return n != null && n >= 0 && n <= 1 ? n : null;
-}
-
 function pct(n: number, dp = 0): string {
   return `${(n * 100).toFixed(dp)}%`;
 }
@@ -151,24 +151,16 @@ function ageLabel(minutes: number): string {
 }
 
 function resolveProbability(m: Market, resolved: boolean) {
-  // Detail yesPrice/noPrice are spot (docs markets/get). After resolution they
-  // are the settlement (0/1). secondary* prices are skipped: live API returns
-  // them in a different scale (e.g. "500832640"), so they are not probabilities.
-  const spotYes = prob(m.yesPrice);
-  const spotNo = prob(m.noPrice);
-  if (spotYes != null || spotNo != null) {
-    const yes = spotYes ?? (spotNo != null ? round(1 - spotNo) : null);
-    const no = spotNo ?? (spotYes != null ? round(1 - spotYes) : null);
-    return { yes, no, source: (resolved ? "settled" : "spot") as ProbabilitySource };
-  }
-  const curveYes = prob(m.primaryYesPrice);
-  const curveNo = prob(m.primaryNoPrice);
-  if (!resolved && (curveYes != null || curveNo != null)) {
-    const yes = curveYes ?? (curveNo != null ? round(1 - curveNo) : null);
-    const no = curveNo ?? (curveYes != null ? round(1 - curveYes) : null);
-    return { yes, no, source: "primary_curve" as ProbabilitySource };
-  }
-  return { yes: null, no: null, source: null };
+  // Single validation layer (prices.ts): inconsistent / one-sided / missing
+  // prices become source "unavailable" with a reason — never odds.
+  const p = marketProbability({ ...m, resolved: m.resolved || resolved });
+  return {
+    yes: p.yes == null ? null : round(p.yes),
+    no: p.no == null ? null : round(p.no),
+    source: p.source,
+    reason: p.reason,
+    raw: p.raw,
+  };
 }
 
 /** Catalog text usable for catalysts: description, else the resolution rule. */
@@ -369,7 +361,12 @@ export function computeMarketSignals(
       flowYes: flow.yesFlowShare,
       gapPts: null,
       direction: null,
-      reason: probability.yes == null ? "No market price." : "No sided prints in the window.",
+      reason:
+        probability.yes == null
+          ? probability.reason === "inconsistent_prices"
+            ? "Panta's YES/NO prices are inconsistent, so there is no probability to compare."
+            : "No market price."
+          : "No sided prints in the window.",
     };
   } else if (sided < 3) {
     divergence = {
@@ -406,7 +403,11 @@ export function computeMarketSignals(
   if (cancelled) add("cancelled", "Market cancelled — no trading");
   const partialDetail = opts.partialDetail ?? market.partial === true;
   if (partialDetail) add("partial_detail", "Panta returned a partial market record (no title or price)");
-  if (probability.yes == null) add("no_price", "No live price — odds unavailable");
+  if (probability.reason === "inconsistent_prices") {
+    add("inconsistent_prices", "Panta's YES/NO prices are inconsistent — implied probability unavailable");
+  } else if (probability.reason === "incomplete_prices") {
+    add("incomplete_prices", "Panta priced only one side — implied probability unavailable");
+  } else if (probability.yes == null) add("no_price", "No live price — odds unavailable");
   if (count === 0) add("no_tape", "No recent prints in the tape window");
   else if (count < T.thinTapePrints) add("thin_tape", `Thin tape — ${count} print${count === 1 ? "" : "s"}`);
   if (
@@ -442,13 +443,13 @@ export function computeMarketSignals(
   }
   const printTop = tapeBlock.printConcentration.topWalletShareOfPrints;
   if (count >= T.thinTapePrints && printTop != null && printTop >= T.concentratedPrintShare) {
-    add("concentrated_prints", `Print concentration — top wallet made ${pct(printTop, 1)} of prints`);
+    add("concentrated_prints", `Print concentration — top wallet made ${pct(printTop, 1)} of observed prints`);
   }
   const sizeTop = tapeBlock.sizeConcentration;
   if (count >= T.thinTapePrints && sizeTop.topWalletShareOfSize != null && sizeTop.topWalletShareOfSize >= T.concentratedSizeShare) {
     add(
       "concentrated_size",
-      `Size concentration — top wallet holds ${pct(sizeTop.topWalletShareOfSize, 1)} of traded ${sizeTop.basis === "usdc" ? "USDC" : "shares"}`,
+      `Size concentration — top wallet accounts for ${pct(sizeTop.topWalletShareOfSize, 1)} of observed traded ${sizeTop.basis === "usdc" ? "USDC" : "shares"}`,
     );
   }
   if (divergence.gapPts != null && Math.abs(divergence.gapPts) >= T.divergentGapPts) {
@@ -469,7 +470,9 @@ export function computeMarketSignals(
     reasons.push(reason);
   };
   if (partialDetail) cap(1, "Partial market record from Panta");
-  if (probability.yes == null) cap(1, "No market price");
+  if (probability.reason === "inconsistent_prices") cap(1, "Panta's YES/NO prices are inconsistent (not probabilities)");
+  else if (probability.reason === "incomplete_prices") cap(1, "Only one side priced");
+  else if (probability.yes == null) cap(1, "No market price");
   if (count === 0) cap(1, "No prints in the tape window");
   else if (count < T.thinTapePrints) cap(1, `Only ${count} print(s)`);
   else if (count < T.solidTapePrints) cap(2, `${count} prints (< ${T.solidTapePrints})`);

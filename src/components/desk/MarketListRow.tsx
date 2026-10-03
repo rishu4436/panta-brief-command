@@ -10,6 +10,7 @@ export function MarketListRow({
   phase,
   active = false,
   href,
+  priceNote,
 }: {
   title: string;
   untitled?: boolean;
@@ -18,6 +19,8 @@ export function MarketListRow({
   phase?: string | null;
   active?: boolean;
   href?: string;
+  /** Tooltip when the probability is unavailable (inconsistent Panta prices). */
+  priceNote?: string;
 }) {
   const ph = phaseTone(phase);
   const cls = `block rounded-lg border px-2.5 py-2 transition-colors ${
@@ -27,7 +30,7 @@ export function MarketListRow({
     <>
       <span className={`line-clamp-2 text-[12px] font-medium leading-snug ${untitled ? "italic text-ink-3" : "text-ink"}`}>{title}</span>
       <span className="mt-1 flex items-center justify-between gap-2">
-        <span className="font-num text-[11px]">
+        <span className="font-num text-[11px]" title={priceNote}>
           <span className="text-emerald-300">{yesLabel}</span>
           <span className="text-ink-3"> / </span>
           <span className="text-rose-300">{noLabel}</span>

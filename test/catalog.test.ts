@@ -16,6 +16,7 @@ import {
   withDetail,
 } from "@/lib/panta/catalog";
 import type { Market } from "@/lib/panta/domain";
+import { marketProbability } from "@/lib/panta/prices";
 
 const NOW = 1_790_000_000;
 
@@ -158,10 +159,13 @@ describe("mergeCatalog", () => {
     const items = mergeCatalog(list, chain);
     expect(items.map((m) => m.marketId).sort()).toEqual([ID_A, ID_B, ID_C].sort());
     const a = items.find((m) => m.marketId === ID_A)!;
-    expect(a).toMatchObject({ title: "Chain-only market?", phase: "primary", yesPrice: "0.500085505", noPrice: "0.499914495" });
+    expect(a).toMatchObject({ title: "Chain-only market?", phase: "primary", primaryYesPrice: "0.500085505", primaryNoPrice: "0.499914495" });
+    // Curve price is not a spot field; the price layer uses it only while primary.
+    expect(a.yesPrice ?? null).toBeNull();
+    expect(marketProbability(a)).toMatchObject({ yes: 0.500085505, source: "primary_curve" });
     expect(a.sources).toEqual({ list: false, chain: true, detail: false });
     const b = items.find((m) => m.marketId === ID_B)!;
-    expect(b).toMatchObject({ title: "Listed but stale?", phase: "resolved", resolved: true, yesPrice: null });
+    expect(b).toMatchObject({ title: "Listed but stale?", phase: "resolved", resolved: true, primaryYesPrice: null });
     expect(b.sources).toEqual({ list: true, chain: true, detail: false });
     expect(items.find((m) => m.marketId === ID_C)!.sources).toEqual({ list: true, chain: false, detail: false });
   });

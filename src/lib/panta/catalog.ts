@@ -102,7 +102,10 @@ export type CatalogPayload = {
 export function applyChainEvent(row: Market | undefined, ev: ChainEvent): Market {
   const phase = chainPhase(ev);
   const base: Market = row ?? { marketId: ev.marketId, title: "", category: "", phase: "" };
-  const yes = phase === "primary" || phase === "secondary" ? ev.lastYesPrice : null;
+  // lastYesPrice is the bonding-curve price: live only while primary; after
+  // graduation it is the frozen price at graduation (see prices.ts). It is
+  // stored as primary* only, never as the YES/NO spot.
+  const curveYes = phase === "primary" || phase === "secondary" ? ev.lastYesPrice : null;
   return {
     ...base,
     title: base.title || ev.question,
@@ -119,9 +122,10 @@ export function applyChainEvent(row: Market | undefined, ev: ChainEvent): Market
     volumeUsdc: formatUsdcBase(ev.activeVolumeBase),
     totalVolumeUsdcBase: ev.totalVolumeBase,
     totalVolumeUsdc: formatUsdcBase(ev.totalVolumeBase),
-    // Same number the detail endpoint returns as yesPrice (lastYesPrice / 1e9).
-    yesPrice: base.yesPrice ?? yes,
-    noPrice: base.noPrice ?? (yes != null ? String(Number((1 - Number(yes)).toFixed(9))) : null),
+    // Same number the detail endpoint returns as primaryYesPrice (lastYesPrice / 1e9).
+    primaryYesPrice: base.primaryYesPrice ?? curveYes,
+    primaryNoPrice:
+      base.primaryNoPrice ?? (curveYes != null ? String(Number((1 - Number(curveYes)).toFixed(9))) : null),
     sources: { list: Boolean(row), chain: true, detail: false },
   };
 }

@@ -1,6 +1,14 @@
 "use client";
 
 import { formatOddsPct } from "@/lib/format";
+import { PROBABILITY_UNAVAILABLE_TEXT, type ProbabilityUnavailableReason } from "@/lib/panta/prices";
+
+/** Inconsistent / one-sided Panta prices: say so instead of "No price yet". */
+function unavailableCopy(reason: ProbabilityUnavailableReason | null | undefined, note?: string) {
+  if (!reason || reason === "missing_prices") return null;
+  const t = PROBABILITY_UNAVAILABLE_TEXT[reason];
+  return { short: t.short, title: note ? `${t.long} ${note}.` : t.long };
+}
 
 function toPct(price: string | number | null | undefined): number | null {
   if (price === undefined || price === null || price === "") return null;
@@ -14,11 +22,17 @@ export function ProbBar({
   no,
   size = "md",
   showLabels = true,
+  unavailable,
+  note,
 }: {
   yes: string | number | null | undefined;
   no: string | number | null | undefined;
   size?: "sm" | "md" | "lg";
   showLabels?: boolean;
+  /** Why the probability is unavailable (from impliedSide). */
+  unavailable?: ProbabilityUnavailableReason | null;
+  /** Raw-price note for the tooltip. */
+  note?: string;
 }) {
   const y = toPct(yes);
   const n = toPct(no);
@@ -32,6 +46,19 @@ export function ProbBar({
       : size === "md"
         ? "text-xl"
         : "text-sm";
+
+  const un = !has ? unavailableCopy(unavailable, note) : null;
+  if (un) {
+    return (
+      <div
+        className={`ml-auto text-right font-sans text-amber-200/80 ${size === "sm" ? "text-[10px]" : "text-[12px]"}`}
+        title={un.title}
+        data-probability="unavailable"
+      >
+        {size === "sm" ? "Prob. unavailable" : un.short}
+      </div>
+    );
+  }
 
   if (!has) {
     return (
@@ -109,12 +136,18 @@ export function ProbBar({
 export function DualSideHero({
   yes,
   no,
+  unavailable,
+  note,
 }: {
   yes: string | number | null | undefined;
   no: string | number | null | undefined;
+  unavailable?: ProbabilityUnavailableReason | null;
+  note?: string;
 }) {
   const y = toPct(yes);
   const n = toPct(no);
+  const un = y === null && n === null ? unavailableCopy(unavailable, note) : null;
+  const empty = un ? "Unavailable" : "No price yet";
   const yW = y ?? (n !== null ? 100 - n : 50);
   const nW = n ?? (y !== null ? 100 - y : 50);
 
@@ -132,7 +165,7 @@ export function DualSideHero({
             {y !== null ? `${y.toFixed(1)}%` : "···"}
           </div>
           <div className="mt-0.5 font-num text-[11px] text-emerald-400/50">
-            {yes != null && yes !== "" ? Number(yes).toFixed(4) : "No price yet"}
+            {yes != null && yes !== "" ? Number(yes).toFixed(4) : empty}
           </div>
         </div>
         <div className="rounded-lg border border-rose-500/20 bg-rose-500/[0.07] p-4 transition-all duration-300">
@@ -146,10 +179,15 @@ export function DualSideHero({
             {n !== null ? `${n.toFixed(1)}%` : "···"}
           </div>
           <div className="mt-0.5 font-num text-[11px] text-rose-400/50">
-            {no != null && no !== "" ? Number(no).toFixed(4) : "No price yet"}
+            {no != null && no !== "" ? Number(no).toFixed(4) : empty}
           </div>
         </div>
       </div>
+      {un ? (
+        <p className="mt-2 text-[12px] text-amber-200/85" data-probability="unavailable" title={un.title}>
+          {un.title}
+        </p>
+      ) : null}
       {y === null && n === null ? (
         // No price: a neutral track, never a fake 50/50 split.
         <div className="mt-3 h-2 w-full rounded-full bg-line" aria-hidden="true" />

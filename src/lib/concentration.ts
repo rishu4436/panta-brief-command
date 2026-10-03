@@ -12,13 +12,13 @@ const pct = (n: number) => `${(n * 100).toFixed(1)}%`;
 export function printConcentrationLine(s: MarketSignals): string {
   const c = s.tape.printConcentration;
   if (c.topWalletShareOfPrints == null) return "Print concentration: unknown (no prints with a wallet).";
-  return `Print concentration: top wallet made ${pct(c.topWalletShareOfPrints)} of prints (${c.wallets} wallet${c.wallets === 1 ? "" : "s"}; counts trades, not size).`;
+  return `Print concentration: top wallet made ${pct(c.topWalletShareOfPrints)} of observed prints (${c.wallets} wallet${c.wallets === 1 ? "" : "s"}; counts trades, not size).`;
 }
 
 /** Share-weighted concentration; unknown unless every wallet print has a size. */
 export function sizeConcentrationLine(s: MarketSignals): string {
   const c = s.tape.sizeConcentration;
   if (c.topWalletShareOfSize == null) return `Size concentration: unknown — ${c.reason ?? "no trade sizes"}.`;
-  return `Size concentration: top wallet holds ${pct(c.topWalletShareOfSize)} of traded ${c.basis === "usdc" ? "USDC" : "shares"}.`;
+  return `Size concentration: top wallet accounts for ${pct(c.topWalletShareOfSize)} of observed traded ${c.basis === "usdc" ? "USDC" : "shares"}.`;
 }
 

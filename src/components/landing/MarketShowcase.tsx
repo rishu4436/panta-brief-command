@@ -202,7 +202,7 @@ function BriefPreview({ market, enabled, loading }: { market: Market | null; ena
           <dl className="mt-3 grid grid-cols-3 divide-x divide-line rounded-lg border border-line text-center">
             {(
               [
-                ["Market YES", yes != null ? `${Math.round(yes * 100)}%` : "—"],
+                ["Market YES", yes != null ? `${Math.round(yes * 100)}%` : s?.probability.source === "unavailable" && s.probability.reason !== "missing_prices" ? "n/a" : "—"],
                 ["Flow YES", flow != null ? `${Math.round(flow * 100)}%` : "—"],
                 ["Quality", s?.dataQuality.grade ?? "—"],
               ] as const

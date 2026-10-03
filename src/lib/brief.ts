@@ -63,7 +63,7 @@ function sourceLabel(s: MarketSignals["probability"]["source"]): string {
   if (s === "settled") return "settlement";
   if (s === "spot") return "live spot";
   if (s === "primary_curve") return "primary curve";
-  return "unpriced";
+  return "unavailable";
 }
 
 function question(m: Market): string {
@@ -75,6 +75,10 @@ function question(m: Market): string {
 // ---------------------------------------------------------------------------
 
 function probabilityLine(s: MarketSignals): string {
+  if (s.probability.reason === "inconsistent_prices") {
+    return `Market probability: unavailable — Panta's YES/NO prices are inconsistent (yesPrice ${s.probability.raw.yesPrice ?? "null"}, noPrice ${s.probability.raw.noPrice ?? "null"}) and are not read as probabilities.`;
+  }
+  if (s.probability.reason === "incomplete_prices") return "Market probability: unavailable — Panta priced only one side.";
   if (s.probability.yes == null) return "No market price is available.";
   return `Market probability: YES ${pct(s.probability.yes)} / NO ${pct(s.probability.no)} (${sourceLabel(s.probability.source)}).`;
 }
@@ -187,7 +191,7 @@ export function buildTemplateBrief(
       ...riskLines(s, (id) => ["resolution_soon", "resolution_passed", "no_description", "resolved", "cancelled"].includes(id)),
     ];
   } else {
-    observation = `${question(market)} — ${s.probability.yes != null ? `the market prices YES at ${pct(s.probability.yes)} (${sourceLabel(s.probability.source)})` : "no market price is available"}. ${s.headline}`;
+    observation = `${question(market)} — ${s.probability.yes != null ? `the market prices YES at ${pct(s.probability.yes)} (${sourceLabel(s.probability.source)})` : s.probability.reason === "inconsistent_prices" ? "no usable probability is available (Panta's YES/NO prices are inconsistent)" : "no market price is available"}. ${s.headline}`;
     evidence = [probabilityLine(s), flowLine(s), divergenceLine(s), windowLine(s), volumeLine(s), resolutionLine(s)];
     risk = riskLines(s);
   }
@@ -216,7 +220,7 @@ export function buildTemplateBrief(
 
 const MODE_FOCUS: Record<BriefMode, string> = {
   desk: "Balanced desk read: summarize what the probability, flow, divergence, timing and data quality say together.",
-  flow: "Focus on order flow: print counts, share-weighted split, imbalance, print concentration (top wallet's share of print COUNT) vs size concentration (top wallet's share of traded shares/USDC; null when sizes are missing — never substitute one for the other), recency, and how flow compares with price.",
+  flow: "Focus on order flow: print counts, share-weighted split, imbalance, print concentration (top wallet's share of print COUNT) vs size concentration (top wallet's share of observed traded shares/USDC; null when sizes are missing — never substitute one for the other). Phrase them as 'top wallet made X% of observed prints' and 'top wallet accounts for X% of observed traded shares'; never say a wallet 'holds' shares (these are tape shares, not positions), recency, and how flow compares with price.",
   risk: "Focus on risk: explain each risk flag and the data-quality reasons, and what they limit about reading this market.",
   catalysts:
     "Focus on catalysts, using ONLY the catalog description / resolution rule and the resolution time. If that text is empty or thin, say plainly that catalysts cannot be identified from the available data. Do not use outside knowledge or news.",
@@ -229,6 +233,7 @@ const SYSTEM_PROMPT = [
   "2. Use only the provided fields. No outside facts, news, or speculation about events.",
   "3. Never give buy, sell, hold, or sizing recommendations. Do not say what the reader should do, which side to prefer, or that a trade 'requires conviction'. Describe; do not advise.",
   "4. If a field is null, say it is unavailable and why (a reason field is usually provided).",
+  "4b. probability.raw contains Panta's raw price fields for evidence only. When probability.source is \"unavailable\" (e.g. reason \"inconsistent_prices\"), say the implied probability is unavailable; never present raw prices as probabilities or odds.",
   "5. Output markdown with exactly these four sections, in order: `### Observation`, `### Evidence`, `### Risk`, `### Execution considerations`. Evidence and Risk are bullet lists. Execution considerations restates the factual execution lines (phase, quote required, TTLs) without advice.",
   "6. Under 220 words.",
 ].join("\n");

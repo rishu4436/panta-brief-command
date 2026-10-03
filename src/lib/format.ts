@@ -1,3 +1,4 @@
+import { marketProbability, type MarketProbability, type PriceFields, type ProbabilityUnavailableReason } from "./panta/prices";
 import { marketVolumeUsdc } from "./panta/normalize";
 import type { Trade } from "./panta/domain";
 
@@ -122,17 +123,24 @@ export function formatFriendlyIst(
   );
 }
 
-export function impliedSide(market: {
-  yesPrice?: string | null;
-  noPrice?: string | null;
-  primaryYesPrice?: string | null;
-  primaryNoPrice?: string | null;
-}): { yes: string | null; no: string | null } {
-  // secondary*Price is deliberately ignored: the live API returns it on a
-  // different scale (e.g. "500832640"), so it is not a probability.
-  const yes = market.yesPrice ?? market.primaryYesPrice ?? null;
-  const no = market.noPrice ?? market.primaryNoPrice ?? null;
-  return { yes, no };
+/**
+ * Implied YES/NO probability for display, validated by the single price layer
+ * (src/lib/panta/prices.ts). `yes`/`no` are null whenever Panta's prices are
+ * missing, one-sided or inconsistent; `unavailable` says why.
+ */
+export function impliedSide(market: PriceFields): {
+  yes: string | null;
+  no: string | null;
+  unavailable: ProbabilityUnavailableReason | null;
+  probability: MarketProbability;
+} {
+  const p = marketProbability(market);
+  return {
+    yes: p.yes == null ? null : String(p.yes),
+    no: p.no == null ? null : String(p.no),
+    unavailable: p.reason,
+    probability: p,
+  };
 }
 
 /** True when API gave no human question/title. */

@@ -1,5 +1,6 @@
 "use client";
 
+import { rawPriceNote } from "@/lib/panta/prices";
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -585,7 +586,7 @@ export function MarketList() {
             ) : view === "cards" ? (
               <div className="grid gap-3 p-3.5 sm:grid-cols-2 lg:grid-cols-3">
                 {filtered.map((m, idx) => {
-                  const { yes, no } = impliedSide(m);
+                  const { yes, no, unavailable, probability } = impliedSide(m);
                   const thumb = m.images?.[0];
                   const hi = idx === highlight;
                   return (
@@ -624,7 +625,7 @@ export function MarketList() {
                             </span>
                           ) : null}
                         </div>
-                        <ProbBar yes={yes} no={no} size="sm" showLabels />
+                        <ProbBar yes={yes} no={no} unavailable={unavailable} note={rawPriceNote(probability)} size="sm" showLabels />
                         <div className="mt-auto flex justify-between font-num text-[10px] text-zinc-500">
                           <span>{formatVolumeUsdc(catalogVolume(m))}</span>
                           <span>Ends {formatEnd(m.endTime)}</span>
@@ -659,7 +660,7 @@ export function MarketList() {
                 </div>
 
                 {filtered.map((m, idx) => {
-                  const { yes, no } = impliedSide(m);
+                  const { yes, no, unavailable, probability } = impliedSide(m);
                   const thumb = m.images?.[0];
                   const hi = idx === highlight;
                   return (
@@ -709,7 +710,7 @@ export function MarketList() {
                         {formatEnd(m.endTime)}
                       </div>
                       <div className="sm:text-right">
-                        <ProbBar yes={yes} no={no} size="sm" showLabels />
+                        <ProbBar yes={yes} no={no} unavailable={unavailable} note={rawPriceNote(probability)} size="sm" showLabels />
                       </div>
                       </Link>
                     </div>

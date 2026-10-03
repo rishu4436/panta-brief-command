@@ -7,7 +7,14 @@ import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { useWalletModal } from "@solana/wallet-adapter-react-ui";
 import { useInvalidateAttribution, useMarketDetails, usePositions } from "@/lib/data/hooks";
 import { describeErr } from "@/lib/errors";
-import { impliedSide, shortAddr } from "@/lib/format";
+import { shortAddr } from "@/lib/format";
+import {
+  marketProbability,
+  positionMark,
+  PROBABILITY_UNAVAILABLE_TEXT,
+  rawPriceNote,
+  type MarketProbability,
+} from "@/lib/panta/prices";
 import { isInLedger, reportTrade } from "@/lib/panta/attribution";
 import { buildClaim, isAttributableClaim } from "@/lib/panta/claims";
 import type { ClaimKind } from "@/lib/panta/domain";
@@ -82,8 +89,9 @@ export function BookPanel({ tab, onTabChange }: { tab: BookTab; onTabChange: (t:
   // Marks: detail prices via the shared market cache. Intentional bounded
   // hydration (≤12 markets, ≤4 in flight) — see useMarketDetails.
   const details = useMarketDetails(positions.map((p) => p.marketId));
-  const priceByMarket: Record<string, { yes: string | null; no: string | null }> = {};
-  for (const [id, m] of details) priceByMarket[id] = impliedSide(m);
+  // Validated by the single price layer: inconsistent prices give no mark.
+  const priceByMarket: Record<string, MarketProbability> = {};
+  for (const [id, m] of details) priceByMarket[id] = marketProbability(m);
 
   const [claimBusy, setClaimBusy] = useState(false);
   const [claimError, setClaimError] = useState<string | null>(null);
@@ -283,10 +291,9 @@ export function BookPanel({ tab, onTabChange }: { tab: BookTab; onTabChange: (t:
                     {positions.map((p, i) => {
                       const claimable = Boolean(p.claimable && !p.claimed);
                       const px = priceByMarket[p.marketId];
-                      const price = px ? (p.side === "yes" ? px.yes : p.side === "no" ? px.no : null) : null;
-                      const shares = p.sharesNum ?? NaN;
-                      const pr = price != null && price !== "" ? Number(price) : NaN;
-                      const mark = Number.isFinite(shares) && Number.isFinite(pr) ? shares * pr : null;
+                      const mk = px ? positionMark(p.sharesNum, p.side, px) : null;
+                      const markUnavailable =
+                        mk?.reason === "inconsistent_prices" || mk?.reason === "incomplete_prices" ? mk.reason : null;
                       return (
                         <tr key={`${p.marketId}-${p.side}-${i}`} className="border-t border-line transition-colors hover:bg-elevated/60">
                           <td className="px-4 py-3">
@@ -301,10 +308,17 @@ export function BookPanel({ tab, onTabChange }: { tab: BookTab; onTabChange: (t:
                           <td className="font-num px-3 py-3 text-ink-2">
                             {!px ? (
                               <span className="text-ink-3">…</span>
-                            ) : mark == null ? (
+                            ) : markUnavailable ? (
+                              <span
+                                className="text-amber-200/80"
+                                title={`Mark unavailable: ${PROBABILITY_UNAVAILABLE_TEXT[markUnavailable].long} ${rawPriceNote(px)}.`}
+                              >
+                                Mark unavailable
+                              </span>
+                            ) : !mk || mk.value == null ? (
                               <span className="text-ink-3">—</span>
                             ) : (
-                              <span title={`shares × ${pr.toFixed(4)}`}>{mark.toLocaleString(undefined, { maximumFractionDigits: 2 })} USDC</span>
+                              <span title={`shares × ${mk.price.toFixed(4)}`}>{mk.value.toLocaleString(undefined, { maximumFractionDigits: 2 })} USDC</span>
                             )}
                           </td>
                           <td className="font-num px-3 py-3 text-ink-3">{p.outcome || "—"}</td>

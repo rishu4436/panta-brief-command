@@ -1,6 +1,7 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { track } from "@/lib/telemetry";
 import Link from "next/link";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { useWalletModal } from "@solana/wallet-adapter-react-ui";
@@ -68,6 +69,9 @@ export function BookPanel({ tab, onTabChange }: { tab: BookTab; onTabChange: (t:
   const ticketRef = useRef<HTMLDivElement>(null);
 
   const wallet = connected && publicKey ? publicKey.toBase58() : null;
+  useEffect(() => {
+    track("book_opened");
+  }, []);
   const positionsQ = usePositions(wallet);
   const positions = positionsQ.data ?? [];
   const busy = positionsQ.isFetching;

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import type { BriefMode, BriefPayload, Market } from "@/lib/types";
 import type { MarketSignals } from "@/lib/panta/signals";
 import { BRIEF_MODES, BRIEF_RATE_LIMIT } from "@/lib/brief-modes";
@@ -12,6 +12,8 @@ import { formatFriendlyIst } from "@/lib/format";
 import { BriefMarkdown } from "./BriefMarkdown";
 import { EvidenceLegend, EvidenceTag, type EvidenceLayer } from "./brief/EvidenceTag";
 import { StatusBadge } from "./ui/StatusBadge";
+import { BriefFeedback } from "./brief/BriefFeedback";
+import { track } from "@/lib/telemetry";
 import { IconSparkles } from "./ui/Icons";
 
 type Layer = EvidenceLayer;
@@ -63,6 +65,11 @@ export function AiBrief({
   const q = useBrief(marketId, mode, nonce, enabled);
   const busy = enabled && q.isFetching;
   const brief = q.data ?? null;
+  // One brief_viewed per generated brief (not per re-render / cache hit of the same one).
+  const viewedKey = brief && brief.market.marketId === marketId ? `${marketId}:${brief.mode}:${brief.generatedAt}` : null;
+  useEffect(() => {
+    if (viewedKey) track("brief_viewed", { marketId, mode });
+  }, [viewedKey, marketId, mode]);
   const rateLimited = q.error instanceof BriefRateLimitError ? q.error : null;
   const error = q.error && !rateLimited ? describeErr(q.error) : null;
   const now = useNow(rateLimited ? 1000 : 60_000);
@@ -76,6 +83,7 @@ export function AiBrief({
   return (
     <AiBriefView
       id="brief"
+      feedback
       brief={brief}
       mode={mode}
       busy={busy}
@@ -145,7 +153,10 @@ export function AiBriefView({
   headerAction,
   notices,
   showIdle = true,
+  feedback = false,
 }: {
+  /** Show the Useful?/Accurate? rating (live briefs only, never the sample). */
+  feedback?: boolean;
   id?: string;
   brief: BriefPayload | null;
   mode: BriefMode;
@@ -312,6 +323,7 @@ export function AiBriefView({
                 Blocks above are computed deterministically from the live price and tape. The
                 interpretation is descriptive — not a recommendation to buy or sell.
               </p>
+              {feedback ? <BriefFeedback brief={brief} /> : null}
             </div>
           </div>
         )}

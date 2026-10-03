@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { BrandMark } from "./BrandMark";
+import { UsageConsent } from "./UsageConsent";
 
 const DISCLAIMER =
   "Prediction markets involve risk. Market data and AI-generated analysis may be incomplete or uncertain. Review all transaction details before approving with your wallet.";
@@ -38,6 +39,9 @@ export function Footer({ variant = "marketing" }: { variant?: "marketing" | "app
             ))}
           </nav>
         </div>
+        <div className="mx-auto max-w-[1600px] px-4 pb-4 sm:px-6">
+          <UsageConsent />
+        </div>
       </footer>
     );
   }
@@ -64,6 +68,9 @@ export function Footer({ variant = "marketing" }: { variant?: "marketing" | "app
         <div className="mx-auto flex max-w-[1280px] flex-col gap-2 px-4 py-5 text-[12px] leading-relaxed text-ink-3 sm:px-6 md:flex-row md:items-center md:justify-between">
           <p className="max-w-3xl">{DISCLAIMER}</p>
           <p className="shrink-0">Built on Panta API · Solana</p>
+        </div>
+        <div className="mx-auto max-w-[1280px] px-4 pb-5 sm:px-6">
+          <UsageConsent />
         </div>
       </div>
     </footer>

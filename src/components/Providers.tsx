@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { UsageBeacon } from "./UsageBeacon";
 import { QueryClientProvider } from "@tanstack/react-query";
 import {
   ConnectionProvider,
@@ -62,6 +63,7 @@ export function Providers({ children }: { children: ReactNode }) {
           <WalletModalProvider>
             <WalletModalA11y />
             <RpcFallbackNote />
+            <UsageBeacon />
             {children}
           </WalletModalProvider>
         </WalletProvider>

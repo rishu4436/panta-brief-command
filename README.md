@@ -53,6 +53,8 @@ Open http://localhost:3000
 | `NEXT_PUBLIC_DEFAULT_RPC` | Recommended | Solana mainnet RPC for the wallet connection (see RPC below) |
 | `OPENAI_API_KEY` | No | Optional LLM interpretation of the signals (template fallback otherwise) |
 | `OPENAI_MODEL` | No | Default `gpt-4o-mini` |
+| `ADMIN_EXPORT_SECRET` | No | Enables `GET /api/admin/export` (≥ 24 chars, sent as `Authorization: Bearer …`). Unset = route returns 404 |
+| `EVIDENCE_LOG_DIR` | No | Directory for the JSON-lines evidence log when no shared store is set (default `<tmpdir>/panta-brief-evidence`) |
 | `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` | No | Shared rate limit + brief cache across serverless instances (Upstash Redis REST). `KV_REST_API_URL` / `KV_REST_API_TOKEN` (Vercel Marketplace names) also work. Unset = in-memory per instance |
 
 ### RPC
@@ -141,6 +143,16 @@ Browser ─▶ /api/panta/* (allowlist, server-only X-Api-Key) ─▶ Panta API
 - **Pre-sign instruction validation.** Before the wallet is asked to sign, the build is checked against the active quote (quote id, market, side, wallet) and every instruction must target an allowlisted program (Panta USDC program, Compute Budget, ATA, Token, System, Memo), include the Panta program, stay within 10 instructions, require no signer other than the wallet, and compile with the wallet as fee payer. Any mismatch blocks signing.
 - **No custody.** The desk never holds keys or funds. Transactions are built by Panta, signed in the user's wallet and broadcast from the browser. The server only proxies read/build/report calls.
 - **Brief limits.** `/api/brief` accepts only `{ marketId, mode }` (extra fields 400, bad mode 400, 2 KB body cap), rate-limits 20 requests per minute per IP, and caches each market+mode for 60 seconds, so repeat clicks don't re-bill the model. Evidence is fetched server-side, so clients can't inject data. With `UPSTASH_REDIS_REST_URL`/`_TOKEN` (or `KV_REST_API_URL`/`_TOKEN`) set, the limiter and cache live in Upstash Redis and are shared by all instances; the response header `X-RateLimit-Store` says which store enforced the limit. Without those vars they are in-memory per instance, which only stops casual abuse: each serverless instance keeps its own counters. Redis keys are prefixed `pbc:` and hold only counters and the same public brief payloads the route returns.
+
+## Early-user evidence
+
+Tooling for collecting real usage evidence. It ships empty: no user data is bundled or generated.
+
+- **Brief feedback.** Live briefs (never the landing sample) end with *Useful?* / *Accurate?* thumbs and an optional comment (≤ 500 chars). `POST /api/feedback` validates strictly, strips control characters and stores `{ marketId, mode, useful, accurate, comment, briefSource, signalsVersion, generatedAt, anonId?, t }`. It is limited to 10 per minute per IP; the IP is only the counter key and is never stored.
+- **Usage events.** `src/lib/telemetry.ts` sends first-party events to `POST /api/events`: `visit`, `brief_viewed`, `quote_requested`, `sign_attempted`, `trade_verified` and `book_opened`. Each carries a random anonymous id from localStorage, the pathname, and the market id / mode where relevant. There are no cookies and no third-party trackers, and no IP or user agent is stored. Events are off under Do Not Track / Global Privacy Control (checked in the browser and again on the server) and when the footer toggle is off. A wallet address is attached only when a wallet is connected **and** the user ticked "Include my connected wallet address".
+- **Storage.** Both go to the shared store (Upstash list, newest first, capped) when configured. Otherwise they go to an append-only JSON-lines file (`EVIDENCE_LOG_DIR`). On Vercel that file is per instance and ephemeral, so configure the shared store before collecting real evidence there.
+- **Export.** `GET /api/admin/export?kind=summary|feedback|events[&format=ndjson]` with `Authorization: Bearer $ADMIN_EXPORT_SECRET`. It returns 404 when the secret is unset and 401 when it is wrong (constant-time compare). `summary` reports unique anonymous visitors, returning visitors (seen on ≥ 2 IST days), multi-workflow visitors (≥ 2 distinct non-visit events), visitors with a verified trade, and feedback totals.
+- **Protocols.** `docs/evidence/execution-tests.md` is the E2E trade log template. `docs/evidence/user-testing.md` is the walkthrough protocol: consent note, task script, questions on time saved and brief usefulness/accuracy, and a recording checklist.
 
 ## Testing
 

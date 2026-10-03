@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { track } from "@/lib/telemetry";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { useWalletModal } from "@solana/wallet-adapter-react-ui";
 import { useCatalog, useHydratedDetails, useInvalidateAttribution } from "@/lib/data/hooks";
@@ -214,6 +215,7 @@ export function PrimaryBuyPanel({
 
   const runQuote = async () => {
     setStage("quote");
+    track("quote_requested", { marketId: BASE58_PUBKEY_RE.test(marketId.trim()) ? marketId.trim() : undefined });
     setReviewOpen(false);
     requireReady();
     if (!marketIdValid) throw new Error("Pick a market (valid market id required)");
@@ -309,6 +311,7 @@ export function PrimaryBuyPanel({
     } catch (e) {
       throw new PresignStop(describeErr(e));
     }
+    track("sign_attempted", { marketId: marketId.trim() });
     const signed = await signTransaction!(tx);
     setStage("broadcast");
     push("Signed in wallet · sending");
@@ -382,6 +385,7 @@ export function PrimaryBuyPanel({
         setVerifyStatus(last);
         if (last && VERIFY_SUCCESS.has(last)) {
           setVerifyPhase("confirmed");
+          track("trade_verified", { marketId: marketId.trim() });
           setStep((s) => Math.max(s, S.verified));
           push("Verified · Panta order status confirmed");
           return "confirmed" as const;

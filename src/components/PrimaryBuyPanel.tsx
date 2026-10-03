@@ -256,6 +256,7 @@ export function PrimaryBuyPanel({
     const { quote: data } = await requestQuote(
       { wallet: publicKey!.toBase58(), marketId: marketId.trim(), side, amountUsdc: amountCheck.value },
       ref,
+      { onRetry: (r) => push(`Panta busy (${r.reason}) · retrying quote ${r.attempt}/${r.maxAttempts}`) },
     );
     sessionAttrRef.current = ref;
     setQuote(data);
@@ -286,7 +287,11 @@ export function PrimaryBuyPanel({
     const { build: data } = await requestBuild(
       { quoteId: activeQuote.quoteId, wallet: publicKey!.toBase58(), maxSlippageBps: slippageCheck.value },
       ref,
+      { onRetry: (r) => push(`Panta busy (${r.reason}) · retrying build ${r.attempt}/${r.maxAttempts}`) },
     );
+    // Retries can take a few seconds: re-check the quote (expiry / stale /
+    // wallet) after the build returns; checkBuild below runs on it too.
+    enforceQuoteGuard(activeQuote, null);
     const check = checkBuild(data, activeQuote, publicKey!, builtFor.slippageBps);
     setBuild(data);
     setBuildBinding({ ...builtFor, buildWallet: data.wallet || null });

@@ -8,6 +8,7 @@ import type { PublicKey } from "@solana/web3.js";
 import { z } from "@/lib/zod";
 import type { Json } from "@/lib/types";
 import {
+  ApiError,
   InstructionSchema,
   numish,
   optNum,
@@ -119,23 +120,142 @@ export function checkBuild(
 // Browser calls (via /api/panta)
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Bounded retry for quote + build only.
+//
+// Panta's live API intermittently answers a valid quote/build with 4xx
+// {"code":"INVALID_MARKET_PARAMS"} in short bursts (3 Oct 2026: 20 sequential
+// direct quotes at 1 s spacing → 3 failures; at other times 6/6 for a few
+// seconds; same with and without our proxy). Quote and build are retried on
+// that code, on 502/503/504 and on network errors: 4 attempts total, backoff
+// ~400 / 900 / 1600 ms + ≤150 ms jitter, cancelled by AbortSignal.
+// Never retried: 429 (incl. our proxy's per-IP limit), any other code, an
+// abort, a schema error, and submit / verify / trade report. Worst case 4
+// calls per click keeps a user well inside the proxy's quote 30/min and
+// build 20/min. A build retry is safe: nothing is signed, the same quoteId is
+// reused, and the caller runs every strict check on whatever build finally
+// comes back.
+// ---------------------------------------------------------------------------
+
+export const PANTA_RETRY_DELAYS_MS = [400, 900, 1600] as const;
+export const PANTA_RETRY_JITTER_MS = 150;
+export const PANTA_MAX_ATTEMPTS = PANTA_RETRY_DELAYS_MS.length + 1;
+export const PANTA_TRANSIENT_CODE = "INVALID_MARKET_PARAMS";
+/** Code surfaced when the transient INVALID_MARKET_PARAMS persists after every attempt. */
+export const PANTA_PRICING_UNAVAILABLE = "PANTA_PRICING_UNAVAILABLE";
+
+export type RetryOptions = {
+  signal?: AbortSignal;
+  /** Called before each retry wait (attempt = the one about to run, 2..4). */
+  onRetry?: (info: { attempt: number; maxAttempts: number; delayMs: number; reason: string }) => void;
+  /** Tests only. */
+  sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
+  random?: () => number;
+};
+
+function bodyObject(e: ApiError): Record<string, Json> {
+  const b = e.body;
+  return b && typeof b === "object" && !Array.isArray(b) ? (b as Record<string, Json>) : {};
+}
+
+function isAbort(e: unknown): boolean {
+  return !!e && typeof e === "object" && (e as { name?: string }).name === "AbortError";
+}
+
+/** Reason string when `e` is worth retrying, else null. */
+export function transientReason(e: unknown): string | null {
+  if (isAbort(e)) return null;
+  if (e instanceof ApiError) {
+    if (e.status === 429) return null;
+    if (e.status >= 400 && e.status < 500 && bodyObject(e).code === PANTA_TRANSIENT_CODE) return PANTA_TRANSIENT_CODE;
+    if (e.status === 502 || e.status === 503 || e.status === 504) return `HTTP ${e.status}`;
+    return null;
+  }
+  // fetch() rejects with TypeError on network failure.
+  if (e instanceof TypeError) return "network error";
+  return null;
+}
+
+function abortError(signal?: AbortSignal): Error {
+  const r = signal?.reason;
+  if (r instanceof Error) return r;
+  const e = new Error("Aborted");
+  e.name = "AbortError";
+  return e;
+}
+
+const defaultSleep = (ms: number, signal?: AbortSignal) =>
+  new Promise<void>((resolve, reject) => {
+    if (signal?.aborted) return reject(abortError(signal));
+    const onAbort = () => {
+      clearTimeout(t);
+      reject(abortError(signal));
+    };
+    const t = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+
+export async function withPantaRetry<T>(fn: () => Promise<T>, opts: RetryOptions = {}): Promise<T> {
+  const sleep = opts.sleep ?? defaultSleep;
+  const random = opts.random ?? Math.random;
+  for (let attempt = 1; ; attempt++) {
+    if (opts.signal?.aborted) throw abortError(opts.signal);
+    try {
+      return await fn();
+    } catch (e) {
+      const reason = transientReason(e);
+      if (!reason || opts.signal?.aborted) throw e;
+      if (attempt >= PANTA_MAX_ATTEMPTS) {
+        if (reason === PANTA_TRANSIENT_CODE && e instanceof ApiError) {
+          const b = bodyObject(e);
+          throw new ApiError(e.status, {
+            code: PANTA_PRICING_UNAVAILABLE,
+            upstreamCode: PANTA_TRANSIENT_CODE,
+            attempts: PANTA_MAX_ATTEMPTS,
+            ...(b.detail != null ? { upstreamDetail: b.detail } : {}),
+          });
+        }
+        throw e;
+      }
+      const delayMs = PANTA_RETRY_DELAYS_MS[attempt - 1] + Math.floor(random() * PANTA_RETRY_JITTER_MS);
+      opts.onRetry?.({ attempt: attempt + 1, maxAttempts: PANTA_MAX_ATTEMPTS, delayMs, reason });
+      await sleep(delayMs, opts.signal);
+    }
+  }
+}
+
 export async function requestQuote(
   input: { wallet: string; marketId: string; side: Side; amountUsdc: string },
   userId?: string,
+  retry: RetryOptions = {},
 ): Promise<{ quote: Quote; raw: Json }> {
   const body: Record<string, string> = { ...input };
   if (userId) body.userId = userId;
-  const { data, raw } = await pantaFetch("/primaryorderquote/", { method: "POST", userId, body });
+  const { data, raw } = await withPantaRetry(
+    () => pantaFetch("/primaryorderquote/", { method: "POST", userId, body, signal: retry.signal }),
+    retry,
+  );
   return { quote: parseQuote(data), raw };
 }
 
+/**
+ * Every attempt sends the same quoteId. Returns the parsed build only; the
+ * caller must still run checkBuild + the quote guard on it before signing.
+ */
 export async function requestBuild(
   input: { quoteId: string; wallet: string; maxSlippageBps: number },
   userId?: string,
+  retry: RetryOptions = {},
 ): Promise<{ build: PrimaryBuild; raw: Json }> {
   const body: Record<string, string | number> = { ...input };
   if (userId) body.userId = userId;
-  const { data, raw } = await pantaFetch("/primaryorderbuild/", { method: "POST", userId, body });
+  const { data, raw } = await withPantaRetry(
+    () => pantaFetch("/primaryorderbuild/", { method: "POST", userId, body, signal: retry.signal }),
+    retry,
+  );
   return { build: parseBuild(data), raw };
 }
 

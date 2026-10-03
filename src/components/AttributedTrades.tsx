@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { useWallet } from "@solana/wallet-adapter-react";
+import { activityScopeNote, scopeActivity, walletTag, WALLET_TAG_LABEL, type ActivityScope } from "@/lib/activity-scope";
 import { useAccountTrades } from "@/lib/data/hooks";
 import { describeErr } from "@/lib/errors";
 import { formatVolumeUsdc, shortAddr } from "@/lib/format";
@@ -48,13 +50,21 @@ export function AttributedTrades({
   const [kind, setKind] = useState<"buy" | "claim" | "">(kindFilter || "");
   // Shared ledger cache; the execute/claim flows invalidate ["accountTrades"].
   const q = useAccountTrades(limit, kind);
-  const items = q.data?.items ?? [];
+  const allItems = q.data?.items ?? [];
+  // App-wide ledger vs this wallet's rows: the scope is always stated.
+  const { publicKey } = useWallet();
+  const connected = publicKey ? publicKey.toBase58() : null;
+  const [scopePick, setScopePick] = useState<ActivityScope>("app");
+  const scoped = scopeActivity(allItems, scopePick, connected);
+  const items = scoped.rows;
+  const scope = scoped.scope;
   const summary = q.data?.summary ?? null;
   const busy = q.isFetching;
   const error = q.error ? describeErr(q.error) : null;
   const load = () => void q.refetch();
 
-  const total = summary?.total ?? summary?.activityTotal ?? items.length;
+  const total = summary?.total ?? summary?.activityTotal ?? allItems.length;
+  const cols = (compact ? 6 : 7) + 1;
   const buys = summary?.buys ?? summary?.byKind?.buy;
   const claims = summary?.claims ?? summary?.byKind?.claim;
   const vol =
@@ -65,10 +75,24 @@ export function AttributedTrades({
   return (
     <Panel
       title="Activity"
-      subtitle="Attributed trades"
+      subtitle={scope === "app" ? "All wallets · attributed to this app" : "Your wallet · attributed to this app"}
       flush
       action={
         <div className="mr-2 flex items-center gap-1.5">
+          <div className="segmented" role="group" aria-label="Whose activity">
+            <button type="button" aria-pressed={scope === "app"} onClick={() => setScopePick("app")}>
+              All wallets
+            </button>
+            <button
+              type="button"
+              aria-pressed={scope === "wallet"}
+              disabled={!connected}
+              title={connected ? undefined : "Connect a wallet to filter to your own rows"}
+              onClick={() => setScopePick("wallet")}
+            >
+              My wallet
+            </button>
+          </div>
           <div className="segmented" role="group" aria-label="Filter activity">
             {(
               [
@@ -99,12 +123,12 @@ export function AttributedTrades({
       }
     >
       <div className="border-b border-line px-3.5 py-2">
-        <p className="type-meta">
-          Trades Panta has attributed to this app (GET /account/trades/). A transaction can be confirmed on Solana before
-          it shows here.
+        <p className="type-meta" data-activity-scope={scope}>
+          {activityScopeNote(scope, limit, connected ? shortAddr(connected, 4) : null)}
         </p>
         {summary && (
           <div className="mt-2 flex flex-wrap gap-1.5">
+            <span className="type-meta self-center">App-wide totals:</span>
             <span className="rounded border border-line bg-inset px-2 py-0.5 font-num text-[10px] text-zinc-400">
               Total {total ?? 0}
             </span>
@@ -149,6 +173,9 @@ export function AttributedTrades({
                 </th>
               )}
               <th scope="col" className="px-3 py-2 font-medium">
+                Wallet
+              </th>
+              <th scope="col" className="px-3 py-2 font-medium">
                 Volume
               </th>
               <th scope="col" className="px-3 py-2 font-medium">
@@ -190,6 +217,12 @@ export function AttributedTrades({
                     {row.side || "—"}
                   </td>
                 )}
+                <td className="px-3 py-2.5 text-[11px]">
+                  {/* Never another wallet's address: just whether the row is yours. */}
+                  <span className={walletTag(row.wallet, connected) === "you" ? "font-semibold text-cyan-300" : "text-zinc-500"}>
+                    {WALLET_TAG_LABEL[walletTag(row.wallet, connected)]}
+                  </span>
+                </td>
                 <td className="px-3 py-2.5 font-num text-xs text-zinc-300">
                   {row.amountUsdc != null
                     ? formatVolumeUsdc(row.amountUsdc)
@@ -234,10 +267,14 @@ export function AttributedTrades({
             ))}
             {!busy && !error && items.length === 0 && (
               <tr>
-                <td colSpan={compact ? 6 : 7}>
+                <td colSpan={cols}>
                   <EmptyState
-                    title="No attributed trades yet"
-                    description="Buys and win claims appear here after Panta attributes them. Until then they show as reported on the ticket."
+                    title={scope === "wallet" ? "No attributed trades from your wallet" : "No attributed trades yet"}
+                    description={
+                      scope === "wallet"
+                        ? `None of the latest ${limit} app-wide rows came from your wallet. Buys and win claims appear after Panta attributes them.`
+                        : "Buys and win claims appear here after Panta attributes them. Until then they show as reported on the ticket."
+                    }
                     action={
                       <Link href="/desk" className="btn btn-primary btn-sm">
                         Browse markets
@@ -249,7 +286,7 @@ export function AttributedTrades({
             )}
             {busy && items.length === 0 && (
               <tr>
-                <td colSpan={compact ? 6 : 7}>
+                <td colSpan={cols}>
                   <SkeletonLoader rows={3} className="p-4" label="Loading activity" />
                 </td>
               </tr>

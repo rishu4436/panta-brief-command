@@ -11,12 +11,12 @@ import { shortAddr } from "@/lib/format";
 import { useClaimTicket, type ClaimAttr, type ClaimResult } from "@/lib/claim-ticket";
 import {
   marketProbability,
-  positionMark,
   PROBABILITY_UNAVAILABLE_TEXT,
   rawPriceNote,
   type MarketProbability,
 } from "@/lib/panta/prices";
 import { isInLedger, reportTrade } from "@/lib/panta/attribution";
+import { bookMark } from "@/lib/panta/position-value";
 import { buildClaim, isAttributableClaim } from "@/lib/panta/claims";
 import type { ClaimKind } from "@/lib/panta/domain";
 import { assertFeePayer, validatePantaInstructions } from "@/lib/panta/instructions";
@@ -270,7 +270,7 @@ export function BookPanel({ tab, onTabChange }: { tab: BookTab; onTabChange: (t:
                       <th scope="col" className="px-4 py-2.5 font-medium">Market</th>
                       <th scope="col" className="px-3 py-2.5 font-medium">Side</th>
                       <th scope="col" className="px-3 py-2.5 font-medium">Shares</th>
-                      <th scope="col" className="px-3 py-2.5 font-medium" title="Spot price × shares. Not P&L.">
+                      <th scope="col" className="px-3 py-2.5 font-medium" title="Panta's valuation when valid, settlement value once resolved, else validated spot price × shares. Not P&L.">
                         Mark value
                       </th>
                       <th scope="col" className="px-3 py-2.5 font-medium">Outcome</th>
@@ -282,9 +282,10 @@ export function BookPanel({ tab, onTabChange }: { tab: BookTab; onTabChange: (t:
                     {positions.map((p, i) => {
                       const claimable = Boolean(p.claimable && !p.claimed);
                       const px = priceByMarket[p.marketId];
-                      const mk = px ? positionMark(p.sharesNum, p.side, px) : null;
+                      // Panta's valuation when valid, settlement when resolved, else validated spot.
+                      const mk = bookMark(p, px);
                       const markUnavailable =
-                        mk?.reason === "inconsistent_prices" || mk?.reason === "incomplete_prices" ? mk.reason : null;
+                        mk.value == null && (mk.reason === "inconsistent_prices" || mk.reason === "incomplete_prices") ? mk.reason : null;
                       return (
                         <tr key={`${p.marketId}-${p.side}-${i}`} className="border-t border-line transition-colors hover:bg-elevated/60">
                           <td className="px-4 py-3">
@@ -297,19 +298,26 @@ export function BookPanel({ tab, onTabChange }: { tab: BookTab; onTabChange: (t:
                           </td>
                           <td className="font-num px-3 py-3 text-ink-2">{p.shares}</td>
                           <td className="font-num px-3 py-3 text-ink-2">
-                            {!px ? (
+                            {mk.value != null ? (
+                              <span title={mk.note}>
+                                {mk.value.toLocaleString(undefined, { maximumFractionDigits: 2 })} USDC
+                                {mk.indicative ? <span className="ml-1 text-[10px] text-ink-3">indicative</span> : null}
+                              </span>
+                            ) : mk.reason === "pending_prices" ? (
                               <span className="text-ink-3">…</span>
-                            ) : markUnavailable ? (
+                            ) : markUnavailable && px ? (
                               <span
                                 className="text-amber-200/80"
                                 title={`Mark unavailable: ${PROBABILITY_UNAVAILABLE_TEXT[markUnavailable].long} ${rawPriceNote(px)}.`}
                               >
                                 Mark unavailable
                               </span>
-                            ) : !mk || mk.value == null ? (
-                              <span className="text-ink-3">—</span>
+                            ) : mk.reason === "panta_valuation_invalid" ? (
+                              <span className="text-amber-200/80" title={mk.note}>
+                                Mark unavailable
+                              </span>
                             ) : (
-                              <span title={`shares × ${mk.price.toFixed(4)}`}>{mk.value.toLocaleString(undefined, { maximumFractionDigits: 2 })} USDC</span>
+                              <span className="text-ink-3" title={mk.note}>—</span>
                             )}
                           </td>
                           <td className="font-num px-3 py-3 text-ink-3">{p.outcome || "—"}</td>

@@ -5,7 +5,7 @@
  */
 
 import { z } from "zod";
-import { devWarn, numish, optBool, optStr, pantaFetch, parseOrNull, parseSide } from "./client";
+import { devWarn, numish, optBool, optStr, pantaFetch, parseOrNull, parseSide, toStrOrNull } from "./client";
 import type { Position } from "./domain";
 import { humanAmount } from "./normalize";
 
@@ -19,6 +19,13 @@ const RawPositionSchema = z.looseObject({
   claimed: optBool,
   outcome: optStr,
   title: optStr,
+  // Valuation (live responses; see domain.ts PositionValuationFields).
+  price: numish,
+  priceSource: optStr,
+  valuationStatus: optStr,
+  currentValueUsdc: numish,
+  currentValueUsdcBase: numish,
+  claimedPayoutUsdc: numish,
 });
 
 const RawPositionsSchema = z.looseObject({
@@ -49,6 +56,14 @@ export function parsePositions(raw: unknown): Position[] {
       claimed: p.claimed === true,
       outcome: p.outcome || null,
       title: p.title || null,
+      valuation: {
+        price: toStrOrNull(p.price),
+        priceSource: p.priceSource || null,
+        status: p.valuationStatus ? p.valuationStatus.toLowerCase() : null,
+        currentValueUsdc: toStrOrNull(p.currentValueUsdc),
+        currentValueUsdcBase: toStrOrNull(p.currentValueUsdcBase),
+        claimedPayoutUsdc: toStrOrNull(p.claimedPayoutUsdc),
+      },
     });
   }
   return out;

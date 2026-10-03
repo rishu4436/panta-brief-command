@@ -162,6 +162,24 @@ export type Position = {
   claimed: boolean;
   outcome: string | null;
   title: string | null;
+  /**
+   * Panta's own valuation fields, raw (live /positions/ responses carry them,
+   * 3 Oct 2026, though the docs page doesn't list them yet). Absent on older
+   * payloads. Interpreted only by panta/position-value.ts.
+   */
+  valuation?: PositionValuationFields;
+};
+
+export type PositionValuationFields = {
+  /** Per-share price of the held side, human units (e.g. "0.4951937"). */
+  price: string | null;
+  /** "primary_last" | "secondary_last_trade" | ... */
+  priceSource: string | null;
+  /** "complete" | "indicative" | ... (anything else is not trusted). */
+  status: string | null;
+  currentValueUsdc: string | null;
+  currentValueUsdcBase: string | null;
+  claimedPayoutUsdc: string | null;
 };
 
 /** POST /claim/build/ or /claim/creator-fees/build/ */

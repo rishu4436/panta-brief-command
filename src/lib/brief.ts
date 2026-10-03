@@ -106,6 +106,11 @@ function volumeLine(s: MarketSignals): string {
   if (s.volume.catalogUsdc != null) parts.push(`catalog volume ${num(s.volume.catalogUsdc)} USDC (lifetime)`);
   if (s.volume.recentUsdc != null) parts.push(`${num(s.volume.recentUsdc)} USDC in the window`);
   else if (s.volume.recentShares != null) parts.push(`${num(s.volume.recentShares)} shares in the window`);
+  else if (s.volume.sharesStatus === "partial" && s.volume.knownShares != null) {
+    parts.push(
+      `at least ${num(s.volume.knownShares)} shares in the window (incomplete: ${s.volume.printsWithoutShares} of ${s.tape.count} prints lack a size)`,
+    );
+  }
   return parts.length ? `Volume: ${parts.join("; ")}.` : "Volume: not reported.";
 }
 

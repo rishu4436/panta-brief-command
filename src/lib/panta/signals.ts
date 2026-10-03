@@ -111,8 +111,14 @@ export type MarketSignals = {
     catalogUsdc: number | null;
     /** Sum of USDC on tape rows in the window; null unless every print carries USDC. */
     recentUsdc: number | null;
-    /** Sum of shares on tape rows in the window. */
+    /** Sum of shares in the window; null unless EVERY print carries shares. */
     recentShares: number | null;
+    /** complete = every print sized; partial = some prints lack shares; none = no sized prints / no prints. */
+    sharesStatus: "complete" | "partial" | "none";
+    /** Sum over the prints that do carry shares (a lower bound when partial). */
+    knownShares: number | null;
+    /** Prints in the window without a share size. */
+    printsWithoutShares: number;
     note: string | null;
   };
   resolution: {
@@ -201,6 +207,7 @@ export function computeMarketSignals(
   let usdcSum = 0;
   let usdcRows = 0;
   let sharesSum = 0;
+  let sharesRows = 0;
   const walletCounts = new Map<string, number>();
   const walletShares = new Map<string, number>();
   const walletUsdc = new Map<string, number>();
@@ -219,7 +226,10 @@ export function computeMarketSignals(
       if (t.side === "yes") yesShares += t.shares;
       else noShares += t.shares;
     }
-    if (t.shares != null) sharesSum += t.shares;
+    if (t.shares != null && Number.isFinite(t.shares)) {
+      sharesSum += t.shares;
+      sharesRows += 1;
+    }
     if (t.amountUsdc != null) {
       usdcSum += t.amountUsdc;
       usdcRows += 1;
@@ -315,13 +325,20 @@ export function computeMarketSignals(
   const volume: MarketSignals["volume"] = {
     catalogUsdc: marketVolumeUsdc(market),
     recentUsdc: count > 0 && usdcRows === count ? round(usdcSum, 2) : null,
-    recentShares: count > 0 && sharesSum > 0 ? round(sharesSum, 2) : null,
+    recentShares: count > 0 && sharesRows === count ? round(sharesSum, 2) : null,
+    sharesStatus: count > 0 && sharesRows === count ? "complete" : sharesRows > 0 ? "partial" : "none",
+    knownShares: sharesRows > 0 ? round(sharesSum, 2) : null,
+    printsWithoutShares: count - sharesRows,
     note:
       count === 0
         ? "No prints in the tape window."
-        : usdcRows === count
-          ? null
-          : "Tape rows carry share sizes but not USDC paid; recent volume is reported in shares.",
+        : sharesRows > 0 && sharesRows < count
+          ? `${count - sharesRows} of ${count} prints lack a share size, so the window's share volume is incomplete (known: ${round(sharesSum, 2)} shares across ${sharesRows} prints).`
+          : usdcRows === count
+            ? null
+            : sharesRows === 0
+              ? "Tape rows carry neither share sizes nor USDC paid; recent volume is unknown."
+              : "Tape rows carry share sizes but not USDC paid; recent volume is reported in shares.",
   };
 
   // --- Probability change: tape rows have no per-trade price → not derivable.

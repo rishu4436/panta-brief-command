@@ -445,7 +445,11 @@ function FlowRow({ s }: { s: MarketSignals }) {
       </div>
       <p className="type-meta mt-1 font-num">
         {s.tape.yesPrints} YES / {s.tape.noPrints} NO prints
-        {s.volume.recentShares != null ? ` · ${s.volume.recentShares.toLocaleString()} shares` : ""}
+        {s.volume.recentShares != null
+          ? ` · ${s.volume.recentShares.toLocaleString()} shares`
+          : s.volume.sharesStatus === "partial" && s.volume.knownShares != null
+            ? ` · ≥${s.volume.knownShares.toLocaleString()} shares (${s.volume.printsWithoutShares} unsized)`
+            : ""}
         {s.volume.recentUsdc != null ? ` · ${s.volume.recentUsdc.toLocaleString()} USDC` : ""}
       </p>
     </Row>

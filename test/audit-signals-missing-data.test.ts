@@ -95,10 +95,31 @@ describe("audit: missing prices / timestamps stay null", () => {
 });
 
 describe("audit: known gaps (documented, not fixed)", () => {
-  it("GAP P2: recentShares is a partial sum when some prints lack shares (not null)", () => {
+  it("(fixed P2) recentShares is null when some prints lack shares; partial sum is labelled", () => {
     const s = computeMarketSignals(market(), tape(4, (i) => (i === 0 ? { shares: null } : {})), NOW);
-    // Prints 1..3 carry 11+12+13 = 36 shares; print 0 is unknown but the sum is still reported.
-    expect(s.volume.recentShares).toBe(36);
+    // Prints 1..3 carry 11+12+13 = 36 shares; print 0 is unknown.
+    expect(s.volume.recentShares).toBeNull();
+    expect(s.volume).toMatchObject({ sharesStatus: "partial", knownShares: 36, printsWithoutShares: 1 });
+    expect(s.volume.note).toMatch(/1 of 4 prints lack a share size/);
+  });
+  it("every print sized → complete; no print sized → none (unknown, not 0)", () => {
+    const all = computeMarketSignals(market(), tape(3), NOW);
+    expect(all.volume).toMatchObject({ recentShares: 33, sharesStatus: "complete", printsWithoutShares: 0 });
+    const none = computeMarketSignals(market(), tape(3, () => ({ shares: null })), NOW);
+    expect(none.volume).toMatchObject({ recentShares: null, knownShares: null, sharesStatus: "none", printsWithoutShares: 3 });
+    expect(none.volume.note).toMatch(/unknown/);
+  });
+  it("genuine zero-share prints are a complete 0, not missing", () => {
+    const z = computeMarketSignals(market(), tape(2, () => ({ shares: 0 })), NOW);
+    expect(z.volume).toMatchObject({ recentShares: 0, sharesStatus: "complete" });
+  });
+  it("the brief volume line says 'at least … incomplete' for mixed records", async () => {
+    const { buildTemplateBrief } = await import("@/lib/brief");
+    const m = market();
+    const s = computeMarketSignals(m, tape(4, (i) => (i === 0 ? { shares: null } : {})), NOW);
+    const text = buildTemplateBrief(m, s, "desk");
+    expect(text).toMatch(/at least 36 shares in the window \(incomplete: 1 of 4 prints lack a size\)/);
+    expect(text).not.toMatch(/\b36 shares in the window\./);
   });
 });
 

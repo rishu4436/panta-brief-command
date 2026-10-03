@@ -11,6 +11,7 @@ import "server-only";
 
 import { catalogText, type MarketSignals } from "./panta/signals";
 import { BRIEF_MODES } from "./brief-modes";
+import { printConcentrationLine, sizeConcentrationLine } from "./concentration";
 import type { BriefMode, Market } from "./types";
 
 const SECTION_HEADERS = [
@@ -129,7 +130,8 @@ const FLOW_FLAGS = new Set([
   "thin_tape",
   "stale_last_print",
   "one_sided_flow",
-  "concentrated_flow",
+  "concentrated_prints",
+  "concentrated_size",
   "flow_price_divergence",
 ]);
 
@@ -150,9 +152,8 @@ export function buildTemplateBrief(
         ? `Imbalance ${s.flow.imbalance >= 0 ? "+" : ""}${s.flow.imbalance.toFixed(2)} on a −1 (all NO) to +1 (all YES) scale.`
         : "Imbalance: not computable.",
       `Primary prints ${s.tape.primaryPrints} · secondary ${s.tape.secondaryPrints}${s.tape.unknownSidePrints ? ` · ${s.tape.unknownSidePrints} without a side` : ""}.`,
-      s.tape.topWalletPrintShare != null
-        ? `Largest single wallet placed ${pct(s.tape.topWalletPrintShare, 0)} of prints.`
-        : "Wallet concentration: n/a.",
+      printConcentrationLine(s),
+      sizeConcentrationLine(s),
       windowLine(s),
       volumeLine(s),
       divergenceLine(s),
@@ -215,7 +216,7 @@ export function buildTemplateBrief(
 
 const MODE_FOCUS: Record<BriefMode, string> = {
   desk: "Balanced desk read: summarize what the probability, flow, divergence, timing and data quality say together.",
-  flow: "Focus on order flow: print counts, share-weighted split, imbalance, wallet concentration, recency, and how flow compares with price.",
+  flow: "Focus on order flow: print counts, share-weighted split, imbalance, print concentration (top wallet's share of print COUNT) vs size concentration (top wallet's share of traded shares/USDC; null when sizes are missing — never substitute one for the other), recency, and how flow compares with price.",
   risk: "Focus on risk: explain each risk flag and the data-quality reasons, and what they limit about reading this market.",
   catalysts:
     "Focus on catalysts, using ONLY the catalog description / resolution rule and the resolution time. If that text is empty or thin, say plainly that catalysts cannot be identified from the available data. Do not use outside knowledge or news.",

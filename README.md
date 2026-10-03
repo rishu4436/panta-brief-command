@@ -77,13 +77,15 @@ Browser calls `/api/panta/*`; the Next.js route forwards **only** the routes and
 `src/lib/panta/signals.ts` is a pure function of (market detail, tape, now) that returns structured evidence. It makes no network calls and uses no randomness or model:
 
 - YES/NO probability and its source (live spot, settled, or primary curve)
-- tape count, YES/NO print counts and ratio, primary vs secondary prints, window, last-print age, top-wallet concentration
+- tape count, YES/NO print counts and ratio, primary vs secondary prints, window, last-print age
+- **print concentration**: the top wallet's share of the print *count* ("top wallet made X% of prints"; counts trades, not size)
+- **size concentration**: the top wallet's share of traded shares (or USDC when every print has USDC but not shares); `null` with a reason whenever any wallet print lacks a size, never estimated from print counts
 - flow imbalance, share-weighted from `shares`/`sharesBase` (print-weighted only if sizes are missing)
 - recent volume in shares (USDC only when every print carries it), plus lifetime catalog volume
 - minutes to resolution
 - market price vs recent-flow divergence in points
 - `dataQuality` (`high` / `medium` / `low`) with reasons
-- `riskFlags`: thin tape, resolution < 24h, no price, primary quote vs spot, stale last print, one-sided or concentrated flow, divergence, and so on
+- `riskFlags`: thin tape, resolution < 24h, no price, primary quote vs spot, stale last print, one-sided flow, print concentration, size concentration, divergence, and so on
 - factual execution lines, e.g. "Primary YES and NO available · quote required before sizing"
 
 Anything that can't be derived is `null` with a reason. For example, `probabilityChange` is always null because tape rows carry no per-trade price. The LLM receives this JSON and is told to interpret it, not recompute it, and never to give buy/sell or sizing advice. Every brief has four sections: **Observation / Evidence / Risk / Execution considerations**. If an LLM answer is missing a section or contains advice-like wording, the desk falls back to the template, which renders from the same signals, so the demo reads the same without an OpenAI key. **Catalysts** mode uses only the catalog description and resolution time, and says so when there is little to go on.

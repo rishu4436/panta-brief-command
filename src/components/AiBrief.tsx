@@ -4,6 +4,7 @@ import { useState, type ReactNode } from "react";
 import type { BriefMode, BriefPayload, Market } from "@/lib/types";
 import type { MarketSignals } from "@/lib/panta/signals";
 import { BRIEF_MODES, BRIEF_RATE_LIMIT } from "@/lib/brief-modes";
+import { printConcentrationLine, sizeConcentrationLine } from "@/lib/concentration";
 import { BriefRateLimitError, useBrief } from "@/lib/data/hooks";
 import { useNow } from "@/hooks/useNow";
 import { describeErr } from "@/lib/errors";
@@ -239,6 +240,13 @@ export function AiBriefView({
                 <p className="type-body">{s.headline}</p>
               </Row>
               <PriceRow s={s} />
+              <Row label="Wallets" layer={s.tape.printConcentration.topWalletShareOfPrints == null ? "unknown" : "derived"}>
+                <p className="type-body">{printConcentrationLine(s)}</p>
+                <p className="type-meta mt-0.5 flex items-center gap-1.5">
+                  <LayerTag layer={s.tape.sizeConcentration.topWalletShareOfSize == null ? "unknown" : "derived"} />
+                  {sizeConcentrationLine(s)}
+                </p>
+              </Row>
               <Row label="Risk" layer="derived">
                 {s.riskFlags.length ? (
                   <ul className="space-y-1">

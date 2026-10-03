@@ -14,7 +14,7 @@
 import type { Market, Trade } from "./domain";
 import { humanAmount, marketVolumeUsdc } from "./normalize";
 
-export const SIGNALS_VERSION = 1;
+export const SIGNALS_VERSION = 2;
 
 /** Thresholds (documented so the brief can cite them). */
 export const SIGNAL_THRESHOLDS = {
@@ -28,7 +28,10 @@ export const SIGNAL_THRESHOLDS = {
   oneSidedImbalance: 0.8,
   alignedGapPts: 10,
   divergentGapPts: 20,
-  concentratedWalletShare: 0.5,
+  /** Top wallet's share of prints (print concentration) that raises a flag. */
+  concentratedPrintShare: 0.5,
+  /** Top wallet's share of traded size (shares / USDC) that raises a flag. */
+  concentratedSizeShare: 0.5,
 } as const;
 
 export type DataQualityGrade = "high" | "medium" | "low";
@@ -65,8 +68,29 @@ export type MarketSignals = {
     windowEnd: number | null;
     windowMinutes: number | null;
     lastPrintAgeMinutes: number | null;
-    /** Largest single-wallet share of prints (0–1). */
-    topWalletPrintShare: number | null;
+    /**
+     * Print concentration: the most active wallet's share of the PRINT COUNT
+     * (0–1). Counts trades, not size — one wallet making many small trades
+     * scores high here.
+     */
+    printConcentration: {
+      topWalletShareOfPrints: number | null;
+      /** Distinct wallets on prints that carry a wallet. */
+      wallets: number;
+      /** Prints with no wallet (excluded from the share). */
+      printsWithoutWallet: number;
+    };
+    /**
+     * Size concentration: the largest wallet's share of TRADED SIZE (0–1).
+     * Computed only when every wallet-attributed print carries a size —
+     * shares when all have shares, else USDC when all have USDC — so it is
+     * never mixed with or guessed from print counts. null + reason otherwise.
+     */
+    sizeConcentration: {
+      topWalletShareOfSize: number | null;
+      basis: "shares" | "usdc" | null;
+      reason: string | null;
+    };
   };
   flow: {
     yesShares: number | null;
@@ -186,6 +210,11 @@ export function computeMarketSignals(
   let usdcRows = 0;
   let sharesSum = 0;
   const walletCounts = new Map<string, number>();
+  const walletShares = new Map<string, number>();
+  const walletUsdc = new Map<string, number>();
+  let walletPrints = 0;
+  let walletPrintsWithShares = 0;
+  let walletPrintsWithUsdc = 0;
   const times: number[] = [];
 
   for (const t of tape) {
@@ -203,13 +232,48 @@ export function computeMarketSignals(
       usdcSum += t.amountUsdc;
       usdcRows += 1;
     }
-    if (t.wallet) walletCounts.set(t.wallet, (walletCounts.get(t.wallet) || 0) + 1);
+    if (t.wallet) {
+      walletPrints += 1;
+      walletCounts.set(t.wallet, (walletCounts.get(t.wallet) || 0) + 1);
+      if (t.shares != null && Number.isFinite(t.shares) && t.shares >= 0) {
+        walletPrintsWithShares += 1;
+        walletShares.set(t.wallet, (walletShares.get(t.wallet) || 0) + t.shares);
+      }
+      if (t.amountUsdc != null && Number.isFinite(t.amountUsdc) && t.amountUsdc >= 0) {
+        walletPrintsWithUsdc += 1;
+        walletUsdc.set(t.wallet, (walletUsdc.get(t.wallet) || 0) + t.amountUsdc);
+      }
+    }
     if (t.blockTime != null) times.push(t.blockTime);
   }
   const sided = yesPrints + noPrints;
   const windowStart = times.length ? Math.min(...times) : null;
   const windowEnd = times.length ? Math.max(...times) : null;
-  const topWallet = walletCounts.size ? Math.max(...walletCounts.values()) : 0;
+  const topWalletPrints = walletCounts.size ? Math.max(...walletCounts.values()) : 0;
+
+  const topOf = (m: Map<string, number>) => {
+    const vals = [...m.values()];
+    const total = vals.reduce((a, b) => a + b, 0);
+    return total > 0 ? round(Math.max(...vals) / total) : null;
+  };
+  let sizeConcentration: MarketSignals["tape"]["sizeConcentration"];
+  if (walletPrints === 0) {
+    sizeConcentration = {
+      topWalletShareOfSize: null,
+      basis: null,
+      reason: count === 0 ? "No prints in the tape window" : "Prints carry no wallet",
+    };
+  } else if (walletPrintsWithShares === walletPrints && topOf(walletShares) != null) {
+    sizeConcentration = { topWalletShareOfSize: topOf(walletShares), basis: "shares", reason: null };
+  } else if (walletPrintsWithUsdc === walletPrints && topOf(walletUsdc) != null) {
+    sizeConcentration = { topWalletShareOfSize: topOf(walletUsdc), basis: "usdc", reason: null };
+  } else {
+    sizeConcentration = {
+      topWalletShareOfSize: null,
+      basis: null,
+      reason: "Not every print carries a trade size, so the size share is unknown",
+    };
+  }
 
   const tapeBlock: MarketSignals["tape"] = {
     count,
@@ -224,7 +288,12 @@ export function computeMarketSignals(
     windowMinutes:
       windowStart != null && windowEnd != null ? Math.round((windowEnd - windowStart) / 60) : null,
     lastPrintAgeMinutes: windowEnd != null ? Math.max(0, Math.round((nowSec - windowEnd) / 60)) : null,
-    topWalletPrintShare: count ? round(topWallet / count) : null,
+    printConcentration: {
+      topWalletShareOfPrints: walletPrints ? round(topWalletPrints / walletPrints) : null,
+      wallets: walletCounts.size,
+      printsWithoutWallet: count - walletPrints,
+    },
+    sizeConcentration,
   };
 
   // --- Flow (share-weighted only when every sided print has a size)
@@ -371,8 +440,16 @@ export function computeMarketSignals(
     const leadShare = flow.imbalance > 0 ? flow.yesFlowShare! : 1 - flow.yesFlowShare!;
     add("one_sided_flow", `One-sided flow — ${lead} is ${pct(leadShare)} of ${flow.basis}`);
   }
-  if (count >= T.thinTapePrints && tapeBlock.topWalletPrintShare != null && tapeBlock.topWalletPrintShare >= T.concentratedWalletShare) {
-    add("concentrated_flow", `Concentrated flow — one wallet placed ${pct(tapeBlock.topWalletPrintShare)} of prints`);
+  const printTop = tapeBlock.printConcentration.topWalletShareOfPrints;
+  if (count >= T.thinTapePrints && printTop != null && printTop >= T.concentratedPrintShare) {
+    add("concentrated_prints", `Print concentration — top wallet made ${pct(printTop)} of prints`);
+  }
+  const sizeTop = tapeBlock.sizeConcentration;
+  if (count >= T.thinTapePrints && sizeTop.topWalletShareOfSize != null && sizeTop.topWalletShareOfSize >= T.concentratedSizeShare) {
+    add(
+      "concentrated_size",
+      `Size concentration — top wallet holds ${pct(sizeTop.topWalletShareOfSize)} of traded ${sizeTop.basis === "usdc" ? "USDC" : "shares"}`,
+    );
   }
   if (divergence.gapPts != null && Math.abs(divergence.gapPts) >= T.divergentGapPts) {
     add(

@@ -1,6 +1,7 @@
 "use client";
 
 import { useId, useState } from "react";
+import { printConcentrationLine, sizeConcentrationLine } from "@/lib/concentration";
 import { BriefRow } from "../AiBrief";
 import { EVIDENCE, EvidenceTag, type EvidenceLayer } from "../brief/EvidenceTag";
 import { IconSparkles } from "../ui/Icons";
@@ -37,7 +38,8 @@ const TABS: { id: string; label: string; rows: Line[] }[] = [
     rows: [
       { label: "Risk", layer: "derived", text: S.riskFlags.map((f) => f.label).join(" · ") || "No deterministic risk flags raised." },
       { label: "Quality", layer: "derived", text: `${S.dataQuality.grade.toUpperCase()}: ${S.dataQuality.reasons.join(" · ")}.` },
-      { label: "Wallets", layer: "derived", text: `Largest wallet accounts for ${pct(S.tape.topWalletPrintShare)} of prints.` },
+      { label: "Prints", layer: "derived", text: printConcentrationLine(S) },
+      { label: "Size", layer: S.tape.sizeConcentration.topWalletShareOfSize == null ? "unknown" : "derived", text: sizeConcentrationLine(S) },
       { label: "Not in data", layer: "unknown", text: "Order-book depth and off-chain news." },
     ],
   },

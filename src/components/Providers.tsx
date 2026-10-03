@@ -12,21 +12,14 @@ import { PhantomWalletAdapter } from "@solana/wallet-adapter-phantom";
 import { SolflareWalletAdapter } from "@solana/wallet-adapter-solflare";
 import "@/styles/wallet-adapter-ui.css";
 import { makeQueryClient } from "@/lib/data/query-client";
-import { resolveRpc } from "@/lib/rpc";
+import { clientRpcEndpoint } from "@/lib/rpc";
 
-const { endpoint: rpc, isFallback: rpcIsFallback } = resolveRpc();
-
-/** Dev-only hint when the public mainnet RPC fallback is in use. */
-function RpcFallbackNote() {
-  useEffect(() => {
-    if (process.env.NODE_ENV !== "production" && rpcIsFallback) {
-      console.info(
-        "[rpc] Using the public mainnet RPC fallback. Set NEXT_PUBLIC_DEFAULT_RPC to a dedicated provider (Helius, QuickNode, Triton, Alchemy) for reliable sends and confirmations.",
-      );
-    }
-  }, []);
-  return null;
-}
+/**
+ * Every browser RPC call goes through the same-origin relay; the provider URL
+ * (and its key) stays on the server. The server render never uses the
+ * Connection, so a placeholder origin is fine there.
+ */
+const rpc = clientRpcEndpoint(typeof window !== "undefined" ? window.location.origin : "http://localhost");
 
 /** Wallet adapter close button has no accessible name — patch when modal mounts. */
 function WalletModalA11y() {
@@ -62,7 +55,6 @@ export function Providers({ children }: { children: ReactNode }) {
         <WalletProvider wallets={wallets} autoConnect>
           <WalletModalProvider>
             <WalletModalA11y />
-            <RpcFallbackNote />
             <UsageBeacon />
             {children}
           </WalletModalProvider>

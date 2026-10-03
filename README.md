@@ -50,7 +50,9 @@ Open http://localhost:3000
 | --- | --- | --- |
 | `PANTA_API_KEY` | Yes | Server-only; never exposed to the browser |
 | `PANTA_API_BASE_URL` | No | Default `https://live-api.panta.market/api/v1` |
-| `NEXT_PUBLIC_DEFAULT_RPC` | Recommended | Solana mainnet RPC for the wallet connection (see RPC below) |
+| `SOLANA_RPC_URL` | Yes (production) | Server-only Solana mainnet RPC URL (may contain the provider key) behind the `/api/rpc` relay (see RPC below) |
+| `NEXT_PUBLIC_DEFAULT_RPC` | No | Local dev only: relay upstream when `SOLANA_RPC_URL` is unset and `NODE_ENV` ≠ production. Never read by the browser; don't set it in production |
+| `PANTA_DISCOVERY_RPC_URL` | No | Server-side catalog discovery RPC (default `SOLANA_RPC_URL`, then the public endpoint) |
 | `OPENAI_API_KEY` | No | Optional LLM interpretation of the signals (template fallback otherwise) |
 | `OPENAI_MODEL` | No | Default `gpt-4o-mini` |
 | `ADMIN_EXPORT_SECRET` | No | Enables `GET /api/admin/export` (≥ 24 chars, sent as `Authorization: Bearer …`). Unset = route returns 404 |
@@ -59,7 +61,14 @@ Open http://localhost:3000
 
 ### RPC
 
-Set `NEXT_PUBLIC_DEFAULT_RPC` to a **dedicated mainnet RPC** from a provider such as Helius, QuickNode, Triton or Alchemy. The public `https://api.mainnet-beta.solana.com` endpoint is only a fallback: it is heavily rate-limited, so balance reads, blockhash lookups and confirmation polling can fail or stall under load. When the fallback is in use, dev builds log a one-line note in the browser console. No provider is hardcoded.
+The browser never talks to an RPC provider directly. The wallet `Connection` points at the same-origin relay `${window.location.origin}/api/rpc`, which forwards to the private server env var `SOLANA_RPC_URL` (a dedicated mainnet RPC such as Helius, QuickNode, Triton or Alchemy, key included). The provider URL and key never reach the client bundle, the CSP (`connect-src 'self'`) or the network tab.
+
+- **No silent public fallback**: with `SOLANA_RPC_URL` unset the relay answers `503 RPC_NOT_CONFIGURED` (outside production only, `NEXT_PUBLIC_DEFAULT_RPC` is accepted as the upstream for local dev).
+- **Method allowlist** (`src/lib/rpc-relay.ts`), derived from the client code: `getGenesisHash`, `getLatestBlockhash`, `sendTransaction`, `getSignatureStatuses`, `getBlockHeight`, `getAccountInfo`, `getTokenAccountsByOwner`. Anything else → 403 (JSON-RPC `-32601`), before the upstream is called.
+- Batches up to 10 calls, 32 KB body cap, 10 s upstream timeout, per-IP limit of 300 req/min (shared store when configured; `X-RateLimit-*` headers).
+- Upstream failures return generic codes (`RPC_UPSTREAM_TIMEOUT`, `RPC_UPSTREAM_HTTP_<status>`, …); non-JSON-RPC bodies are dropped and any URL/host/key text is redacted from passed-through errors. Nothing is logged.
+- **No websocket**: transaction confirmation polls `getSignatureStatuses` every 2 s (block height every 6 s for blockhash expiry), with the same outcomes as before: confirmed / failed on-chain / expired / pending after 90 s.
+- The mainnet genesis check (before build and before sign) goes through the relay, so it verifies the real upstream.
 
 ## API surface used
 

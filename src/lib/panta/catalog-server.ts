@@ -15,7 +15,7 @@ import "server-only";
  */
 
 import { createLimiter } from "@/lib/data/limit";
-import { resolveRpc } from "@/lib/rpc";
+import { serverRpcUrl } from "@/lib/rpc";
 import {
   EVENT_DISCRIMINATOR_B58,
   PANTA_PROGRAM_ID,
@@ -85,7 +85,7 @@ async function listUnion(): Promise<{ rows: Market[]; requests: number; error?: 
 }
 
 async function chainEvents(): Promise<ChainEvent[]> {
-  const endpoint = process.env.PANTA_DISCOVERY_RPC_URL?.trim() || resolveRpc().endpoint;
+  const endpoint = serverRpcUrl();
   const res = await fetch(endpoint, {
     method: "POST",
     headers: { "Content-Type": "application/json" },

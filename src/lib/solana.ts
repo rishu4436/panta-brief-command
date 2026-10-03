@@ -4,8 +4,6 @@ import { Buffer } from "buffer";
 import {
   type Connection,
   PublicKey,
-  TransactionExpiredBlockheightExceededError,
-  TransactionExpiredTimeoutError,
   TransactionInstruction,
   TransactionMessage,
   VersionedTransaction,
@@ -79,56 +77,82 @@ function errText(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
+/** Poll cadence for confirmation (HTTP only — the relay has no websocket). */
+export const CONFIRM_POLL_MS = 2_000;
+/** Block height is checked every Nth poll (it only matters near expiry). */
+const HEIGHT_EVERY = 3;
+
+type ConfirmDeps = { now?: () => number; sleep?: (ms: number) => Promise<void>; pollMs?: number; hardTimeoutMs?: number };
+const defaultSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+/**
+ * Wait for `signature` to reach `confirmed`, by HTTP polling of
+ * getSignatureStatuses (+ getBlockHeight for blockhash expiry). Same outcomes
+ * and limits as web3.js confirmTransaction with the block-height strategy,
+ * which needed a websocket subscription the /api/rpc relay can't provide:
+ *  - status err → failed; confirmed/finalized → confirmed;
+ *  - block height > lastValidBlockHeight (re-checked once more) → expired;
+ *  - 90 s hard ceiling → pending ("may still land");
+ *  - RPC errors are retried until the ceiling, then reported as pending.
+ * `blockhash` is kept in the signature for callers; expiry uses the height.
+ */
 export async function confirmSignature(
   connection: Connection,
   signature: string,
-  blockhash: string,
+  _blockhash: string,
   lastValidBlockHeight: number,
+  deps: ConfirmDeps = {},
 ): Promise<ConfirmOutcome> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    const res = await Promise.race([
-      connection.confirmTransaction(
-        { signature, blockhash, lastValidBlockHeight },
-        "confirmed",
-      ),
-      new Promise<"timeout">((resolve) => {
-        timer = setTimeout(() => resolve("timeout"), CONFIRM_HARD_TIMEOUT_MS);
-      }),
-    ]);
-    if (res === "timeout") {
-      return {
-        status: "pending",
-        message: "No confirmation after 90s. The transaction may still land — check again before retrying.",
-      };
+  const now = deps.now ?? Date.now;
+  const sleep = deps.sleep ?? defaultSleep;
+  const pollMs = deps.pollMs ?? CONFIRM_POLL_MS;
+  const deadline = now() + (deps.hardTimeoutMs ?? CONFIRM_HARD_TIMEOUT_MS);
+  let lastError: string | null = null;
+
+  const status = async (): Promise<ConfirmOutcome | null> => {
+    const { value } = await connection.getSignatureStatuses([signature]);
+    const st = value[0];
+    if (st?.err) {
+      return { status: "failed", message: `Transaction failed on-chain: ${JSON.stringify(st.err).slice(0, 200)}` };
     }
-    if (res.value.err) {
-      return {
-        status: "failed",
-        message: `Transaction failed on-chain: ${JSON.stringify(res.value.err).slice(0, 200)}`,
-      };
+    if (st && (st.confirmationStatus === "confirmed" || st.confirmationStatus === "finalized")) {
+      return { status: "confirmed" };
     }
-    return { status: "confirmed" };
-  } catch (e) {
-    if (e instanceof TransactionExpiredBlockheightExceededError) {
-      return {
-        status: "expired",
-        message: "Blockhash expired before the transaction confirmed. It can no longer land and no funds moved — re-quote and try again.",
-      };
+    return null;
+  };
+
+  for (let i = 0; now() < deadline; i++) {
+    try {
+      const s = await status();
+      if (s) return s;
+      if (i % HEIGHT_EVERY === HEIGHT_EVERY - 1 || i === 0) {
+        const height = await connection.getBlockHeight("confirmed");
+        if (height > lastValidBlockHeight) {
+          const last = await status();
+          if (last) return last;
+          return {
+            status: "expired",
+            message: "Blockhash expired before the transaction confirmed. It can no longer land and no funds moved — re-quote and try again.",
+          };
+        }
+      }
+      lastError = null;
+    } catch (e) {
+      lastError = errText(e);
     }
-    if (e instanceof TransactionExpiredTimeoutError) {
-      return {
-        status: "pending",
-        message: "Confirmation timed out. The transaction may still land — check again before retrying.",
-      };
-    }
+    if (now() + pollMs >= deadline) break;
+    await sleep(pollMs);
+  }
+  if (lastError) {
     return {
       status: "pending",
-      message: `Could not confirm (RPC error: ${errText(e).slice(0, 160)}). Check again before retrying.`,
+      message: `Could not confirm (RPC error: ${lastError.slice(0, 160)}). Check again before retrying.`,
     };
-  } finally {
-    if (timer) clearTimeout(timer);
   }
+  return {
+    status: "pending",
+    message: "No confirmation after 90s. The transaction may still land — check again before retrying.",
+  };
 }
 
 /** One-shot status check used by the "Check again" retry path. */

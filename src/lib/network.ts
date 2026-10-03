@@ -3,9 +3,9 @@
  * and again before signing.
  *
  * Panta's markets live on mainnet-beta: the program 6gM5afTQ…, the USDC mint
- * EPjFWdd5… and every decoded order were mainnet (3 Oct 2026), and the
- * production RPC (NEXT_PUBLIC_DEFAULT_RPC = api.mainnet-beta.solana.com)
- * returns this genesis hash. A devnet/testnet/local RPC would let the app
+ * EPjFWdd5… and every decoded order were mainnet (3 Oct 2026). The browser
+ * asks through the /api/rpc relay, so this verifies the relay's private
+ * upstream (SOLANA_RPC_URL) end to end. A devnet/testnet/local RPC would let the app
  * fetch a blockhash, broadcast and "confirm" against the wrong chain.
  *
  * Policy:

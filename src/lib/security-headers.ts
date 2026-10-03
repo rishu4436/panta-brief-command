@@ -17,36 +17,20 @@
  *    arbitrary hosts (Cloudinary and others); wallet icons are data: URIs.
  *    Images can't run script.
  *  - font-src 'self' data: — next/font/google self-hosts the files.
- *  - connect-src: own API routes ('self') + the configured Solana RPC over
- *    https and its wss (web3.js confirmation subscriptions), plus the public
- *    mainnet endpoint used as the fallback. Panta is reached only via our
- *    /api/panta proxy, so its host is not needed in the browser.
+ *  - connect-src 'self' only: Solana RPC goes through our /api/rpc relay
+ *    (the provider URL + key stay server-side; confirmation is HTTP polling,
+ *    so no wss), and Panta through our /api/panta proxy. No RPC or Panta
+ *    host is needed in the browser.
  *  - frame-src https://connect.solflare.com: the Solflare adapter opens its
  *    SDK iframe there when the extension isn't installed. Phantom / Solflare
  *    extensions inject via content scripts, which page CSP doesn't block.
  *  - object-src 'none', base-uri 'self', form-action 'self'.
  */
 
-import { PUBLIC_MAINNET_RPC } from "./rpc";
-
 export const SOLFLARE_FRAME = "https://connect.solflare.com";
 
-/** https://host[:port] and wss://host[:port] for an RPC URL; [] if unparseable. */
-export function rpcOrigins(rpc: string | undefined | null): string[] {
-  const v = rpc?.trim();
-  if (!v) return [];
-  try {
-    const u = new URL(v);
-    if (u.protocol !== "https:" && u.protocol !== "http:") return [];
-    const ws = u.protocol === "https:" ? "wss:" : "ws:";
-    return [`${u.protocol}//${u.host}`, `${ws}//${u.host}`];
-  } catch {
-    return [];
-  }
-}
-
-export function buildCsp(opts: { rpc?: string | null; dev?: boolean } = {}): string {
-  const connect = Array.from(new Set(["'self'", ...rpcOrigins(opts.rpc), ...rpcOrigins(PUBLIC_MAINNET_RPC)]));
+export function buildCsp(opts: { dev?: boolean } = {}): string {
+  const connect = ["'self'"];
   if (opts.dev) connect.push("ws:", "wss:"); // HMR socket
   const script = ["'self'", "'unsafe-inline'", ...(opts.dev ? ["'unsafe-eval'"] : [])];
   const directives: [string, string[]][] = [
@@ -68,7 +52,7 @@ export function buildCsp(opts: { rpc?: string | null; dev?: boolean } = {}): str
 
 export function securityHeaders(env: Record<string, string | undefined> = process.env): { key: string; value: string }[] {
   return [
-    { key: "Content-Security-Policy", value: buildCsp({ rpc: env.NEXT_PUBLIC_DEFAULT_RPC, dev: env.NODE_ENV === "development" }) },
+    { key: "Content-Security-Policy", value: buildCsp({ dev: env.NODE_ENV === "development" }) },
     { key: "X-Frame-Options", value: "DENY" },
   ];
 }

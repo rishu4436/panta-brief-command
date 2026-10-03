@@ -20,7 +20,7 @@ import {
 } from "@/lib/network";
 import { QUOTE_EXPIRY_MARGIN_MS, QUOTE_FALLBACK_NOTE, quoteExpiryNote } from "@/lib/trade-state";
 import { QuoteSummary } from "@/components/trade/TicketParts";
-import { buildCsp, rpcOrigins, securityHeaders } from "@/lib/security-headers";
+import { buildCsp, securityHeaders } from "@/lib/security-headers";
 import { clientIp } from "@/lib/rate-limit";
 import { activityScopeNote, scopeActivity, walletTag } from "@/lib/activity-scope";
 import { BRIEF_SECTION_HEADERS, briefSection, briefSectionLayer, TEMPLATE_INTERPRETATION } from "@/lib/brief-sections";
@@ -150,7 +150,7 @@ describe("admin export: every response is no-store", () => {
 
 // ---------------------------------------------------------------- #5 CSP
 describe("CSP + anti-framing", () => {
-  const prod = buildCsp({ rpc: "https://mainnet.helius-rpc.com/?api-key=abc" });
+  const prod = buildCsp();
   const dir = (csp: string, name: string) => csp.split("; ").find((d) => d.startsWith(name + " ")) ?? "";
   it("forbids framing and plugins; no eval in production", () => {
     expect(dir(prod, "frame-ancestors")).toBe("frame-ancestors 'none'");
@@ -159,14 +159,12 @@ describe("CSP + anti-framing", () => {
     expect(prod).not.toContain("unsafe-eval");
     expect(dir(buildCsp({ dev: true }), "script-src")).toContain("'unsafe-eval'");
   });
-  it("connect-src allows the configured RPC (https + wss, origin only — no key) and the public fallback", () => {
-    const c = dir(prod, "connect-src");
-    expect(c).toContain("https://mainnet.helius-rpc.com");
-    expect(c).toContain("wss://mainnet.helius-rpc.com");
-    expect(c).not.toContain("api-key");
-    expect(c).toContain("https://api.mainnet-beta.solana.com");
-    expect(rpcOrigins("not a url")).toEqual([]);
-    expect(rpcOrigins("javascript:alert(1)")).toEqual([]);
+  it("connect-src is 'self' only: RPC goes through /api/rpc, no provider host or key", () => {
+    expect(dir(prod, "connect-src")).toBe("connect-src 'self'");
+    const fromEnv = securityHeaders({ NODE_ENV: "production", NEXT_PUBLIC_DEFAULT_RPC: "https://mainnet.helius-rpc.com/?api-key=abc", SOLANA_RPC_URL: "https://x.example/?api-key=abc" });
+    const csp = fromEnv.find((h) => h.key === "Content-Security-Policy")!.value;
+    expect(dir(csp, "connect-src")).toBe("connect-src 'self'");
+    expect(csp).not.toMatch(/helius|api-key|mainnet-beta|x\.example/);
   });
   it("wallet + images: Solflare SDK frame allowed, market images from any https host, no third-party styles", () => {
     expect(dir(prod, "frame-src")).toBe("frame-src https://connect.solflare.com");

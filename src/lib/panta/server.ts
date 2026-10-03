@@ -6,8 +6,8 @@ import "server-only";
  * this module a build error.
  */
 
-import type { Market, Trade } from "./domain";
-import { fetchMarketWithRetry, parseMarket, parseTradesStrict, TapeDataError } from "./markets";
+import type { Market } from "./domain";
+import { fetchMarketWithRetry, parseMarket, parseTradesStrict, TapeDataError, type TapePage } from "./markets";
 
 export const PANTA_UPSTREAM =
   process.env.PANTA_API_BASE_URL?.replace(/\/$/, "") || "https://live-api.panta.market/api/v1";
@@ -65,7 +65,7 @@ export async function getMarketServer(marketId: string): Promise<Market | null> 
  * page) — never returns [] for a failed request, so callers can't report a
  * failure as "no recent prints" or cache it as data.
  */
-export async function getMarketTradesServer(marketId: string, limit = 50): Promise<Trade[]> {
+export async function getMarketTradesServer(marketId: string, limit = 50): Promise<TapePage> {
   let raw: unknown;
   try {
     raw = await pantaServerGet(`/markets/${encodeURIComponent(marketId)}/trades/?limit=${limit}`);

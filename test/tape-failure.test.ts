@@ -56,7 +56,10 @@ describe("getMarketTradesServer", () => {
   it("a genuine empty page is [] (zero prints)", async () => {
     stubPanta(() => json({ items: [], nextCursor: null }));
     const { getMarketTradesServer } = await import("@/lib/panta/server");
-    expect(await getMarketTradesServer(MARKET)).toEqual([]);
+    expect(await getMarketTradesServer(MARKET)).toEqual({
+      trades: [],
+      completeness: { returned: 0, parsed: 0, dropped: 0, complete: true },
+    });
   });
 });
 

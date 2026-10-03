@@ -21,7 +21,7 @@ import {
   toStrOrNull,
 } from "./client";
 import type { CatalogPayload } from "./catalog";
-import type { Market, MarketPage, Trade } from "./domain";
+import type { Market, MarketPage, TapePage, Trade } from "./domain";
 import { normalizePantaTrade, type RawTradeRow } from "./normalize";
 
 // ---------------------------------------------------------------------------
@@ -166,25 +166,68 @@ export class TapeDataError extends Error {
   }
 }
 
-/** Strict: throws TapeDataError on a malformed page instead of returning []. */
-export function parseTradesStrict(raw: unknown): Trade[] {
+/**
+ * How much of a tape page was usable. `dropped` rows were returned by Panta
+ * but could not be read (not an object, a numeric field present but not a
+ * number, or no signature/id/blockTime to place the print). They are left
+ * out — never turned into zero-size prints — and the page is marked partial.
+ */
+export type { TapeCompleteness, TapePage } from "./domain";
+
+const NUMERIC_TAPE_FIELDS = ["shares", "sharesBase", "amountUsdc", "amountUsdcBase", "yesAmount", "noAmount"] as const;
+
+function present(v: unknown): boolean {
+  return v !== undefined && v !== null && v !== "";
+}
+
+/** null when the row is unreadable (dropped), else the normalized print. */
+function parseTradeRow(row: unknown): Trade | null {
+  if (!row || typeof row !== "object" || Array.isArray(row)) return null;
+  const r = RawTradeSchema.safeParse(row);
+  if (!r.success) return null;
+  const o = row as Record<string, unknown>;
+  for (const k of NUMERIC_TAPE_FIELDS) {
+    if (!present(o[k])) continue;
+    const v = o[k];
+    if (typeof v !== "number" && typeof v !== "string") return null;
+    const n = Number(v);
+    if (!Number.isFinite(n) || n < 0) return null;
+  }
+  if (present(o.blockTime) && (typeof o.blockTime !== "number" || !Number.isFinite(o.blockTime))) return null;
+  if (!present(o.signature) && !present(o.id) && !present(o.blockTime)) return null;
+  return normalizePantaTrade(r.data as RawTradeRow);
+}
+
+/** Lenient: unreadable page → empty, complete=false only if rows were dropped. */
+export function parseTradesDetailed(raw: unknown): TapePage {
+  const page = parseOrNull(RawTradesSchema, raw, "market trades");
+  const rows = page?.items ?? [];
+  const trades: Trade[] = [];
+  for (const row of rows) {
+    const t = parseTradeRow(row);
+    if (t) trades.push(t);
+  }
+  const dropped = rows.length - trades.length;
+  if (dropped) devWarn(`market trades: dropped ${dropped} of ${rows.length} unreadable row(s)`);
+  return { trades, completeness: { returned: rows.length, parsed: trades.length, dropped, complete: dropped === 0 } };
+}
+
+/**
+ * Strict: throws TapeDataError on a malformed page (or one where no row is
+ * readable) instead of returning []. A page with some unreadable rows is
+ * returned with completeness.complete = false.
+ */
+export function parseTradesStrict(raw: unknown): TapePage {
   const items = raw && typeof raw === "object" ? (raw as { items?: unknown }).items : undefined;
   if (!Array.isArray(items)) throw new TapeDataError();
-  const out = parseTrades(raw);
+  const out = parseTradesDetailed(raw);
   // Rows came back but none could be read: that is missing data, not zero prints.
-  if (items.length > 0 && out.length === 0) throw new TapeDataError();
+  if (items.length > 0 && out.trades.length === 0) throw new TapeDataError();
   return out;
 }
 
 export function parseTrades(raw: unknown): Trade[] {
-  const page = parseOrNull(RawTradesSchema, raw, "market trades");
-  if (!page) return [];
-  const out: Trade[] = [];
-  for (const row of page.items) {
-    const r = RawTradeSchema.safeParse(row);
-    if (r.success) out.push(normalizePantaTrade(r.data as RawTradeRow));
-  }
-  return out;
+  return parseTradesDetailed(raw).trades;
 }
 
 export function parseCategories(raw: unknown): string[] {
@@ -312,7 +355,7 @@ export async function fetchMarket(marketId: string): Promise<Market | null> {
   return fetchMarketWithRetry(async () => (await pantaFetch(path)).data);
 }
 
-export async function fetchMarketTrades(marketId: string): Promise<Trade[]> {
+export async function fetchMarketTrades(marketId: string): Promise<TapePage> {
   const { data } = await pantaFetch(`/markets/${encodeURIComponent(marketId)}/trades/`);
   // Errors propagate (TanStack keeps them as errors, never as an empty tape).
   return parseTradesStrict(data);

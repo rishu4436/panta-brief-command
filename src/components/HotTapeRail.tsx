@@ -97,7 +97,7 @@ export function HotTapeRail({
   const hits = useMemo(() => {
     const out: TapeHit[] = [];
     targets.forEach((m, i) => {
-      for (const trade of (queries[i]?.data ?? []).slice(0, 6)) {
+      for (const trade of (queries[i]?.data?.trades ?? []).slice(0, 6)) {
         out.push({ marketId: m.marketId, label: marketLabel(m, { max: 36 }), trade });
       }
     });

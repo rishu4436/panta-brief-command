@@ -51,17 +51,21 @@ function fail(status: number, code: string, detail?: string, headers?: Record<st
 async function buildBrief(marketId: string, mode: BriefMode): Promise<BriefPayload> {
   // A failed tape fetch must surface as an error, not as an empty tape: an
   // empty array would be reported as "No recent prints" (and cached for 60s).
-  const [detail, trades] = await Promise.all([
+  const [detail, tape] = await Promise.all([
     getMarketServer(marketId),
     getMarketTradesServer(marketId, SIGNAL_TAPE_ROWS),
   ]);
   if (!detail) throw new UpstreamError(404, "MARKET_NOT_FOUND");
   const market = sanitizeMarket(detail);
-  const signals = computeMarketSignals(market, trades.slice(0, SIGNAL_TAPE_ROWS));
+  // A partial page (some rows unreadable) is a partial sample: signals say so
+  // and cap data quality; unreadable rows are never counted as zero prints.
+  const signals = computeMarketSignals(market, tape.trades.slice(0, SIGNAL_TAPE_ROWS), Date.now(), {
+    tapeCompleteness: tape.completeness,
+  });
   const { narrative, source } = await maybeOpenAIBrief(market, signals, mode);
   return {
     market,
-    tape: sanitizeTape(trades),
+    tape: sanitizeTape(tape.trades),
     signals,
     narrative,
     source,

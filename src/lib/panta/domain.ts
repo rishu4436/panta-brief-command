@@ -114,6 +114,10 @@ export type Trade = {
   amountUsdc: number | null;
 };
 
+/** Tape page completeness (see panta/markets.ts parseTradesDetailed). */
+export type TapeCompleteness = { returned: number; parsed: number; dropped: number; complete: boolean };
+export type TapePage = { trades: Trade[]; completeness: TapeCompleteness };
+
 export type IxAccount = { pubkey: string; isSigner: boolean; isWritable: boolean };
 export type BuiltInstruction = { programId: string; data: string; accounts: IxAccount[] };
 

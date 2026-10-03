@@ -83,7 +83,9 @@ export function MarketDetail({ marketId }: { marketId: string }) {
   const error = detail.error ? describeErr(detail.error) : !id ? "Missing marketId" : null;
   const updatedAt = detail.isPlaceholderData ? null : detail.dataUpdatedAt || null;
   // Loading / failed / empty / loaded are kept apart (a failure is never "0 prints").
-  const tapeSt = tapeState(trades);
+  const tapeSt = tapeState({ ...trades, data: trades.data?.trades });
+  // Some rows of the page unreadable: shown as a partial sample, never as zeros.
+  const tapePartial = trades.data && !trades.data.completeness.complete ? trades.data.completeness : null;
   const retryTape = () => void trades.refetch();
   const load = () => void detail.refetch();
 
@@ -214,6 +216,12 @@ export function MarketDetail({ marketId }: { marketId: string }) {
 
       {/* Centre: activity + context */}
       <div className="min-w-0 space-y-4 self-start lg:col-start-1 lg:row-start-3 xl:col-start-2">
+        {tapePartial && (
+          <p role="status" className="rounded-lg border border-amber-400/25 bg-amber-400/[0.06] px-3 py-2 text-[12px] text-amber-100/90">
+            Partial tape: {tapePartial.dropped} of {tapePartial.returned} rows from Panta could not be read and are left out.
+            Counts and flow cover the {tapePartial.parsed} readable rows only.
+          </p>
+        )}
         <TradeTape state={tapeSt} onRetry={retryTape} />
 
         <Panel title="Context">

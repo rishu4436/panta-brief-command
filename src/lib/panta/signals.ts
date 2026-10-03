@@ -11,7 +11,7 @@
  * probability change across the window is not derivable today.
  */
 
-import type { Market, Trade } from "./domain";
+import type { Market, TapeCompleteness, Trade } from "./domain";
 import { marketVolumeUsdc } from "./normalize";
 import { marketProbability, type MarketProbability, type ProbabilitySource, type ProbabilityUnavailableReason } from "./prices";
 
@@ -91,6 +91,12 @@ export type MarketSignals = {
      * shares when all have shares, else USDC when all have USDC — so it is
      * never mixed with or guessed from print counts. null + reason otherwise.
      */
+    /**
+     * How much of the returned tape page was readable. null when the caller
+     * did not report it. Unreadable rows are left out of every count above
+     * (never counted as zero-size prints), so a partial page is a partial sample.
+     */
+    completeness: TapeCompleteness | null;
     sizeConcentration: {
       topWalletShareOfSize: number | null;
       basis: "shares" | "usdc" | null;
@@ -182,7 +188,7 @@ export function computeMarketSignals(
   market: Market,
   tape: Trade[],
   nowMs: number = Date.now(),
-  opts: { partialDetail?: boolean } = {},
+  opts: { partialDetail?: boolean; tapeCompleteness?: TapeCompleteness | null } = {},
 ): MarketSignals {
   const T = SIGNAL_THRESHOLDS;
   const nowSec = nowMs / 1000;
@@ -295,6 +301,7 @@ export function computeMarketSignals(
       wallets: walletCounts.size,
       printsWithoutWallet: count - walletPrints,
     },
+    completeness: opts.tapeCompleteness ?? null,
     sizeConcentration,
   };
 
@@ -487,6 +494,12 @@ export function computeMarketSignals(
     reasons.push(reason);
   };
   if (partialDetail) cap(1, "Partial market record from Panta");
+  const tc = opts.tapeCompleteness;
+  if (tc && !tc.complete && tc.dropped > 0) {
+    // Partial sample: every tape-derived number covers only the readable rows.
+    const why = `Partial tape: ${tc.dropped} of ${tc.returned} rows unreadable (left out, not counted)`;
+    cap(tc.dropped * 4 >= tc.returned ? 1 : 2, why);
+  }
   if (probability.reason === "inconsistent_prices") cap(1, "Panta's YES/NO prices are inconsistent (not probabilities)");
   else if (probability.reason === "incomplete_prices") cap(1, "Only one side priced");
   else if (probability.yes == null) cap(1, "No market price");

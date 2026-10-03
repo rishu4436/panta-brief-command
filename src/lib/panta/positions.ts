@@ -4,7 +4,7 @@
  * share quantity). Read path: malformed rows are dropped with a dev warning.
  */
 
-import { z } from "zod";
+import { z } from "@/lib/zod";
 import { devWarn, numish, optBool, optStr, pantaFetch, parseOrNull, parseSide, toStrOrNull } from "./client";
 import type { Position } from "./domain";
 import { humanAmount } from "./normalize";

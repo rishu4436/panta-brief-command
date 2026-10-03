@@ -9,7 +9,7 @@
  *                  GET /account/trades/
  */
 
-import { z } from "zod";
+import { z } from "@/lib/zod";
 import type { Json } from "@/lib/types";
 import { devWarn, numish, optNum, optStr, pantaFetch, parseOrNull } from "./client";
 import type {

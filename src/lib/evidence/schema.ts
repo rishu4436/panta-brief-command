@@ -8,7 +8,7 @@
  * only when a wallet is connected AND the user switched on "include my wallet".
  */
 
-import { z } from "zod";
+import { z } from "@/lib/zod";
 import { BASE58_PUBKEY_RE } from "@/lib/panta/routes";
 
 export const USAGE_EVENTS = [

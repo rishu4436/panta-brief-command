@@ -3,7 +3,7 @@
  * → ClaimBuild. Write path: parsed strictly before anything is signed.
  */
 
-import { z } from "zod";
+import { z } from "@/lib/zod";
 import { InstructionSchema, numish, optNum, optStr, pantaFetch, parseOrThrow } from "./client";
 import type { ClaimBuild, ClaimKind } from "./domain";
 

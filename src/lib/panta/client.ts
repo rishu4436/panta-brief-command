@@ -4,7 +4,7 @@
  * sends or sees a key. Also hosts the zod parse helpers every adapter uses.
  */
 
-import { z } from "zod";
+import { z } from "@/lib/zod";
 import type { Json } from "@/lib/types";
 import { isValidAttributionRef } from "./routes";
 

@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import { securityHeaders } from "./src/lib/security-headers";
 
 /**
  * Bundler: webpack, forced by `next dev --webpack` / `next build --webpack`
@@ -26,6 +27,11 @@ import type { NextConfig } from "next";
  */
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  // CSP (frame-ancestors 'none') + X-Frame-Options DENY on every route;
+  // the policy and its reasoning live in src/lib/security-headers.ts.
+  async headers() {
+    return [{ source: "/:path*", headers: securityHeaders() }];
+  },
 };
 
 export default nextConfig;

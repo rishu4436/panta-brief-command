@@ -5,7 +5,7 @@
  */
 
 import type { PublicKey } from "@solana/web3.js";
-import { z } from "zod";
+import { z } from "@/lib/zod";
 import type { Json } from "@/lib/types";
 import {
   InstructionSchema,

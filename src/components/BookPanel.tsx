@@ -17,6 +17,7 @@ import {
 } from "@/lib/panta/prices";
 import { isInLedger, reportTrade } from "@/lib/panta/attribution";
 import { bookMark } from "@/lib/panta/position-value";
+import { assertMainnet } from "@/lib/network";
 import { buildClaim, isAttributableClaim } from "@/lib/panta/claims";
 import type { ClaimKind } from "@/lib/panta/domain";
 import { assertFeePayer, validatePantaInstructions } from "@/lib/panta/instructions";
@@ -138,6 +139,8 @@ export function BookPanel({ tab, onTabChange }: { tab: BookTab; onTabChange: (t:
         throw new Error("Connect a signing wallet");
       }
       if (!claimMarketId.trim()) throw new Error("marketId required");
+      // The RPC must be Solana mainnet (genesis hash) before building or signing.
+      await assertMainnet(connection);
       // Parsed strictly (zod) by the claims adapter before anything is signed.
       const data = await buildClaim(mode, {
         wallet: publicKey.toBase58(),
@@ -159,6 +162,7 @@ export function BookPanel({ tab, onTabChange }: { tab: BookTab; onTabChange: (t:
         data.recentBlockhash,
       );
       assertFeePayer(tx, publicKey);
+      await assertMainnet(connection);
       const signed = await signTransaction(tx);
       const sig = await connection.sendRawTransaction(signed.serialize(), {
         skipPreflight: false,

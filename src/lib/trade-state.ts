@@ -509,9 +509,12 @@ export function classifyFailure(stage: FlowStage | null, err: unknown, opts: { p
 // ---------------------------------------------------------------- quote expiry
 
 /**
- * Fallback when a quote carries no parseable `expiresAt`. Panta documents
- * quote sessions as "~90s" (docs.panta.market, orders overview); we assume
- * 60 s so a slow review never approves a quote Panta already dropped.
+ * Fallback when a quote carries no parseable `expiresAt`. Live quotes always
+ * carried one (3 Oct 2026: expiresAt was 139 s after the response's Date
+ * header, longer than the "~90s" the docs list as a typical TTL), so the
+ * ticket's clock and copy come from Panta's value; this conservative 60 s is
+ * only for a quote without it, so a slow review never approves a quote Panta
+ * already dropped.
  */
 export const QUOTE_FALLBACK_TTL_MS = 60_000;
 /** Treat Panta's own expiry as reached this much early (client clock skew, build time). */
@@ -524,6 +527,23 @@ export function quoteDeadline(
   const t = expiresAt ? Date.parse(expiresAt) : NaN;
   if (Number.isFinite(t)) return { deadlineMs: t - QUOTE_EXPIRY_MARGIN_MS, source: "panta" };
   return { deadlineMs: receivedAtMs + QUOTE_FALLBACK_TTL_MS, source: "fallback" };
+}
+
+export const QUOTE_FALLBACK_NOTE = `Panta sent no expiry time, so this ticket assumes a conservative ${QUOTE_FALLBACK_TTL_MS / 1000} s.`;
+
+/**
+ * Expiry copy for the ticket, derived from what Panta actually sent (never a
+ * hardcoded TTL): the expiry time in IST, how long after receipt that was,
+ * and the safety margin the ticket applies.
+ */
+export function quoteExpiryNote(expiresAt: string | null | undefined, receivedAtMs: number): string {
+  const d = quoteDeadline(expiresAt, receivedAtMs);
+  if (d.source === "fallback") return QUOTE_FALLBACK_NOTE;
+  const t = Date.parse(expiresAt as string);
+  const at = new Date(t).toLocaleTimeString("en-IN", { timeZone: "Asia/Calcutta", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+  const ttl = Math.round((t - receivedAtMs) / 1000);
+  const life = ttl > 0 ? ` (${ttl} s after it arrived)` : " (already past when it arrived)";
+  return `Panta set this quote to expire at ${at} IST${life}; the ticket stops ${QUOTE_EXPIRY_MARGIN_MS / 1000} s early.`;
 }
 
 /** Whole seconds left (never negative). */

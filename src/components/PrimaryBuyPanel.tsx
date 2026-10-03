@@ -10,6 +10,7 @@ import { ApiError } from "@/lib/panta/client";
 import { mergeMarket } from "@/lib/panta/markets";
 import { checkBuild, requestBuild, requestQuote, submitOrder, verifyOrder } from "@/lib/panta/orders";
 import { verifyVaultAuthorityOnChain } from "@/lib/panta/primary-order";
+import { checkMainnet } from "@/lib/network";
 import { describeErr } from "@/lib/errors";
 import { marketLabel, shortAddr } from "@/lib/format";
 import { assertFeePayer, programLabel, type InstructionCheck } from "@/lib/panta/instructions";
@@ -36,6 +37,7 @@ import {
   formatClock,
   INPUT_STALE_REASONS,
   quoteDeadline,
+  quoteExpiryNote,
   quoteGuard,
   secondsLeft,
   type AttrPhase,
@@ -276,6 +278,9 @@ export function PrimaryBuyPanel({
     if (!slippageCheck.ok) throw new Error(slippageCheck.error);
     // Stale / expired / other-wallet quote: never build from it.
     enforceQuoteGuard(activeQuote, null);
+    // The RPC must be Solana mainnet (genesis hash) before anything is built.
+    const net = await checkMainnet(connection);
+    if (!net.ok) throw new PresignStop(net.message);
     const ref = sessionAttrRef.current;
     const builtFor: BuildBinding = { wallet: publicKey!.toBase58(), slippageBps: slippageCheck.value };
     const { build: data } = await requestBuild(
@@ -336,6 +341,9 @@ export function PrimaryBuyPanel({
     // since changed, or after the quote deadline.
     if (!buildBinding) throw new PresignStop("Build again before signing.");
     enforceQuoteGuard(q || quote, buildBinding);
+    // Same mainnet check right before signing (cached after the first match).
+    const net = await checkMainnet(connection);
+    if (!net.ok) throw new PresignStop(net.message);
     // Re-run the pre-sign check right before signing (defense in depth).
     const check = checkBuild(built, q || quote, publicKey!);
     setIxCheck(check);
@@ -1013,6 +1021,7 @@ export function PrimaryBuyPanel({
                 slippageBps={slippageCheck.ok ? slippageCheck.value : null}
                 secondsLeft={signature ? null : quoteSecondsLeft}
                 totalSeconds={quoteTotalSeconds}
+                expiryNote={quoteExpiryNote(quote.expiresAt, quoteReceivedAt || now)}
                 ttlSource={deadline?.source ?? "panta"}
                 stale={quoteStale && !signature}
               />

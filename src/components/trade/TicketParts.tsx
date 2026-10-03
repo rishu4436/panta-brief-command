@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { STEP_LABEL, STEP_ORDER, formatClock, stepMarksFor, type StepId, type TradeStateId } from "@/lib/trade-state";
+import { QUOTE_FALLBACK_NOTE, STEP_LABEL, STEP_ORDER, formatClock, stepMarksFor, type StepId, type TradeStateId } from "@/lib/trade-state";
 import type { TxStep } from "../TransactionStepper";
 import { StatusBadge, phaseTone } from "../ui/StatusBadge";
 
@@ -88,6 +88,7 @@ export function QuoteSummary({
   secondsLeft,
   totalSeconds,
   ttlSource,
+  expiryNote,
   stale = false,
 }: {
   quote: QuoteView;
@@ -95,6 +96,8 @@ export function QuoteSummary({
   secondsLeft: number | null;
   totalSeconds: number | null;
   ttlSource: "panta" | "fallback";
+  /** Expiry copy derived from the quote (quoteExpiryNote); omitted in previews. */
+  expiryNote?: string | null;
   stale?: boolean;
 }) {
   const expired = secondsLeft === 0;
@@ -145,8 +148,8 @@ export function QuoteSummary({
           <dd className="font-num mt-0.5 font-medium text-ink">{slippageBps != null ? `${slippageBps} bps` : "—"}</dd>
         </div>
       </dl>
-      {ttlSource === "fallback" && !stale && (
-        <p className="mt-2 text-[11px] text-ink-3">Panta sent no expiry time, so this ticket assumes 60 s (Panta documents ~90 s quote sessions).</p>
+      {!stale && (expiryNote || ttlSource === "fallback") && (
+        <p className="mt-2 text-[11px] text-ink-3">{expiryNote || QUOTE_FALLBACK_NOTE}</p>
       )}
     </div>
   );

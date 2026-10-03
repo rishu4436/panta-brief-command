@@ -9,14 +9,14 @@ export const MAX_SLIPPAGE_BPS = 1_000;
 
 export type Validated<T> = { ok: true; value: T } | { ok: false; error: string };
 
-const AMOUNT_RE = /^\d{1,7}(\.\d{1,2})?$/;
+const AMOUNT_RE = /^(\d{1,7}(\.\d{1,2})?|\.\d{1,2})$/;
 
 /** Returns a canonical 2-dp string (Panta primary buy amounts are human decimals, e.g. "20.00"). */
 export function validateAmountUsdc(raw: string): Validated<string> {
   const s = raw.trim();
   if (!s) return { ok: false, error: "Enter an amount." };
   if (!AMOUNT_RE.test(s)) {
-    return { ok: false, error: "Use a plain number with up to 2 decimals (e.g. 25 or 25.50)." };
+    return { ok: false, error: "Use a plain number with up to 2 decimals (e.g. 0.5, 25 or 25.50)." };
   }
   const n = Number(s);
   if (!Number.isFinite(n) || n <= 0) return { ok: false, error: "Amount must be greater than 0." };

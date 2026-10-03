@@ -19,7 +19,27 @@ export type ProxyRoute = {
   query?: readonly string[];
   /** Forward a validated X-User-Id header (attribution flow only). */
   forwardUserId?: boolean;
+  /** Per-IP fixed-window limit (per minute) and the bucket it counts against. */
+  limit: { bucket: string; perMinute: number };
 };
+
+/**
+ * Per-IP limits for the proxy (each forwarded request spends PANTA_API_KEY
+ * quota). Reads share one generous bucket (a desk page fans out to catalog,
+ * detail hydration ≤12, hot tape ≤3, positions, ledger checks). Write paths
+ * get their own, tighter buckets, sized so a full trade with retries fits
+ * comfortably inside a minute: re-quote a few times as quotes expire, build
+ * and rebuild, submit, verify polling (≤30 s, backoff → ~15 calls), report.
+ */
+export const PROXY_LIMITS = {
+  read: { bucket: "panta-read", perMinute: 300 },
+  quote: { bucket: "panta-quote", perMinute: 30 },
+  build: { bucket: "panta-build", perMinute: 20 },
+  submit: { bucket: "panta-submit", perMinute: 20 },
+  verify: { bucket: "panta-verify", perMinute: 90 },
+  report: { bucket: "panta-report", perMinute: 20 },
+  claimBuild: { bucket: "panta-claim-build", perMinute: 10 },
+} as const satisfies Record<string, { bucket: string; perMinute: number }>;
 
 /** Solana base58 public key (32–44 chars, no 0/O/I/l). */
 export const BASE58_PUBKEY = "[1-9A-HJ-NP-Za-km-z]{32,44}";
@@ -32,12 +52,14 @@ export const PROXY_ROUTES: readonly ProxyRoute[] = [
     pattern: /^markets$/,
     methods: ["GET"],
     query: ["category", "status", "limit", "cursor"],
+    limit: PROXY_LIMITS.read,
   },
   // MarketDetail, MarketList/PrimaryBuyPanel title hydration, BookPanel marks
   {
     id: "markets.detail",
     pattern: new RegExp(`^markets/${BASE58_PUBKEY}$`),
     methods: ["GET"],
+    limit: PROXY_LIMITS.read,
   },
   // MarketDetail tape, HotTapeRail
   {
@@ -45,31 +67,34 @@ export const PROXY_ROUTES: readonly ProxyRoute[] = [
     pattern: new RegExp(`^markets/${BASE58_PUBKEY}/trades$`),
     methods: ["GET"],
     query: ["limit"],
+    limit: PROXY_LIMITS.read,
   },
   // MarketList category chips
-  { id: "categories", pattern: /^categories$/, methods: ["GET"] },
+  { id: "categories", pattern: /^categories$/, methods: ["GET"], limit: PROXY_LIMITS.read },
   // BookPanel
-  { id: "positions", pattern: /^positions$/, methods: ["GET"], query: ["wallet"] },
+  { id: "positions", pattern: /^positions$/, methods: ["GET"], query: ["wallet"], limit: PROXY_LIMITS.read },
   // AttributedTrades + post-attribution ledger check
   {
     id: "account.trades",
     pattern: /^account\/trades$/,
     methods: ["GET"],
     query: ["limit", "kind"],
+    limit: PROXY_LIMITS.read,
   },
   // PrimaryBuyPanel execution lifecycle
-  { id: "primary.quote", pattern: /^primaryorderquote$/, methods: ["POST"], forwardUserId: true },
-  { id: "primary.build", pattern: /^primaryorderbuild$/, methods: ["POST"], forwardUserId: true },
-  { id: "primary.submit", pattern: /^primaryordersubmit$/, methods: ["POST"] },
-  { id: "primary.verify", pattern: /^primaryorderverify$/, methods: ["POST"] },
+  { id: "primary.quote", pattern: /^primaryorderquote$/, methods: ["POST"], forwardUserId: true, limit: PROXY_LIMITS.quote },
+  { id: "primary.build", pattern: /^primaryorderbuild$/, methods: ["POST"], forwardUserId: true, limit: PROXY_LIMITS.build },
+  { id: "primary.submit", pattern: /^primaryordersubmit$/, methods: ["POST"], limit: PROXY_LIMITS.submit },
+  { id: "primary.verify", pattern: /^primaryorderverify$/, methods: ["POST"], limit: PROXY_LIMITS.verify },
   // Attribution report (PrimaryBuyPanel buys, BookPanel win claims)
-  { id: "trades.report", pattern: /^trades$/, methods: ["POST"], forwardUserId: true },
+  { id: "trades.report", pattern: /^trades$/, methods: ["POST"], forwardUserId: true, limit: PROXY_LIMITS.report },
   // BookPanel claims
-  { id: "claim.win.build", pattern: /^claim\/build$/, methods: ["POST"] },
+  { id: "claim.win.build", pattern: /^claim\/build$/, methods: ["POST"], limit: PROXY_LIMITS.claimBuild },
   {
     id: "claim.creatorFees.build",
     pattern: /^claim\/creator-fees\/build$/,
     methods: ["POST"],
+    limit: PROXY_LIMITS.claimBuild,
   },
 ];
 

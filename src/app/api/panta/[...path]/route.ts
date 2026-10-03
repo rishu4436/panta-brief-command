@@ -5,6 +5,8 @@ import {
   type ProxyMethod,
 } from "@/lib/panta/routes";
 import { PANTA_UPSTREAM, serverApiKey } from "@/lib/panta/server";
+import { clientIp } from "@/lib/rate-limit";
+import { limitShared, storeHeaderValue, type LimitResult } from "@/lib/shared-store";
 
 /**
  * Allowlisted server proxy: browser → /api/panta/<route> → Panta live API.
@@ -21,6 +23,19 @@ const UPSTREAM_TIMEOUT_MS = 15_000;
 const SEGMENT_RE = /^[A-Za-z0-9_-]{1,64}$/;
 
 type Ctx = { params: Promise<{ path: string[] }> };
+
+const RATE_WINDOW_MS = 60_000;
+
+/** Same rate-limit headers as /api/brief (store: redis = shared, memory = per instance). */
+function limitHeaders(rl: LimitResult): Record<string, string> {
+  return {
+    "X-RateLimit-Limit": String(rl.limit),
+    "X-RateLimit-Remaining": String(rl.remaining),
+    "X-RateLimit-Reset": new Date(rl.resetAt).toISOString(),
+    "X-RateLimit-Store": rl.store,
+    "X-Store-Status": storeHeaderValue(rl.store),
+  };
+}
 
 function deny(status: number, error: string, detail?: string, extra?: HeadersInit) {
   return NextResponse.json(
@@ -51,9 +66,20 @@ async function forward(req: NextRequest, ctx: Ctx, method: ProxyMethod) {
     });
   }
 
+  // --- Per-IP limit (shared store when configured), before any upstream call.
+  const rl = await limitShared(`${route.limit.bucket}:${clientIp(req.headers)}`, route.limit.perMinute, RATE_WINDOW_MS);
+  const rlh = limitHeaders(rl);
+  if (!rl.ok) {
+    return deny(429, "RATE_LIMITED", `Max ${route.limit.perMinute} requests per minute for this action`, {
+      ...rlh,
+      "Retry-After": String(rl.retryAfterSec),
+      "Cache-Control": "no-store",
+    });
+  }
+
   const apiKey = serverApiKey();
   if (!apiKey) {
-    return deny(401, "UNAUTHORIZED", "PANTA_API_KEY is not configured on the server");
+    return deny(401, "UNAUTHORIZED", "PANTA_API_KEY is not configured on the server", rlh);
   }
 
   // --- Query: only keys documented for this route, bounded length.
@@ -129,6 +155,7 @@ async function forward(req: NextRequest, ctx: Ctx, method: ProxyMethod) {
     }
 
     const out = new Headers({
+      ...rlh,
       "Content-Type": upstream.headers.get("content-type") || "application/json",
       "Cache-Control": "no-store",
     });
@@ -144,7 +171,7 @@ async function forward(req: NextRequest, ctx: Ctx, method: ProxyMethod) {
         code: timedOut ? "UPSTREAM_TIMEOUT" : "PROXY_UNREACHABLE",
         detail: timedOut ? "Panta API did not respond in time" : "Panta API unreachable",
       },
-      { status: timedOut ? 504 : 502 },
+      { status: timedOut ? 504 : 502, headers: rlh },
     );
   }
 }

@@ -52,6 +52,8 @@ describe("/api/brief validation", () => {
     expect(res.status).toBe(429);
     expect((await res.json()).code).toBe("RATE_LIMITED");
     expect(Number(res.headers.get("retry-after"))).toBeGreaterThan(0);
+    expect(res.headers.get("x-ratelimit-store")).toBe("memory");
+    expect(res.headers.get("x-ratelimit-remaining")).toBe("0");
     // Another IP is unaffected.
     expect((await POST(req({ marketId: MARKET, mode: "moon" }, "203.0.113.8"))).status).toBe(400);
   });

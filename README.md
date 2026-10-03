@@ -53,6 +53,7 @@ Open http://localhost:3000
 | `NEXT_PUBLIC_DEFAULT_RPC` | Recommended | Solana mainnet RPC for the wallet connection (see RPC below) |
 | `OPENAI_API_KEY` | No | Optional LLM interpretation of the signals (template fallback otherwise) |
 | `OPENAI_MODEL` | No | Default `gpt-4o-mini` |
+| `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` | No | Shared rate limit + brief cache across serverless instances (Upstash Redis REST). `KV_REST_API_URL` / `KV_REST_API_TOKEN` (Vercel Marketplace names) also work. Unset = in-memory per instance |
 
 ### RPC
 
@@ -70,7 +71,7 @@ Base `https://live-api.panta.market/api/v1` (trailing slashes required):
 
 Browser calls `/api/panta/*`; the Next.js route forwards **only** the routes and methods listed in `src/lib/panta/routes.ts` (403 `ROUTE_NOT_ALLOWED` otherwise, 405 on a wrong method) and attaches the server's `X-Api-Key`. Client-supplied keys are ignored.
 
-`POST /api/brief` accepts only `{ marketId, mode }` (`desk` | `flow` | `risk` | `catalysts`, default `desk`). The server fetches market detail + up to 50 tape rows from Panta, sanitizes them, rate-limits per IP (20/min, in-memory; a 429 shows a countdown in the card), and caches per market+mode for 60s. It returns `{ market, tape, signals, narrative, source, mode, generatedAt }`.
+`POST /api/brief` accepts only `{ marketId, mode }` (`desk` | `flow` | `risk` | `catalysts`, default `desk`). The server fetches market detail + up to 50 tape rows from Panta, sanitizes them, rate-limits per IP (20/min; shared via Upstash Redis when configured, else in-memory per instance; a 429 shows a countdown in the card), and caches per market+mode for 60s. Every response carries `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset` and `X-RateLimit-Store: redis | memory`; a 429 also carries `Retry-After`. It returns `{ market, tape, signals, narrative, source, mode, generatedAt }`.
 
 ## AI Market Brief: signal engine
 
@@ -104,6 +105,8 @@ flowchart LR
     PX["/api/panta/* proxy<br/>route + method allowlist<br/>server-only key"]
     BR["/api/brief<br/>signal engine → AI / template"]
   end
+  KV[("Upstash Redis (optional)<br/>rate-limit windows · brief cache")]
+  BR <--> KV
   PANTA[(Panta API)]
   SOL[(Solana RPC)]
 
@@ -129,6 +132,7 @@ Browser ─▶ /api/panta/* (allowlist, server-only X-Api-Key) ─▶ Panta API
 
 - `src/lib/panta/`: the Panta adapter layer. `client.ts` (fetch + zod helpers), `markets.ts`, `orders.ts`, `positions.ts`, `claims.ts`, `attribution.ts`, `normalize.ts` (units), `routes.ts` (proxy allowlist), `signals.ts` (deterministic brief evidence), `instructions.ts` (pre-sign checks), `server.ts` (server-only upstream access). Components consume the domain types in `domain.ts` (`Market`, `Trade`, `Quote`, `Position`, `ClaimBuild`…), never raw Panta responses. Known values are typed unions with a string fallback (for example `MarketPhase = "primary" | "secondary" | "resolved" | "cancelled" | (string & {})`), so a new API value never breaks the page.
 - Every response is parsed with zod at the adapter boundary. Schemas are loose (unknown fields pass), nullable fields are tolerated, and read paths degrade to empty/partial data with a dev-only console warning. Write paths (quote, build, claim build) throw on a malformed response, so nothing is ever signed from an unvalidated payload.
+- `src/lib/shared-store.ts` (server-only): the shared store. With Upstash env vars set, `/api/brief`'s per-IP fixed window is an atomic `INCR` + `PEXPIRE` Lua script in Redis and briefs are cached there for 60 s, so limits and cache hold across every serverless instance. Without them, or if a Redis call fails, it falls back to the per-instance in-memory limiter and `TtlCache` in `rate-limit.ts`, so a store outage never takes the brief down.
 - `src/lib/data/`: one shared TanStack Query cache for the catalog, market details, tape, positions and the attribution ledger. Market list, market detail, the execute picker, AI brief, tape rail and Book all read from it, so no view reloads the catalog on its own. A partial market detail (no title and no prices) is retried twice with short backoff and never overwrites a fuller cached record. List rows hydrate details only when near the viewport (IntersectionObserver), at most 4 at a time. Panta has no batch detail endpoint, so Book fetches one detail per position market, capped and through the same cache.
 
 ## Security
@@ -136,7 +140,7 @@ Browser ─▶ /api/panta/* (allowlist, server-only X-Api-Key) ─▶ Panta API
 - **Proxy allowlist.** `/api/panta/*` forwards only the routes, methods and query keys listed in `src/lib/panta/routes.ts`. Unknown routes get 403, wrong methods 405, encoded or traversal paths 400, bodies over 16 KB 413, non-JSON 415. Only the server's `PANTA_API_KEY` is sent upstream; client `X-Api-Key` / `Authorization` headers are dropped. Server modules import `server-only`, and the client bundle is checked for the key and upstream host.
 - **Pre-sign instruction validation.** Before the wallet is asked to sign, the build is checked against the active quote (quote id, market, side, wallet) and every instruction must target an allowlisted program (Panta USDC program, Compute Budget, ATA, Token, System, Memo), include the Panta program, stay within 10 instructions, require no signer other than the wallet, and compile with the wallet as fee payer. Any mismatch blocks signing.
 - **No custody.** The desk never holds keys or funds. Transactions are built by Panta, signed in the user's wallet and broadcast from the browser. The server only proxies read/build/report calls.
-- **Brief limits.** `/api/brief` accepts only `{ marketId, mode }` (extra fields 400, bad mode 400, 2 KB body cap), rate-limits 20 requests per minute per IP, and caches each market+mode for 60 seconds, so repeat clicks don't re-bill the model. Evidence is fetched server-side, so clients can't inject data. The limiter and cache are in-memory per instance.
+- **Brief limits.** `/api/brief` accepts only `{ marketId, mode }` (extra fields 400, bad mode 400, 2 KB body cap), rate-limits 20 requests per minute per IP, and caches each market+mode for 60 seconds, so repeat clicks don't re-bill the model. Evidence is fetched server-side, so clients can't inject data. With `UPSTASH_REDIS_REST_URL`/`_TOKEN` (or `KV_REST_API_URL`/`_TOKEN`) set, the limiter and cache live in Upstash Redis and are shared by all instances; the response header `X-RateLimit-Store` says which store enforced the limit. Without those vars they are in-memory per instance, which only stops casual abuse: each serverless instance keeps its own counters. Redis keys are prefixed `pbc:` and hold only counters and the same public brief payloads the route returns.
 
 ## Testing
 
@@ -144,7 +148,7 @@ Browser ─▶ /api/panta/* (allowlist, server-only X-Api-Key) ─▶ Panta API
 npm test         # vitest run
 ```
 
-Vitest covers units and formatting (1 USDC vs 1000000 base, `sharesBase`, 0.63 shown as 63%), the signal engine (YES lean, empty tape, resolved market), the proxy route (allowlisted 200 with fetch mocked, 403, 405, client key ignored, encoded path 400, oversized body 413), `/api/brief` validation and rate limiting (400s, 429), pre-sign instruction checks (fee payer, unknown program, allowed programs, instruction cap, quote/build mismatch), attribution status mapping, and the zod market adapter (passthrough, nullable fields, partial-record retry and merge). CI runs lint, test and build on every push and PR (`.github/workflows/ci.yml`, Node 22).
+Vitest covers units and formatting (1 USDC vs 1000000 base, `sharesBase`, 0.63 shown as 63%), the signal engine (YES lean, empty tape, resolved market), the proxy route (allowlisted 200 with fetch mocked, 403, 405, client key ignored, encoded path 400, oversized body 413), `/api/brief` validation and rate limiting (400s, 429, rate-limit headers) on both the in-memory and a mocked shared-store path, the shared store (selection from env, cross-instance counts, Redis-failure fallback, shared cache), pre-sign instruction checks (fee payer, unknown program, allowed programs, instruction cap, quote/build mismatch), attribution status mapping, and the zod market adapter (passthrough, nullable fields, partial-record retry and merge). CI runs lint, test and build on every push and PR (`.github/workflows/ci.yml`, Node 22).
 
 ## Stack
 

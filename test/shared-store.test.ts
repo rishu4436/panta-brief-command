@@ -62,6 +62,7 @@ class FakeStore implements SharedStore {
 
 afterEach(() => {
   __setSharedStoreForTests(undefined);
+  __resetStoreHealthForTests();
   vi.unstubAllGlobals();
   vi.resetModules();
 });
@@ -180,7 +181,7 @@ describe("fail fast + explicit status", () => {
     const st = storeStatus();
     expect(st).toMatchObject({ mode: "redis", configured: true, ephemeral: false });
     expect(st.lastError).toMatch(/rate limit: StoreTimeoutError/);
-    expect(st.warning).toMatch(/last call failed/);
+    expect(st.warning).toMatch(/failing: circuit open/);
     expect(storeHeaderValue(r.store)).toBe("mode=memory; configured=true; shared=false; fallback=true");
   });
 

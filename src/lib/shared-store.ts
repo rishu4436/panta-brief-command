@@ -25,6 +25,19 @@ export type StoreKind = "redis" | "memory";
 /** Hard cap per Redis call; a slow store must not slow requests down. */
 export const STORE_TIMEOUT_MS = 700;
 
+/**
+ * Circuit breaker: after a failed or timed-out call the store is skipped
+ * (straight to the explicit fallback, no waiting) for a backoff that doubles
+ * on each consecutive failure, from CIRCUIT_BASE_MS up to CIRCUIT_MAX_MS.
+ * When it elapses one probe call is let through (half-open); success closes
+ * the circuit, failure re-opens it for longer. So a dead or hanging Redis
+ * costs at most one STORE_TIMEOUT_MS per request (the first call that finds
+ * it down), and nothing for later calls in that request or for requests
+ * on this instance during the backoff.
+ */
+export const CIRCUIT_BASE_MS = 5_000;
+export const CIRCUIT_MAX_MS = 60_000;
+
 const URL_VARS = ["UPSTASH_REDIS_REST_URL", "KV_REST_API_URL"] as const;
 const TOKEN_VARS = ["UPSTASH_REDIS_REST_TOKEN", "KV_REST_API_TOKEN"] as const;
 
@@ -140,6 +153,15 @@ export function __setSharedStoreForTests(store: SharedStore | null | undefined) 
 type StoreHealth = { lastError: string | null; lastErrorAt: string | null; lastOkAt: string | null; failures: number };
 const health: StoreHealth = { lastError: null, lastErrorAt: null, lastOkAt: null, failures: 0 };
 
+type Circuit = { consecutiveFailures: number; openUntil: number; probing: boolean; skipped: number };
+const circuit: Circuit = { consecutiveFailures: 0, openUntil: 0, probing: false, skipped: 0 };
+
+export type CircuitState = "closed" | "open" | "half-open";
+function circuitState(now = Date.now()): CircuitState {
+  if (circuit.consecutiveFailures === 0) return "closed";
+  return now < circuit.openUntil ? "open" : "half-open";
+}
+
 /** Error text without credentials (the URL/token never leave the server). */
 function safeMessage(e: unknown): string {
   let msg = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
@@ -162,11 +184,29 @@ export class StoreTimeoutError extends Error {
   }
 }
 
+/** Thrown without touching the store while the circuit is open. */
+export class StoreCircuitOpenError extends Error {
+  constructor(op: string, retryInMs: number) {
+    super(`shared store ${op} skipped: circuit open for another ${Math.max(0, Math.ceil(retryInMs))}ms after recent failures`);
+    this.name = "StoreCircuitOpenError";
+  }
+}
+
 /**
- * Run one store call with the timeout cap; records success/failure for
- * storeStatus(). Throws on failure so callers fall back explicitly.
+ * Run one store call with the timeout cap behind the circuit breaker;
+ * records success/failure for storeStatus(). Throws on failure (or
+ * immediately while the circuit is open) so callers fall back explicitly.
  */
 export async function guardStore<T>(op: string, fn: () => Promise<T>, timeoutMs = STORE_TIMEOUT_MS): Promise<T> {
+  const now = Date.now();
+  const state = circuitState(now);
+  if (state === "open" || (state === "half-open" && circuit.probing)) {
+    // Open, or a probe is already in flight: don't wait on a store known to be failing.
+    circuit.skipped += 1;
+    throw new StoreCircuitOpenError(op, circuit.openUntil - now);
+  }
+  const isProbe = state === "half-open";
+  if (isProbe) circuit.probing = true;
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     const out = await Promise.race([
@@ -176,14 +216,20 @@ export async function guardStore<T>(op: string, fn: () => Promise<T>, timeoutMs 
       }),
     ]);
     health.lastOkAt = new Date().toISOString();
+    circuit.consecutiveFailures = 0;
+    circuit.openUntil = 0;
     return out;
   } catch (e) {
     health.lastError = `${op}: ${safeMessage(e)}`;
     health.lastErrorAt = new Date().toISOString();
     health.failures += 1;
+    circuit.consecutiveFailures += 1;
+    const backoff = Math.min(CIRCUIT_MAX_MS, CIRCUIT_BASE_MS * 2 ** Math.min(16, circuit.consecutiveFailures - 1));
+    circuit.openUntil = Date.now() + backoff;
     throw e;
   } finally {
     if (timer) clearTimeout(timer);
+    if (isProbe) circuit.probing = false;
   }
 }
 
@@ -199,6 +245,8 @@ export type StoreStatus = {
   lastErrorAt: string | null;
   lastOkAt: string | null;
   failures: number;
+  /** Circuit breaker on this instance: while open, store calls are skipped and fall back immediately. */
+  circuit: { state: CircuitState; openUntil: string | null; consecutiveFailures: number; skipped: number };
   /** True when rate limits, the brief cache and evidence are per instance / lost on cold start. */
   ephemeral: boolean;
   warning: string | null;
@@ -210,6 +258,7 @@ export const EPHEMERAL_WARNING =
 export function storeStatus(env: Record<string, string | undefined> = process.env): StoreStatus {
   const c = envCreds(env);
   const configured = override !== undefined ? override !== null : Boolean(c.url && c.token);
+  const cState = circuitState();
   const recentFailure =
     configured && health.lastErrorAt != null && (health.lastOkAt == null || health.lastErrorAt > health.lastOkAt);
   return {
@@ -222,10 +271,18 @@ export function storeStatus(env: Record<string, string | undefined> = process.en
     lastErrorAt: health.lastErrorAt,
     lastOkAt: health.lastOkAt,
     failures: health.failures,
+    circuit: {
+      state: cState,
+      openUntil: circuit.openUntil ? new Date(circuit.openUntil).toISOString() : null,
+      consecutiveFailures: circuit.consecutiveFailures,
+      skipped: circuit.skipped,
+    },
     ephemeral: !configured,
     warning: !configured
       ? EPHEMERAL_WARNING
-      : recentFailure
+      : configured && cState === "open"
+        ? "Shared store configured but failing: circuit open, requests on this instance skip it and use per-instance memory/disk until the backoff ends."
+        : recentFailure
         ? "Shared store configured but the last call failed; affected requests fell back to per-instance memory/disk."
         : null,
   };
@@ -241,12 +298,16 @@ export function storeHeaderValue(served: StoreKind | "file"): string {
   return `mode=${served}; configured=${configured}; shared=${shared}${!shared && configured ? "; fallback=true" : ""}`;
 }
 
-/** Tests only: reset recorded health. */
+/** Tests only: reset recorded health and the circuit breaker. */
 export function __resetStoreHealthForTests() {
   health.lastError = null;
   health.lastErrorAt = null;
   health.lastOkAt = null;
   health.failures = 0;
+  circuit.consecutiveFailures = 0;
+  circuit.openUntil = 0;
+  circuit.probing = false;
+  circuit.skipped = 0;
   warned.clear();
 }
 

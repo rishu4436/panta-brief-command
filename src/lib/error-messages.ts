@@ -15,6 +15,7 @@ export const ERROR_MESSAGES: Record<string, string> = {
   FORBIDDEN: "Panta doesn't allow this operation.",
   INVALID_MARKET_PARAMS: "Panta rejected the request parameters.",
   PANTA_PRICING_UNAVAILABLE: "Panta couldn't price this right now — try again in a few seconds.",
+  ATTRIBUTION_UNAVAILABLE: "Panta couldn't record attribution right now. Your trade is already verified on-chain — retry attribution in a few seconds.",
   QUOTE_EXPIRED: "This quote has expired. Get a new quote.",
   QUOTE_STALE: "The price moved beyond your slippage limit. Get a new quote.",
   AMOUNT_TOO_SMALL: "The amount is below Panta's minimum fill.",

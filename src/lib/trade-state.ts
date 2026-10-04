@@ -31,11 +31,13 @@ export type TradeStateId =
   | "ready"
   | "quoting"
   | "quote_failed"
+  | "quote_unavailable"
   | "quote_ready"
   | "quote_stale"
   | "quote_expired"
   | "building"
   | "build_failed"
+  | "build_unavailable"
   | "presign_failed"
   | "review"
   | "awaiting_signature"
@@ -52,6 +54,8 @@ export type TradeStateId =
   | "verify_failed"
   | "reported"
   | "verified"
+  | "reporting"
+  | "attribution_needs_attention"
   | "attributed"
   | "closed_resolved"
   | "closed_cancelled"
@@ -69,6 +73,7 @@ export type TradeAction =
   | "check_confirmation"
   | "submit"
   | "recheck_verify"
+  | "retry_attribution"
   | "view_activity"
   | "new_quote"
   | "go_claims"
@@ -140,6 +145,21 @@ export const TRADE_STATES: Record<TradeStateId, TradeStateSpec> = {
     mark: "failed",
     urgent: true,
   },
+  // Expected, transient Panta refusal (INVALID_MARKET_PARAMS on a valid
+  // request, still there after the bounded retry in orders.ts). Not the
+  // user's inputs, not a bug: say so, and offer the same action again.
+  quote_unavailable: {
+    tone: "warning",
+    icon: "clock",
+    title: "Panta couldn't price this right now",
+    explain:
+      "Panta briefly refuses some valid quote requests in short bursts. The ticket retried 4 times over a few seconds and Panta was still refusing.",
+    safe: "Your inputs are fine. Nothing was built or signed, and no funds moved. Try again in a few seconds.",
+    action: "get_quote",
+    actionLabel: "Try again",
+    step: "quote",
+    mark: "warn",
+  },
   quote_ready: {
     tone: "info",
     icon: "quote",
@@ -195,6 +215,18 @@ export const TRADE_STATES: Record<TradeStateId, TradeStateSpec> = {
     step: "build",
     mark: "failed",
     urgent: true,
+  },
+  build_unavailable: {
+    tone: "warning",
+    icon: "clock",
+    title: "Panta couldn't build this right now",
+    explain:
+      "Panta briefly refuses some valid build requests in short bursts. The ticket retried 4 times over a few seconds with the same quote and Panta was still refusing.",
+    safe: "Nothing was signed and no funds moved. Your quote is kept; the next build gets every pre-sign check again.",
+    action: "review",
+    actionLabel: "Try again",
+    step: "build",
+    mark: "warn",
   },
   presign_failed: {
     tone: "danger",
@@ -361,6 +393,32 @@ export const TRADE_STATES: Record<TradeStateId, TradeStateSpec> = {
     txLink: true,
     urgent: true,
   },
+  reporting: {
+    tone: "progress",
+    icon: "spinner",
+    title: "Reporting attribution",
+    explain: "Your trade is verified on-chain; the ticket is reporting it to Panta for attribution.",
+    safe: "Reporting does not move funds or sign a transaction.",
+    action: "none",
+    step: "attribute",
+    mark: "active",
+    txLink: true,
+  },
+  // Verified trade whose POST /trades/ kept getting Panta's transient
+  // INVALID_MARKET_PARAMS after the bounded retry. Never a trade failure.
+  attribution_needs_attention: {
+    tone: "warning",
+    icon: "clock",
+    title: "Needs attention",
+    explain:
+      "Your trade is already verified on-chain. Attribution is temporarily unavailable: Panta refused the report several times in a row.",
+    safe: "Retrying attribution does not move funds or sign a transaction. It re-sends the same report for this trade.",
+    action: "retry_attribution",
+    actionLabel: "Retry attribution",
+    step: "attribute",
+    mark: "warn",
+    txLink: true,
+  },
   reported: {
     tone: "info",
     icon: "clock",
@@ -480,12 +538,29 @@ export function isUserRejection(err: unknown, depth = 0): boolean {
 export type FlowStage = "quote" | "build" | "sign" | "broadcast" | "confirm" | "submit" | "verify" | "attribute";
 
 /** Map a thrown error to the failure state for the stage it came from. */
+/** Body code of an API error (duck-typed: this module stays network-free). */
+export function apiErrorCode(err: unknown): string | null {
+  if (!err || typeof err !== "object") return null;
+  const body = (err as { body?: unknown }).body;
+  if (!body || typeof body !== "object" || Array.isArray(body)) return null;
+  const c = (body as { code?: unknown }).code;
+  return typeof c === "string" ? c : null;
+}
+
+/** orders.ts withPantaRetry's code once Panta's transient refusal outlived every attempt. */
+export const PRICING_UNAVAILABLE_CODE = "PANTA_PRICING_UNAVAILABLE";
+
+export function isPricingUnavailable(err: unknown): boolean {
+  return apiErrorCode(err) === PRICING_UNAVAILABLE_CODE;
+}
+
 export function classifyFailure(stage: FlowStage | null, err: unknown, opts: { presign?: boolean } = {}): TradeStateId {
   switch (stage) {
     case "quote":
-      return "quote_failed";
+      return isPricingUnavailable(err) ? "quote_unavailable" : "quote_failed";
     case "build":
-      return opts.presign ? "presign_failed" : "build_failed";
+      if (opts.presign) return "presign_failed";
+      return isPricingUnavailable(err) ? "build_unavailable" : "build_failed";
     case "sign":
       if (opts.presign) return "presign_failed";
       return isUserRejection(err) ? "signature_rejected" : "sign_failed";
@@ -504,6 +579,37 @@ export function classifyFailure(stage: FlowStage | null, err: unknown, opts: { p
     default:
       return isUserRejection(err) ? "signature_rejected" : "quote_failed";
   }
+}
+
+/**
+ * Whether a trade failure belongs in the browser console. Expected outcomes
+ * that the ticket already explains as state stay out of it: the wallet
+ * declining, a quote that ran out, Panta's transient pricing refusal after
+ * the retries, rate limiting, and Panta's documented business refusals for
+ * the inputs. Everything else — malformed responses, failed pre-sign
+ * validation, 5xx / network errors after retries, unknown codes, programming
+ * errors — is logged with console.error so it stays visible.
+ */
+const EXPECTED_PANTA_CODES = new Set([
+  PRICING_UNAVAILABLE_CODE,
+  "RATE_LIMITED",
+  "QUOTE_EXPIRED",
+  "QUOTE_STALE",
+  "AMOUNT_TOO_SMALL",
+  "MARKET_NOT_IN_PRIMARY",
+  "MARKET_NOT_FOUND",
+]);
+
+export function failureConsoleLevel(kind: TradeStateId, err: unknown): "none" | "error" {
+  if (err && typeof err === "object" && (err as { name?: unknown }).name === "AbortError") return "none";
+  if (kind === "signature_rejected" || kind === "quote_expired" || kind === "quote_unavailable" || kind === "build_unavailable") {
+    return "none";
+  }
+  const status = err && typeof err === "object" ? (err as { status?: unknown }).status : undefined;
+  if (typeof status === "number" && status >= 500) return "error";
+  const code = apiErrorCode(err);
+  if (code && EXPECTED_PANTA_CODES.has(code)) return "none";
+  return "error";
 }
 
 // ---------------------------------------------------------------- quote expiry
@@ -690,7 +796,8 @@ export function isQuoteStale(
 
 export type TxPhase = "idle" | "confirming" | "confirmed" | "pending" | "failed" | "expired";
 export type VerifyPhase = "idle" | "polling" | "confirmed" | "failed" | "timeout";
-export type AttrPhase = "idle" | "reporting" | "reported" | "attributed";
+/** needs_attention: verified trade, attribution report refused (transient) after every retry. */
+export type AttrPhase = "idle" | "reporting" | "reported" | "attributed" | "needs_attention";
 
 export type TradeSnapshot = {
   connected: boolean;
@@ -726,6 +833,8 @@ const RUNNING_STATE: Record<FlowStage, TradeStateId> = {
 export function deriveTradeState(s: TradeSnapshot): TradeStateId {
   if (s.closed) return s.closed === "resolved" ? "closed_resolved" : s.closed === "cancelled" ? "closed_cancelled" : "closed_secondary";
   if (s.attrPhase === "attributed") return "attributed";
+  // Reporting a verified trade: Verify stays completed, Attribute is active.
+  if (s.running === "attribute" && s.verifyPhase === "confirmed") return "reporting";
   if (s.running) return RUNNING_STATE[s.running];
   // On-chain outcome beats the stage-level classification (a confirm-stage
   // throw is a timeout only when the tx did not fail or expire).
@@ -737,12 +846,17 @@ export function deriveTradeState(s: TradeSnapshot): TradeStateId {
     !s.hasSignature &&
     s.hasQuote &&
     s.quoteExpired &&
-    (s.failure === "signature_rejected" || s.failure === "sign_failed" || s.failure === "build_failed")
+    (s.failure === "signature_rejected" ||
+      s.failure === "sign_failed" ||
+      s.failure === "build_failed" ||
+      s.failure === "build_unavailable")
   ) {
     return "quote_expired";
   }
   if (s.failure) return s.failure;
   if (s.hasSignature) {
+    if (s.attrPhase === "needs_attention" && s.txPhase === "confirmed") return "attribution_needs_attention";
+    if (s.attrPhase === "reporting" && s.verifyPhase === "confirmed") return "reporting";
     if (s.txPhase === "pending") return "confirm_timeout";
     if (s.txPhase === "confirming") return "confirming";
     if (s.verifyPhase === "timeout") return "verify_slow";

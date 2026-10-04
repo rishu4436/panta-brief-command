@@ -13,6 +13,7 @@ import { SolflareWalletAdapter } from "@solana/wallet-adapter-solflare";
 import "@/styles/wallet-adapter-ui.css";
 import { makeQueryClient } from "@/lib/data/query-client";
 import { clientRpcEndpoint } from "@/lib/rpc";
+import { onWalletError } from "@/lib/wallet-errors";
 
 /**
  * Every browser RPC call goes through the same-origin relay; the provider URL
@@ -52,7 +53,7 @@ export function Providers({ children }: { children: ReactNode }) {
   return (
     <QueryClientProvider client={queryClient}>
       <ConnectionProvider endpoint={rpc}>
-        <WalletProvider wallets={wallets} autoConnect>
+        <WalletProvider wallets={wallets} autoConnect onError={onWalletError}>
           <WalletModalProvider>
             <WalletModalA11y />
             <UsageBeacon />

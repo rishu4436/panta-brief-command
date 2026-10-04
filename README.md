@@ -156,6 +156,82 @@ Browser ─▶ /api/panta/* (allowlist, server-only X-Api-Key) ─▶ Panta API
 - **No custody.** The desk never holds keys or funds. Transactions are built by Panta, signed in the user's wallet and broadcast from the browser. The server only proxies read/build/report calls.
 - **Brief limits.** `/api/brief` accepts only `{ marketId, mode }` (extra fields 400, bad mode 400, 2 KB body cap), rate-limits 20 requests per minute per IP, and caches each market+mode for 60 seconds, so repeat clicks don't re-bill the model. Evidence is fetched server-side, so clients can't inject data. With `UPSTASH_REDIS_REST_URL`/`_TOKEN` (or `KV_REST_API_URL`/`_TOKEN`) set, the limiter and cache live in Upstash Redis and are shared by all instances; the response header `X-RateLimit-Store` says which store enforced the limit. Without those vars they are in-memory per instance, which only stops casual abuse: each serverless instance keeps its own counters. Redis keys are prefixed `pbc:` and hold only counters and the same public brief payloads the route returns.
 
+## Roadmap
+
+Phase 0 is the hackathon product as it ships and is demonstrated today. Phases 1 to 5 describe where we intend to take Brief Command next: a platform for prediction-market intelligence, research and execution. Nothing listed under Phases 1 to 5 is implemented yet. Those items are planned direction, not shipped features.
+
+| Phase | Focus | Status |
+| --- | --- | --- |
+| 0 | Hackathon / Mainnet Proof | `Current` |
+| 1 | Position Intelligence | `Next` |
+| 2 | Market Intelligence | `Planned` |
+| 3 | Strategy Research | `Planned` |
+| 4 | Autonomous Desk | `Future` |
+| 5 | Open Agent / Protocol Layer | `Future` |
+
+### Phase 0 — Hackathon / Mainnet Proof — Now (`Current`)
+
+- Panta market discovery and intelligence
+- Evidence-backed AI Market Brief
+- Primary-market execution
+- Pre-sign transaction assurance
+- Mainnet wallet execution
+- Panta verification and attribution
+- Book / Activity
+- Real mainnet transaction proof
+- Submission and demo readiness
+
+### Phase 1 — Position Intelligence (`Next`)
+
+- Reliable position synchronization
+- Position value and P&L
+- Average entry and exposure
+- Potential settlement value
+- Market and position lifecycle
+- Resolution countdown
+- Claim readiness
+- Explicit handling of Panta indexing/data delays
+
+### Phase 2 — Market Intelligence (`Planned`)
+
+- Watchlists
+- Opportunity Scanner
+- Market movement monitoring
+- Flow and liquidity analysis
+- Evidence timeline
+- Thesis tracking
+- Alerts when important market conditions change
+
+### Phase 3 — Strategy Research (`Planned`)
+
+- Paper trading
+- Strategy builder
+- Historical replay/backtesting
+- Strategy performance analytics
+- Multiple strategy portfolios
+- User-defined risk limits
+- Strategy experimentation/evolution
+
+### Phase 4 — Autonomous Desk (`Future`)
+
+- Continuous market monitoring
+- Autonomous research agents
+- Strategy agents
+- Risk engine
+- Agent-generated execution proposals
+- Explicit human approval before financial execution
+- Multi-wallet support
+- Portfolio-level controls
+
+### Phase 5 — Open Agent / Protocol Layer (`Future`)
+
+- MCP interface
+- Agent-to-agent access
+- Programmatic market intelligence
+- Strategy APIs
+- Permissioned execution
+- External agent integrations
+
 ## Early-user evidence
 
 Tooling for collecting real usage evidence. It ships empty: no user data is bundled or generated.

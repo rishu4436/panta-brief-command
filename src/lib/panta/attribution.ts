@@ -11,7 +11,7 @@
 
 import { z } from "@/lib/zod";
 import type { Json } from "@/lib/types";
-import { devWarn, numish, optNum, optStr, pantaFetch, parseOrNull } from "./client";
+import { ApiError, devWarn, numish, optNum, optStr, pantaFetch, parseOrNull } from "./client";
 import type {
   AccountTrades,
   AttributionState,
@@ -105,22 +105,121 @@ export function parseAccountTrades(raw: unknown): AccountTrades {
   return { summary, items };
 }
 
+export type TradeReportInput = {
+  signature: string;
+  wallet: string;
+  marketId: string;
+  quoteId?: string;
+  clientOrderId?: string;
+};
+
 export async function reportTrade(
-  input: {
-    signature: string;
-    wallet: string;
-    marketId: string;
-    quoteId?: string;
-    clientOrderId?: string;
-  },
+  input: TradeReportInput,
   userId?: string,
+  opts: { signal?: AbortSignal } = {},
 ): Promise<{ report: TradeReport; state: AttributionState; raw: Json }> {
   const body: Record<string, string> = {};
   for (const [k, v] of Object.entries(input)) if (v) body[k] = v;
   if (userId) body.userId = userId;
-  const { data, raw } = await pantaFetch("/trades/", { method: "POST", userId, body });
+  const { data, raw } = await pantaFetch("/trades/", { method: "POST", userId, body, signal: opts.signal });
   const report = parseTradeReport(data, input.signature);
   return { report, state: attributionFromReport(report.status), raw };
+}
+
+// ---------------------------------------------------------------------------
+// Bounded retry for the primary-buy attribution report (POST /trades/).
+//
+// Panta intermittently answers a valid report with 400 INVALID_MARKET_PARAMS
+// in bursts (seen 3–5 Oct 2026: ~8–13 s windows; the real 3rd buy's report hit
+// one). Only that exact answer is retried: HTTP 400 from Panta with body code
+// INVALID_MARKET_PARAMS. Everything else surfaces immediately, as before
+// (other 400s, 401/403/404, 429, 5xx, network, malformed bodies).
+//
+// Policy: 4 attempts total, waits 1.5 s, 3 s, 6 s (+ ≤300 ms jitter), so the
+// last attempt lands ~10.5–11.4 s after the first — long enough to outlast
+// most observed bursts, while costing at most 4 of Panta's shared 30/min key
+// budget per trade (quote/build retries use ≤8 more). Longer gaps would keep
+// the user waiting with no benefit once a burst is that long; they get a
+// manual "Retry attribution" instead. AbortSignal cancels the waits.
+// Every attempt sends the identical payload object.
+// ---------------------------------------------------------------------------
+
+export const ATTRIBUTION_RETRY_DELAYS_MS = [1500, 3000, 6000] as const;
+export const ATTRIBUTION_RETRY_JITTER_MS = 300;
+export const ATTRIBUTION_MAX_ATTEMPTS = ATTRIBUTION_RETRY_DELAYS_MS.length + 1;
+/** Code surfaced when Panta's transient refusal outlived every attempt. */
+export const ATTRIBUTION_UNAVAILABLE = "ATTRIBUTION_UNAVAILABLE";
+
+export function isTransientAttributionRefusal(e: unknown): boolean {
+  if (!(e instanceof ApiError) || e.status !== 400) return false;
+  const b = e.body;
+  return !!b && typeof b === "object" && !Array.isArray(b) && (b as { code?: unknown }).code === "INVALID_MARKET_PARAMS";
+}
+
+export function isAttributionUnavailable(e: unknown): boolean {
+  if (!(e instanceof ApiError)) return false;
+  const b = e.body;
+  return !!b && typeof b === "object" && !Array.isArray(b) && (b as { code?: unknown }).code === ATTRIBUTION_UNAVAILABLE;
+}
+
+export type AttributionRetryOptions = {
+  signal?: AbortSignal;
+  onRetry?: (info: { attempt: number; maxAttempts: number; delayMs: number }) => void;
+  /** Tests only. */
+  sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
+  random?: () => number;
+  report?: typeof reportTrade;
+};
+
+function abortError(signal?: AbortSignal): Error {
+  const r = signal?.reason;
+  if (r instanceof Error) return r;
+  const e = new Error("Aborted");
+  e.name = "AbortError";
+  return e;
+}
+
+const abortableSleep = (ms: number, signal?: AbortSignal) =>
+  new Promise<void>((resolve, reject) => {
+    if (signal?.aborted) return reject(abortError(signal));
+    const onAbort = () => {
+      clearTimeout(t);
+      reject(abortError(signal));
+    };
+    const t = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+
+/**
+ * POST /trades/ for a confirmed, verified trade, retrying only Panta's
+ * transient INVALID_MARKET_PARAMS. Throws ApiError(ATTRIBUTION_UNAVAILABLE)
+ * when every attempt got that refusal; any other error is rethrown as is.
+ */
+export async function reportTradeWithRetry(
+  input: Readonly<TradeReportInput>,
+  userId: string | undefined,
+  opts: AttributionRetryOptions = {},
+): Promise<{ report: TradeReport; state: AttributionState; raw: Json }> {
+  const sleep = opts.sleep ?? abortableSleep;
+  const random = opts.random ?? Math.random;
+  const report = opts.report ?? reportTrade;
+  for (let attempt = 1; ; attempt++) {
+    if (opts.signal?.aborted) throw abortError(opts.signal);
+    try {
+      return await report(input, userId, { signal: opts.signal });
+    } catch (e) {
+      if (!isTransientAttributionRefusal(e) || opts.signal?.aborted) throw e;
+      if (attempt >= ATTRIBUTION_MAX_ATTEMPTS) {
+        throw new ApiError(400, { code: ATTRIBUTION_UNAVAILABLE, upstreamCode: "INVALID_MARKET_PARAMS", attempts: ATTRIBUTION_MAX_ATTEMPTS });
+      }
+      const delayMs = ATTRIBUTION_RETRY_DELAYS_MS[attempt - 1] + Math.floor(random() * ATTRIBUTION_RETRY_JITTER_MS);
+      opts.onRetry?.({ attempt: attempt + 1, maxAttempts: ATTRIBUTION_MAX_ATTEMPTS, delayMs });
+      await sleep(delayMs, opts.signal);
+    }
+  }
 }
 
 export async function fetchAccountTrades(params: {

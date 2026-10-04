@@ -5,7 +5,12 @@ import { track } from "@/lib/telemetry";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { useWalletModal } from "@solana/wallet-adapter-react-ui";
 import { useCatalog, useHydratedDetails, useInvalidateAttribution } from "@/lib/data/hooks";
-import { isInLedger, reportTrade } from "@/lib/panta/attribution";
+import {
+  isAttributionUnavailable,
+  isInLedger,
+  reportTradeWithRetry,
+  type TradeReportInput,
+} from "@/lib/panta/attribution";
 import { ApiError } from "@/lib/panta/client";
 import { mergeMarket } from "@/lib/panta/markets";
 import { checkBuild, requestBuild, requestQuote, submitOrder, verifyOrder } from "@/lib/panta/orders";
@@ -34,6 +39,7 @@ import {
   TRADE_STATES,
   classifyFailure,
   deriveTradeState,
+  failureConsoleLevel,
   formatClock,
   INPUT_STALE_REASONS,
   quoteDeadline,
@@ -48,6 +54,7 @@ import {
   type TradeStateId,
   type VerifyPhase,
 } from "@/lib/trade-state";
+import { SingleFlight } from "@/lib/single-flight";
 import { Panel } from "./Panel";
 import { TransactionStepper } from "./TransactionStepper";
 import { MarketSummary, QuoteSummary, SideToggle, stepsForState } from "./trade/TicketParts";
@@ -243,7 +250,25 @@ export function PrimaryBuyPanel({
     throw new PresignStop(g.message);
   };
 
-  const runQuote = async () => {
+  /**
+   * One quote / one build in flight at a time: a second trigger while one is
+   * running (double click, Guided + manual button) joins the running request
+   * instead of starting another retry loop. Unmounting the ticket aborts any
+   * retry wait and in-flight Panta call.
+   */
+  const [quoteFlight] = useState(() => new SingleFlight<Quote>());
+  const [buildFlight] = useState(() => new SingleFlight<PrimaryBuild>());
+  const lifetime = useRef<AbortController | null>(null);
+  useEffect(() => {
+    const ac = new AbortController();
+    lifetime.current = ac;
+    return () => ac.abort();
+  }, []);
+
+  const runQuote = (): Promise<Quote> => quoteFlight.run(() => runQuoteOnce());
+  const runBuild = (q?: Quote): Promise<PrimaryBuild> => buildFlight.run(() => runBuildOnce(q));
+
+  const runQuoteOnce = async () => {
     setStage("quote");
     track("quote_requested", { marketId: BASE58_PUBKEY_RE.test(marketId.trim()) ? marketId.trim() : undefined });
     setReviewOpen(false);
@@ -256,7 +281,7 @@ export function PrimaryBuyPanel({
     const { quote: data } = await requestQuote(
       { wallet: publicKey!.toBase58(), marketId: marketId.trim(), side, amountUsdc: amountCheck.value },
       ref,
-      { onRetry: (r) => push(`Panta busy (${r.reason}) · retrying quote ${r.attempt}/${r.maxAttempts}`) },
+      { signal: lifetime.current?.signal, onRetry: (r) => push(`Panta busy (${r.reason}) · retrying quote ${r.attempt}/${r.maxAttempts}`) },
     );
     sessionAttrRef.current = ref;
     setQuote(data);
@@ -271,7 +296,7 @@ export function PrimaryBuyPanel({
     return data;
   };
 
-  const runBuild = async (q?: Quote) => {
+  const runBuildOnce = async (q?: Quote) => {
     setStage("build");
     requireReady();
     const activeQuote = q || quote;
@@ -287,7 +312,7 @@ export function PrimaryBuyPanel({
     const { build: data } = await requestBuild(
       { quoteId: activeQuote.quoteId, wallet: publicKey!.toBase58(), maxSlippageBps: slippageCheck.value },
       ref,
-      { onRetry: (r) => push(`Panta busy (${r.reason}) · retrying build ${r.attempt}/${r.maxAttempts}`) },
+      { signal: lifetime.current?.signal, onRetry: (r) => push(`Panta busy (${r.reason}) · retrying build ${r.attempt}/${r.maxAttempts}`) },
     );
     // Retries can take a few seconds: re-check the quote (expiry / stale /
     // wallet) after the build returns; checkBuild below runs on it too.
@@ -495,24 +520,34 @@ export function PrimaryBuyPanel({
     );
   };
 
-  const runAttribute = async (opts?: { built?: PrimaryBuild; sig?: string }) => {
+  /**
+   * The exact POST /trades/ payload of the confirmed trade, captured once when
+   * it is first reported. Automatic retries and "Retry attribution" re-send
+   * this object only: nothing is rebuilt, re-quoted or re-signed.
+   */
+  const reportPayload = useRef<{ input: Readonly<TradeReportInput>; userId?: string } | null>(null);
+  const [attributionFlight] = useState(() => new SingleFlight<void>());
+
+  const sendReport = async (payload: { input: Readonly<TradeReportInput>; userId?: string }) => {
     setStage("attribute");
-    requireReady();
-    const built = opts?.built || build;
-    const sig = opts?.sig || signature;
-    if (!sig || !built) throw new Error("Need broadcast signature");
-    const ref = sessionAttrRef.current;
     setAttrPhase("reporting");
-    const { report, state, raw } = await reportTrade(
-      {
-        signature: sig,
-        wallet: publicKey!.toBase58(),
-        marketId: built.marketId,
-        quoteId: built.quoteId,
-        clientOrderId: built.orderId,
-      },
-      ref,
-    );
+    let result: Awaited<ReturnType<typeof reportTradeWithRetry>>;
+    try {
+      result = await reportTradeWithRetry(payload.input, payload.userId, {
+        signal: lifetime.current?.signal,
+        onRetry: (r) => push(`Panta busy (INVALID_MARKET_PARAMS) · retrying attribution ${r.attempt}/${r.maxAttempts}`),
+      });
+    } catch (e) {
+      // Panta's transient refusal outlived the retries: the trade is verified,
+      // only attribution is pending. State, not failure; no console noise.
+      if (isAttributionUnavailable(e)) {
+        setAttrPhase("needs_attention");
+        push("Attribution needs attention · Panta kept refusing the report; the trade itself is verified");
+        return;
+      }
+      throw e;
+    }
+    const { report, state, raw } = result;
     setTradeRaw(raw);
     setStep(S.reported);
     const status = report.status;
@@ -527,15 +562,68 @@ export function PrimaryBuyPanel({
       push(`Trade reported for attribution · status ${status || "unknown"}`);
     }
     onAttributionUpdate();
-    void checkLedger(sig, definitive);
+    void checkLedger(payload.input.signature, definitive);
+  };
+
+  const runAttributeOnce = async (opts?: { built?: PrimaryBuild; sig?: string }) => {
+    setStage("attribute");
+    requireReady();
+    const built = opts?.built || build;
+    const sig = opts?.sig || signature;
+    if (!sig || !built) throw new Error("Need broadcast signature");
+    const payload = {
+      input: Object.freeze({
+        signature: sig,
+        wallet: publicKey!.toBase58(),
+        marketId: built.marketId,
+        quoteId: built.quoteId,
+        clientOrderId: built.orderId,
+      }),
+      userId: sessionAttrRef.current,
+    };
+    reportPayload.current = payload;
+    await sendReport(payload);
+  };
+
+  const runAttribute = (opts?: { built?: PrimaryBuild; sig?: string }): Promise<void> =>
+    attributionFlight.run(() => runAttributeOnce(opts));
+
+  /**
+   * "Retry attribution" (needs_attention): re-sends the stored report of the
+   * current confirmed trade. Never calls quote, build, sign, broadcast,
+   * submit or verify; joins an in-flight report instead of starting another.
+   */
+  const runRetryAttribution = async () => {
+    begin();
+    try {
+      const payload = reportPayload.current;
+      if (!payload || !signature || payload.input.signature !== signature || txPhase !== "confirmed") {
+        throw new Error("No confirmed trade to re-report in this session.");
+      }
+      setGuidedPhase("Reporting…");
+      await attributionFlight.run(() => sendReport(payload));
+    } catch (e) {
+      fail(e);
+    } finally {
+      setGuidedPhase(null);
+      setBusy(false);
+    }
   };
 
   const fail = (e: unknown) => {
+    // Unmounted mid-request: nothing to show, nothing to log.
+    if (lifetime.current?.signal.aborted) return;
     const kind: TradeStateId =
       e instanceof ExpiredStop
         ? "quote_expired"
         : classifyFailure(stageRef.current, e, { presign: e instanceof PresignStop });
     setFailure(kind);
+    // Expected refusals are explained as ticket state (no console noise);
+    // anything unexpected stays visible in the console.
+    if (failureConsoleLevel(kind, e) === "error") {
+      const status = (e as { status?: unknown } | null)?.status;
+      console.error(`[trade] ${kind} at ${stageRef.current ?? "start"}:`, describeErr(e), typeof status === "number" ? `(HTTP ${status})` : "", e instanceof ApiError ? "" : e);
+    }
     // A declined signature needs no raw wallet text; everything else keeps the specifics.
     setError(kind === "signature_rejected" || kind === "quote_expired" ? null : e instanceof StopFlow ? e.message || null : describeErr(e));
     if (kind === "signature_rejected") push("Signature rejected in wallet · nothing sent");
@@ -849,11 +937,13 @@ export function PrimaryBuyPanel({
         return { onAction: () => void runFinishAttribution(), disabled: busy };
       case "recheck_verify":
         return { onAction: () => void runRecheckVerify(), disabled: busy };
+      case "retry_attribution":
+        return { onAction: () => void runRetryAttribution(), disabled: busy };
       default:
         return {};
     }
   };
-  const na = mode === "guided" || spec.action === "connect" ? noticeAction() : {};
+  const na = mode === "guided" || spec.action === "connect" || spec.action === "retry_attribution" ? noticeAction() : {};
 
   const marketBlock = (
     <MarketSummary

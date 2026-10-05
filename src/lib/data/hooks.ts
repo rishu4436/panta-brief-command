@@ -17,7 +17,13 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Connection, PublicKey } from "@solana/web3.js";
 import { fetchAccountTrades } from "@/lib/panta/attribution";
-import { filterCatalog, resolveAuthoritativeMarket, type CatalogFilter, type CatalogPayload } from "@/lib/panta/catalog";
+import {
+  filterCatalog,
+  resolveAuthoritativeMarket,
+  selectMergedMarket,
+  type CatalogFilter,
+} from "@/lib/panta/catalog";
+import { preferFuller } from "@/lib/panta/markets";
 import type { Market } from "@/lib/panta/domain";
 import {
   fetchCatalog,
@@ -75,44 +81,60 @@ export function useCategories() {
   return useQuery({ queryKey: qk.categories(), queryFn: fetchCategories, staleTime: 10 * 60_000 });
 }
 
-/** Any cached catalog row for `id` (instant placeholder for detail views). */
-function catalogRow(qc: QueryClient, id: string): Market | undefined {
-  return qc.getQueryData<CatalogPayload>(qk.catalog())?.items.find((m) => m.marketId === id);
-}
 
 // ---------------------------------------------------------------------------
 // Market detail
 // ---------------------------------------------------------------------------
 
 /**
- * Detail query fn: retries a partial record (markets.fetchMarketWithRetry)
- * and merges with the catalog/on-chain row (same rule as /api/brief) so a
- * partial or stale detail never replaces a fuller / authoritative record.
+ * Raw market-detail query fn. Stores the Panta detail record (preferFuller
+ * against a prior raw cache entry) WITHOUT catalog merge — so useMarket can
+ * re-merge when the catalog query later arrives (direct /markets/[id] nav).
  */
 async function loadMarket(qc: QueryClient, id: string): Promise<Market> {
   const prev = qc.getQueryData<Market>(qk.market(id));
-  const fromCatalog = catalogRow(qc, id);
-  // Catalog row first: it carries on-chain lifecycle. Else the previous cache.
-  const foundation = fromCatalog ?? prev;
   const next = await fetchMarket(id);
   if (!next) {
-    if (foundation) return foundation;
+    // Keep a previously cached raw detail; otherwise fail (catalog-only shown via useMarket merge).
+    if (prev) return prev;
     throw new Error("MARKET_NOT_FOUND");
   }
-  const merged = resolveAuthoritativeMarket(foundation, next);
-  if (!merged) throw new Error("MARKET_NOT_FOUND");
-  return merged;
+  return preferFuller(prev, next);
 }
 
+/**
+ * One deterministic market for the detail page: subscribe to the shared catalog
+ * cache (same key/options as useCatalog — no duplicate request) and re-merge
+ * with the raw detail whenever either side updates.
+ */
 export function useMarket(id: string) {
   const qc = useQueryClient();
-  return useQuery({
+  const catalogQ = useQuery({
+    queryKey: qk.catalog(),
+    queryFn: fetchCatalog,
+    enabled: Boolean(id),
+    staleTime: 60_000,
+  });
+  const detailQ = useQuery({
     queryKey: qk.market(id),
     queryFn: () => loadMarket(qc, id),
     enabled: Boolean(id),
-    placeholderData: () => catalogRow(qc, id),
   });
+  const data = useMemo(
+    () => selectMergedMarket(catalogQ.data?.items, id, detailQ.data) ?? undefined,
+    [catalogQ.data?.items, id, detailQ.data],
+  );
+  return {
+    ...detailQ,
+    data,
+    /** True only while we have nothing to show (no catalog row and no detail yet). */
+    isPending: !data && (detailQ.isPending || catalogQ.isPending),
+    isFetching: detailQ.isFetching || catalogQ.isFetching,
+  };
 }
+
+/** @internal test helper — same merge useMarket applies. */
+export { selectMergedMarket, resolveAuthoritativeMarket };
 
 /**
  * Module-level (stable) combiner: TanStack only recomputes the id → detail map
@@ -136,7 +158,13 @@ export function needsDetail(m: Market): boolean {
  */
 export function useHydratedDetails(markets: Market[], visible: ReadonlySet<string>) {
   const qc = useQueryClient();
-  return useQueries({
+  // Share the catalog cache (no extra polling); merge so consumers never see raw-only priceless detail.
+  const catalogQ = useQuery({
+    queryKey: qk.catalog(),
+    queryFn: fetchCatalog,
+    staleTime: 60_000,
+  });
+  const raw = useQueries({
     queries: markets.map((m) => ({
       queryKey: qk.market(m.marketId),
       queryFn: () => hydrate(() => loadMarket(qc, m.marketId)),
@@ -146,6 +174,13 @@ export function useHydratedDetails(markets: Market[], visible: ReadonlySet<strin
     })),
     combine: detailsById,
   });
+  return useMemo(() => {
+    const map = new Map<string, Market>();
+    for (const [id, detail] of raw) {
+      map.set(id, selectMergedMarket(catalogQ.data?.items, id, detail) ?? detail);
+    }
+    return map;
+  }, [raw, catalogQ.data?.items]);
 }
 
 /**
@@ -158,7 +193,12 @@ export function useHydratedDetails(markets: Market[], visible: ReadonlySet<strin
 export function useMarketDetails(ids: string[], max = 12) {
   const qc = useQueryClient();
   const capped = useMemo(() => Array.from(new Set(ids)).slice(0, max), [ids, max]);
-  return useQueries({
+  const catalogQ = useQuery({
+    queryKey: qk.catalog(),
+    queryFn: fetchCatalog,
+    staleTime: 60_000,
+  });
+  const raw = useQueries({
     queries: capped.map((id) => ({
       queryKey: qk.market(id),
       queryFn: () => hydrate(() => loadMarket(qc, id)),
@@ -167,6 +207,13 @@ export function useMarketDetails(ids: string[], max = 12) {
     })),
     combine: detailsById,
   });
+  return useMemo(() => {
+    const map = new Map<string, Market>();
+    for (const [id, detail] of raw) {
+      map.set(id, selectMergedMarket(catalogQ.data?.items, id, detail) ?? detail);
+    }
+    return map;
+  }, [raw, catalogQ.data?.items]);
 }
 
 // ---------------------------------------------------------------------------

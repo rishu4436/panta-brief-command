@@ -239,10 +239,11 @@ describe("AI brief receives normalized authoritative market data", () => {
     expect(server).toMatch(/resolveAuthoritativeMarket\(row, detail\)/);
   });
 
-  it("useMarket merges catalog foundation so a partial detail cannot demote secondary → primary", () => {
+  it("useMarket re-merges catalog + raw detail (selectMergedMarket) so arrival order cannot demote secondary", () => {
     const hooks = readFileSync("src/lib/data/hooks.ts", "utf8");
-    expect(hooks).toMatch(/const foundation = fromCatalog \?\? prev;/);
-    expect(hooks).toMatch(/resolveAuthoritativeMarket\(foundation, next\)/);
-    expect(hooks).not.toMatch(/preferFuller\(/);
+    expect(hooks).toMatch(/selectMergedMarket\(/);
+    expect(hooks).toMatch(/queryKey: qk\.catalog\(\)/);
+    // Raw detail cache uses preferFuller; authoritative merge is selectMergedMarket / resolveAuthoritativeMarket.
+    expect(hooks).toMatch(/preferFuller\(/);
   });
 });

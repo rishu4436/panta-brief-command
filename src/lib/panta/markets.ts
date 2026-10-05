@@ -247,6 +247,24 @@ export function isPartialMarket(m: Market): boolean {
   return !m.title && m.yesPrice == null && m.noPrice == null;
 }
 
+/**
+ * Detail with a title but no price fields at all (Panta sometimes returns
+ * titled records with yes/no/primary/secondary price fields all null). Not the classic
+ * "partial" shape (so fetchMarketWithRetry does not keep retrying forever),
+ * but for mergeMarket lifecycle the list/catalog phase must be kept — same
+ * as partial — so a priceless detail cannot demote on-chain secondary → primary.
+ */
+export function isPricelessDetail(m: Market): boolean {
+  return (
+    m.yesPrice == null &&
+    m.noPrice == null &&
+    m.primaryYesPrice == null &&
+    m.primaryNoPrice == null &&
+    m.secondaryYesPrice == null &&
+    m.secondaryNoPrice == null
+  );
+}
+
 /** Rough completeness score used to never let a thinner record win. */
 export function marketCompleteness(m: Market | null | undefined): number {
   if (!m) return -1;
@@ -275,6 +293,8 @@ export function preferFuller(prev: Market | null | undefined, next: Market): Mar
 export function mergeMarket(list: Market, detail: Market | null | undefined): Market {
   if (!detail) return list;
   const partial = isPartialMarket(detail);
+  // Priceless-but-titled: keep list lifecycle (f254ea2 intent) without changing isPartialMarket.
+  const keepListLifecycle = partial || isPricelessDetail(detail) || Boolean(list.sources?.chain);
   const pick = <T>(d: T | null | undefined, l: T | null | undefined) =>
     d !== undefined && d !== null && d !== "" ? d : l;
   return {
@@ -292,13 +312,16 @@ export function mergeMarket(list: Market, detail: Market | null | undefined): Ma
     primaryNoPrice: pick(detail.primaryNoPrice, list.primaryNoPrice) ?? null,
     secondaryYesPrice: pick(detail.secondaryYesPrice, list.secondaryYesPrice) ?? null,
     secondaryNoPrice: pick(detail.secondaryNoPrice, list.secondaryNoPrice) ?? null,
-    // A partial detail carries a stale phase; only trust a full record's.
-    // A row read from the market's on-chain account already has the
-    // authoritative lifecycle, so it keeps it.
-    phase: partial || list.sources?.chain ? list.phase || detail.phase : detail.phase || list.phase,
-    status: partial || list.sources?.chain ? list.status || detail.status : detail.status || list.status,
+    // Partial / priceless / on-chain list: keep catalog lifecycle. Otherwise detail wins.
+    phase: keepListLifecycle ? list.phase || detail.phase : detail.phase || list.phase,
+    status: keepListLifecycle ? list.status || detail.status : detail.status || list.status,
     resolved:
-      partial || list.sources?.chain ? (list.resolved ?? detail.resolved) : (detail.resolved ?? list.resolved),
+      // Resolution is one-way: an explicit resolved=true from either source is never discarded.
+      keepListLifecycle
+        ? list.resolved === true || detail.resolved === true
+          ? true
+          : (list.resolved ?? detail.resolved)
+        : (detail.resolved ?? list.resolved),
     primaryPhaseEndTime: pick(detail.primaryPhaseEndTime, list.primaryPhaseEndTime) ?? null,
     category: detail.category || list.category,
   };

@@ -197,3 +197,17 @@ export function resolveAuthoritativeMarket(
   if (row) return withDetail(row, detail);
   return detail ?? null;
 }
+
+/**
+ * Pure selector used by useMarket (and tests): merge a catalog row (by id) with
+ * a raw detail record. Arrival order of `row` vs `detail` does not matter —
+ * the same inputs always yield the same output.
+ */
+export function selectMergedMarket(
+  catalogItems: readonly Market[] | null | undefined,
+  marketId: string,
+  detail: Market | null | undefined,
+): Market | null {
+  const row = catalogItems?.find((m) => m.marketId === marketId);
+  return resolveAuthoritativeMarket(row, detail);
+}

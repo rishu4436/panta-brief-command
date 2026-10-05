@@ -5,16 +5,12 @@ import { useMemo, useState } from "react";
 import { useCatalog, useHydratedDetails, useViewportIds } from "@/lib/data/hooks";
 import { mergeMarket } from "@/lib/panta/markets";
 import type { Market } from "@/lib/panta/domain";
-import { PROBABILITY_UNAVAILABLE_TEXT, rawPriceNote } from "@/lib/panta/prices";
-import { catalogVolume, hasSpotPrice, impliedSide, isUntitledMarket, marketLabel } from "@/lib/format";
+import { catalogVolume, deskPriceDisplay, isUntitledMarket, marketLabel } from "@/lib/format";
+import { deskSideLabels } from "./desk/DeskPriceCell";
 import { isLiveMarket, lifecycleRank, marketLifecycle } from "@/lib/panta/catalog";
 import { SkeletonLoader } from "./ui/States";
 import { MarketListRow } from "./desk/MarketListRow";
 import { IconSearch } from "./ui/Icons";
-
-function pct(p: string | null) {
-  return hasSpotPrice(p) ? `${Math.round(Number(p) * 100)}%` : "—";
-}
 
 /**
  * Compact market switcher for the market workspace (left column, xl+).
@@ -39,7 +35,11 @@ export function MarketSidebar({ activeId }: { activeId: string }) {
         if (lr) return lr;
         const t = Number(isUntitledMarket(a)) - Number(isUntitledMarket(b));
         if (t) return t;
-        const p = Number(!hasSpotPrice(impliedSide(a).yes)) - Number(!hasSpotPrice(impliedSide(b).yes));
+        const priced = (m: typeof a) => {
+          const d = deskPriceDisplay(m);
+          return d.mode === "probability" || (d.mode === "secondary" && (d.yes != null || d.no != null));
+        };
+        const p = Number(!priced(a)) - Number(!priced(b));
         if (p) return p;
         return (catalogVolume(b) ?? 0) - (catalogVolume(a) ?? 0);
       })
@@ -84,8 +84,7 @@ export function MarketSidebar({ activeId }: { activeId: string }) {
         ) : (
           <ul className="space-y-1">
             {rows.map((m) => {
-              const { yes, no, unavailable, probability } = impliedSide(m);
-              const bad = unavailable === "inconsistent_prices" || unavailable === "incomplete_prices";
+              const labels = deskSideLabels(m);
               return (
                 <li key={m.marketId} ref={track(m.marketId)}>
                   <MarketListRow
@@ -93,9 +92,9 @@ export function MarketSidebar({ activeId }: { activeId: string }) {
                     active={m.marketId === activeId}
                     title={marketLabel(m)}
                     untitled={isUntitledMarket(m)}
-                    yesLabel={bad ? "n/a" : pct(yes)}
-                    noLabel={bad ? "n/a" : pct(no)}
-                    priceNote={bad && unavailable ? `${PROBABILITY_UNAVAILABLE_TEXT[unavailable].long} ${rawPriceNote(probability)}.` : undefined}
+                    yesLabel={labels.yesLabel}
+                    noLabel={labels.noLabel}
+                    priceNote={labels.title}
                     phase={marketLifecycle(m)}
                   />
                 </li>

@@ -8,14 +8,20 @@ import { printConcentrationLine, sizeConcentrationLine } from "@/lib/concentrati
 import { BriefRateLimitError, useBrief } from "@/lib/data/hooks";
 import { useNow } from "@/hooks/useNow";
 import { describeErr } from "@/lib/errors";
-import { formatFriendlyIst } from "@/lib/format";
+import { briefNotInDataItems } from "@/lib/brief-missing";
+import { formatCountdownMinutes, formatFriendlyIst, formatUsdcPerShare } from "@/lib/format";
 import { BriefMarkdown } from "./BriefMarkdown";
 import { EvidenceLegend, EvidenceTag, type EvidenceLayer } from "./brief/EvidenceTag";
 import { briefSectionLayer } from "@/lib/brief-sections";
 import { StatusBadge } from "./ui/StatusBadge";
 import { BriefFeedback } from "./brief/BriefFeedback";
 import { track } from "@/lib/telemetry";
-import { PROBABILITY_UNAVAILABLE_TEXT, rawPriceNote } from "@/lib/panta/prices";
+import {
+  isSecondaryPhase,
+  PROBABILITY_UNAVAILABLE_TEXT,
+  rawPriceNote,
+  secondaryLastObservedPrices,
+} from "@/lib/panta/prices";
 import { IconSparkles } from "./ui/Icons";
 
 type Layer = EvidenceLayer;
@@ -27,11 +33,9 @@ function pct(p: number | null | undefined): string {
   return `${Math.abs(v - Math.round(v)) < 0.05 ? Math.round(v) : v.toFixed(1)}%`;
 }
 
+/** Same shared countdown as Secondary Intelligence / Book ("1h 42m"). */
 function duration(minutes: number | null | undefined): string | null {
-  if (minutes == null) return null;
-  if (minutes < 60) return `${Math.max(0, Math.round(minutes))}m`;
-  if (minutes < 48 * 60) return `${Math.round(minutes / 60)}h`;
-  return `${Math.round(minutes / 1440)}d`;
+  return formatCountdownMinutes(minutes);
 }
 
 const PROB_SOURCE_LABEL: Record<string, string> = {
@@ -87,6 +91,7 @@ export function AiBrief({
     <AiBriefView
       id="brief"
       feedback
+      market={market}
       brief={brief}
       mode={mode}
       busy={busy}
@@ -150,6 +155,7 @@ export function AiBrief({
 export function AiBriefView({
   id,
   brief,
+  market: marketProp,
   mode,
   busy = false,
   onModeChange,
@@ -162,6 +168,8 @@ export function AiBriefView({
   feedback?: boolean;
   id?: string;
   brief: BriefPayload | null;
+  /** Live detail market when available (fresher secondary* than brief payload). */
+  market?: Market | null;
   mode: BriefMode;
   busy?: boolean;
   onModeChange?: (m: BriefMode) => void;
@@ -170,6 +178,15 @@ export function AiBriefView({
   showIdle?: boolean;
 }) {
   const s = brief?.signals ?? null;
+  const priceMarket = marketProp ?? brief?.market ?? null;
+  const secondaryObs =
+    priceMarket && isSecondaryPhase(priceMarket) && !priceMarket.resolved
+      ? secondaryLastObservedPrices(priceMarket)
+      : null;
+  const snapshotObserved =
+    secondaryObs != null
+      ? secondaryObs.yes != null || secondaryObs.no != null
+      : Boolean(s?.probability.yes != null);
   return (
     <section
       id={id}
@@ -244,22 +261,31 @@ export function AiBriefView({
             )}
 
             <div className="mb-1.5 flex items-center gap-2">
-              <LayerTag layer={s.probability.yes == null ? "unknown" : "observed"} />
+              <LayerTag layer={snapshotObserved ? "observed" : "unknown"} />
               <span className="text-[11px] text-ink-3">Market snapshot</span>
             </div>
-            <ProbabilityBlock s={s} />
+            {priceMarket ? <ProbabilityBlock s={s} market={priceMarket} /> : null}
             <div className="mt-3 divide-y divide-line rounded-xl border border-line bg-inset">
               <FlowRow s={s} />
               <Row label="Signal" layer={s.flow.yesFlowShare == null ? "unknown" : "derived"}>
                 <p className="type-body">{s.headline}</p>
               </Row>
-              <PriceRow s={s} />
+              {priceMarket ? <PriceRow s={s} market={priceMarket} /> : null}
               <Row label="Wallets" layer={s.tape.printConcentration.topWalletShareOfPrints == null ? "unknown" : "derived"}>
                 <p className="type-body">{printConcentrationLine(s)}</p>
                 <p className="type-meta mt-0.5 flex items-center gap-1.5">
                   <LayerTag layer={s.tape.sizeConcentration.topWalletShareOfSize == null ? "unknown" : "derived"} />
                   {sizeConcentrationLine(s)}
                 </p>
+                {priceMarket &&
+                isSecondaryPhase(priceMarket) &&
+                !priceMarket.resolved &&
+                s.tape.secondaryPrints === 0 &&
+                s.tape.primaryPrints > 0 ? (
+                  <p className="type-meta mt-1 text-ink-3">
+                    No observed secondary prints — secondary wallet concentration unavailable. Figures above (if any) are historical primary observations only.
+                  </p>
+                ) : null}
               </Row>
               <Row label="Risk" layer="derived">
                 {s.riskFlags.length ? (
@@ -295,11 +321,11 @@ export function AiBriefView({
                   <span className="type-meta">{s.dataQuality.reasons.join(" · ")}</span>
                 </div>
               </Row>
-              <Row label="Not in data" layer="unknown">
+                            <Row label="Not in data" layer="unknown">
                 <ul className="space-y-1 text-[12px] leading-5 text-ink-2">
-                  {s.probability.yes == null && <li>{s.probability.reason === "inconsistent_prices" ? "A usable probability (Panta\u2019s YES/NO prices are inconsistent)" : "Live price for this market"}</li>}
-                  {s.tape.count === 0 && <li>Recent trade flow (no prints in the window)</li>}
-                  <li>Order-book depth, off-chain news and who the traders are</li>
+                  {briefNotInDataItems(s).map((item) => (
+                    <li key={item}>{item}</li>
+                  ))}
                 </ul>
               </Row>
             </div>
@@ -365,10 +391,30 @@ function QualityBadge({ grade }: { grade: MarketSignals["dataQuality"]["grade"] 
   );
 }
 
-function ProbabilityBlock({ s }: { s: MarketSignals }) {
-  const { yes, no, source } = s.probability;
+function ProbabilityBlock({ s, market }: { s: MarketSignals; market: Market }) {
   const resolvesIn = duration(s.resolution.minutesToResolution);
   const lastPrint = duration(s.tape.lastPrintAgeMinutes);
+  if (isSecondaryPhase(market) && !market.resolved) {
+    const obs = secondaryLastObservedPrices(market);
+    return (
+      <div>
+        <div className="grid grid-cols-2 gap-2">
+          <SecondaryPriceCell side="YES" value={obs.yes} />
+          <SecondaryPriceCell side="NO" value={obs.no} />
+        </div>
+        <p className="type-meta mt-1.5 font-num">
+          {obs.label} · time not provided
+          {s.phase ? ` · ${s.phase} phase` : ""}
+          {resolvesIn ? ` · resolves in ${resolvesIn}` : s.resolution.passed ? " · resolution time passed" : ""}
+          {lastPrint ? ` · last print ${lastPrint} ago` : ""}
+        </p>
+        <p className="type-meta mt-1 text-ink-3">
+          Independent per-side last observations (USDC/share) — not probabilities; YES+NO is not assumed to equal 1.
+        </p>
+      </div>
+    );
+  }
+  const { yes, no, source } = s.probability;
   return (
     <div>
       <div className="grid grid-cols-2 gap-2">
@@ -392,6 +438,28 @@ function ProbabilityBlock({ s }: { s: MarketSignals }) {
           {PROBABILITY_UNAVAILABLE_TEXT[s.probability.reason].long} {rawPriceNote(s.probability)}.
         </p>
       ) : null}
+    </div>
+  );
+}
+
+function SecondaryPriceCell({ side, value }: { side: "YES" | "NO"; value: number | null }) {
+  const yes = side === "YES";
+  return (
+    <div
+      className={`rounded-md border px-3 py-2.5 ${
+        yes ? "border-emerald-500/20 bg-emerald-500/[0.05]" : "border-rose-500/20 bg-rose-500/[0.05]"
+      }`}
+    >
+      <span className={`text-[10px] font-semibold tracking-wider ${yes ? "text-emerald-400/80" : "text-rose-400/80"}`}>
+        {side}
+      </span>
+      <div
+        className={`font-num mt-0.5 text-[22px] font-semibold leading-none tracking-tight ${
+          value == null ? "text-zinc-600" : yes ? "text-emerald-300" : "text-rose-300"
+        }`}
+      >
+        {value == null ? "—" : formatUsdcPerShare(value)}
+      </div>
     </div>
   );
 }
@@ -428,6 +496,23 @@ function ProbCell({ side, value, won }: { side: "YES" | "NO"; value: number | nu
 function FlowRow({ s }: { s: MarketSignals }) {
   const { yesFlowShare, basis } = s.flow;
   const n = s.tape.count;
+  const secondary = (s.phase || "").toLowerCase() === "secondary";
+  const sec = s.tape.secondaryPrints;
+  const pri = s.tape.primaryPrints;
+
+  if (secondary && sec === 0) {
+    return (
+      <Row label="Flow" layer="unknown">
+        <p className="type-body text-zinc-300">No observed secondary prints — secondary flow unavailable.</p>
+        {pri > 0 ? (
+          <p className="type-meta mt-1 text-ink-3">
+            {pri} historical primary observation{pri === 1 ? "" : "s"} in sample (excluded from secondary flow).
+          </p>
+        ) : null}
+      </Row>
+    );
+  }
+
   if (yesFlowShare == null) {
     return (
       <Row label="Flow" layer="unknown">
@@ -444,7 +529,10 @@ function FlowRow({ s }: { s: MarketSignals }) {
         <span className="text-zinc-600">·</span>
         <span className="font-semibold text-rose-300">NO {pct(1 - yesFlowShare)}</span>
         <span className="type-meta">
-          {n} recent print{n === 1 ? "" : "s"} · {basis === "shares" ? "share-weighted" : "print-weighted"}
+          {secondary
+            ? `${sec} secondary print${sec === 1 ? "" : "s"}`
+            : `${n} recent print${n === 1 ? "" : "s"}`}{" "}
+          · {basis === "shares" ? "share-weighted" : "print-weighted"}
         </span>
       </div>
       <div className="mt-1.5 flex h-1 overflow-hidden rounded-full bg-elevated" aria-hidden>
@@ -460,12 +548,35 @@ function FlowRow({ s }: { s: MarketSignals }) {
             : ""}
         {s.volume.recentUsdc != null ? ` · ${s.volume.recentUsdc.toLocaleString()} USDC` : ""}
       </p>
+      {secondary && pri > 0 ? (
+        <p className="type-meta mt-1 text-ink-3">
+          {pri} historical primary observation{pri === 1 ? "" : "s"} excluded from secondary flow.
+        </p>
+      ) : null}
     </Row>
   );
 }
 
-function PriceRow({ s }: { s: MarketSignals }) {
+function PriceRow({ s, market }: { s: MarketSignals; market: Market }) {
   const d = s.divergence;
+  if (isSecondaryPhase(market) && !market.resolved) {
+    const obs = secondaryLastObservedPrices(market);
+    return (
+      <Row label="Price" layer={obs.yes == null && obs.no == null ? "unknown" : "observed"}>
+        <p className="font-num text-[13px] text-zinc-300">
+          Last observed YES secondary price{" "}
+          <span className="font-semibold text-emerald-300">{formatUsdcPerShare(obs.yes)}</span>
+          {" · "}Last observed NO secondary price{" "}
+          <span className="font-semibold text-rose-300">{formatUsdcPerShare(obs.no)}</span>
+        </p>
+        <p className="type-meta mt-1">
+          {s.probability.reason === "not_applicable" || (d.reason && d.reason.includes("not applicable"))
+            ? "Independent per-side last observations — probability not applicable; not compared to flow as a YES probability."
+            : d.reason || "Not compared to flow as a YES probability (independent per-side last observations)."}
+        </p>
+      </Row>
+    );
+  }
   const dirLabel =
     d.direction === "aligned"
       ? "aligned"

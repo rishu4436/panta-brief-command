@@ -171,7 +171,7 @@ export function HotTapeRail({
                 </div>
                 <div
                   className={`mt-0.5 truncate text-[12px] leading-snug ${
-                    h.label === "Untitled market" || h.label.startsWith("Untitled")
+                    h.label === "Title unavailable" || h.label === "Untitled market" || h.label.startsWith("Untitled")
                       ? "italic text-zinc-500"
                       : "font-medium text-zinc-200"
                   }`}

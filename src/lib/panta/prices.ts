@@ -30,8 +30,79 @@
 
 export const PRICE_SUM_TOLERANCE = 0.02;
 
+/** Panta `secondary*Price` is 1e9-scaled (same scale as on-chain lastYesPrice). */
+export const SECONDARY_PRICE_SCALE = 1e9;
+
+export function isSecondaryPhase(m: PriceFields): boolean {
+  const p = (m.phase || "").toLowerCase();
+  const s = (m.status || "").toLowerCase();
+  return p === "secondary" || (!p && (s === "secondary" || s === "secondary_active"));
+}
+
+/**
+ * Decode one secondary last-trade field to USDC per share.
+ * - null/empty → no observation
+ * - 0 → no observation (Panta fills the other side's yesPrice from primary when
+ *   secondary*Price is 0 — see file header HYPE example)
+ * - value > 1 → divide by SECONDARY_PRICE_SCALE
+ * - value in (0, 1] → already human USDC/share
+ */
+export function decodeSecondaryPriceField(raw: string | number | null | undefined): number | null {
+  if (raw === undefined || raw === null || raw === "") return null;
+  const n = typeof raw === "number" ? raw : Number(raw);
+  if (!Number.isFinite(n) || n < 0) return null;
+  if (n === 0) return null;
+  if (n > 1) return n / SECONDARY_PRICE_SCALE;
+  return n;
+}
+
+export type SecondaryLastObserved = {
+  yes: number | null;
+  no: number | null;
+  /** Combined label for tooling; UI should prefer yesLabel/noLabel. */
+  label: "Last observed secondary prices";
+  yesLabel: "Last observed YES secondary price";
+  noLabel: "Last observed NO secondary price";
+  observedAtLabel: "time not provided";
+  yesRaw: string | null;
+  noRaw: string | null;
+};
+
+/**
+ * Independent per-side last observed secondary prices (USDC per share).
+ * Never complements sides, never uses primary* curve fields.
+ */
+export function secondaryLastObservedPrices(m: PriceFields): SecondaryLastObserved {
+  const yesFromSec = decodeSecondaryPriceField(m.secondaryYesPrice);
+  const noFromSec = decodeSecondaryPriceField(m.secondaryNoPrice);
+  const yesAbsent = m.secondaryYesPrice === undefined || m.secondaryYesPrice === null || m.secondaryYesPrice === "";
+  const noAbsent = m.secondaryNoPrice === undefined || m.secondaryNoPrice === null || m.secondaryNoPrice === "";
+  // Fall back to yesPrice/noPrice only when secondary* is absent (not when 0).
+  const yes =
+    yesFromSec ??
+    (isSecondaryPhase(m) && yesAbsent ? decodeSecondaryPriceField(m.yesPrice) : null);
+  const no =
+    noFromSec ??
+    (isSecondaryPhase(m) && noAbsent ? decodeSecondaryPriceField(m.noPrice) : null);
+  return {
+    yes,
+    no,
+    label: "Last observed secondary prices",
+    yesLabel: "Last observed YES secondary price",
+    noLabel: "Last observed NO secondary price",
+    observedAtLabel: "time not provided",
+    yesRaw: m.secondaryYesPrice != null && m.secondaryYesPrice !== "" ? String(m.secondaryYesPrice) : null,
+    noRaw: m.secondaryNoPrice != null && m.secondaryNoPrice !== "" ? String(m.secondaryNoPrice) : null,
+  };
+}
+
+
 export type ProbabilitySource = "spot" | "settled" | "primary_curve" | "unavailable";
-export type ProbabilityUnavailableReason = "missing_prices" | "incomplete_prices" | "inconsistent_prices";
+export type ProbabilityUnavailableReason =
+  | "missing_prices"
+  | "incomplete_prices"
+  | "inconsistent_prices"
+  | "not_applicable";
 
 export type PriceFields = {
   phase?: string | null;
@@ -107,6 +178,12 @@ export function marketProbability(m: PriceFields): MarketProbability {
   };
   const resolved = isResolved(m);
   const spot = checkPricePair(m.yesPrice, m.noPrice);
+  // Secondary YES/NO are independent last-trade observations (P2P CLOB), never
+  // complementary probabilities — even when they happen to sum to ~1.
+  // Probability is not applicable (expected for secondary), not a data defect.
+  if (!resolved && isSecondaryPhase(m)) {
+    return { yes: null, no: null, source: "unavailable", reason: "not_applicable", raw };
+  }
   if (spot.ok) return { yes: spot.yes, no: spot.no, source: resolved ? "settled" : "spot", reason: null, raw };
   // Primary curve = the live price only while the market is in the primary phase.
   if (spot.reason === "missing_prices" && !resolved && isPrimaryPhase(m)) {
@@ -126,6 +203,10 @@ export const PROBABILITY_UNAVAILABLE_TEXT: Record<ProbabilityUnavailableReason, 
   inconsistent_prices: {
     short: "Probability unavailable",
     long: "Panta's YES and NO prices don't add up to 100%, so they can't be read as probabilities.",
+  },
+  not_applicable: {
+    short: "Probability not applicable",
+    long: "Independent per-side last observations — probability not applicable (secondary P2P CLOB).",
   },
 };
 

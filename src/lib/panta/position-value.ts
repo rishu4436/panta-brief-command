@@ -12,11 +12,15 @@
  *         rounding, e.g. 10.184331 × 0.4951937 = 5.0432163 vs "5.043216");
  *       - without a price, only a "complete" valuation is accepted;
  *       - an "indicative" valuation (secondary last trade, priced per side)
- *         is accepted only when the market's YES/NO prices validate as
- *         probabilities, never on top of incoherent prices.
+ *         is accepted once the arithmetic above checks out and market
+ *         price fields have been loaded. Secondary YES/NO are independent
+ *         last-obs prices (not a probability pair), so complementary
+ *         validation is NOT required — and spot probability is never used
+ *         as a fallback for secondary positions.
  *  2. Resolved market with a known outcome (docs: settlement, not spot):
  *     winner = shares × 1 USDC, loser = 0.
- *  3. Open market: shares × validated side probability (positionMark).
+ *  3. Open primary market: shares × validated side probability (positionMark).
+ *     Secondary open markets have no probability fallback.
  *  4. Otherwise: explicitly unavailable with a reason (never 0).
  */
 
@@ -75,8 +79,10 @@ export function pantaValuation(
   }
   const indicative = v.status === "indicative";
   if (indicative) {
+    // Wait until market detail/list prices are loaded; do not require YES+NO≈1
+    // (secondary last-obs prices are independent and marketProbability is
+    // unavailable for live secondary by design).
     if (!px) return "pending";
-    if (px.yes == null || px.no == null) return `market prices are ${px.reason ?? "missing_prices"}`;
   }
   return { value, price, indicative, source: v.priceSource };
 }

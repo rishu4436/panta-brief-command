@@ -6,7 +6,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { needsDetail, useBrief, useCatalog, useHydratedDetails } from "@/lib/data/hooks";
 import { mergeMarket } from "@/lib/panta/markets";
 import type { Market } from "@/lib/panta/domain";
-import { catalogVolume, hasSpotPrice, impliedSide, isUntitledMarket, marketLabel, shouldShowCategoryChip } from "@/lib/format";
+import { catalogVolume, deskPriceDisplay, isUntitledMarket, marketLabel, shouldShowCategoryChip } from "@/lib/format";
 import { isLiveMarket, marketLifecycle } from "@/lib/panta/catalog";
 import { SectionHeader } from "../ui/SectionHeader";
 import { StatusBadge, phaseTone } from "../ui/StatusBadge";
@@ -20,11 +20,6 @@ const isResolved = (m: Market) => marketLifecycle(m) === "resolved";
 /** Every open market is a candidate (the catalog is complete); the list shows up to SHOWN. */
 const SHOWN = 12;
 const RESOLVED_SHOWN = 6;
-
-function pct(p: string | null) {
-  if (!hasSpotPrice(p)) return null;
-  return Math.round(Number(p) * 100);
-}
 
 function fmtDate(ts?: number | null) {
   if (!ts) return null;
@@ -83,9 +78,12 @@ function TableHead() {
 }
 
 function MarketRow({ m, selected, onSelect }: { m: Market; selected: boolean; onSelect: () => void }) {
-  const { yes, no } = impliedSide(m);
-  const y = pct(yes);
-  const n = pct(no) ?? (y != null ? 100 - y : null);
+  const d = deskPriceDisplay(m);
+  const secondary = d.mode === "secondary";
+  const y = d.mode === "probability" ? Math.round(Number(d.yes) * 100) : null;
+  const n = d.mode === "probability" ? Math.round(Number(d.no) * 100) : null;
+  const ySec = d.mode === "secondary" ? d.yes : null;
+  const nSec = d.mode === "secondary" ? d.no : null;
   const phase = phaseTone(marketLifecycle(m));
   const vol = fmtVol(m);
   const end = fmtDate(m.endTime);
@@ -130,13 +128,13 @@ function MarketRow({ m, selected, onSelect }: { m: Market; selected: boolean; on
       <div className="hidden xl:block">{badge}</div>
       {/* YES / NO: side by side on mobile, own columns from md */}
       <div className="mt-2.5 flex items-center gap-2 md:contents">
-        <span className="font-num inline-flex min-w-16 items-baseline justify-end gap-1 rounded-md bg-emerald-400/[0.08] px-2 py-1 text-[15px] font-semibold text-emerald-200 md:bg-transparent md:px-0">
+        <span className="font-num inline-flex min-w-16 items-baseline justify-end gap-1 rounded-md bg-emerald-400/[0.08] px-2 py-1 text-[15px] font-semibold text-emerald-200 md:bg-transparent md:px-0" title={secondary ? "Last observed secondary price (USDC/share)" : undefined}>
           <span className="text-[10px] font-semibold tracking-wider text-emerald-300 md:hidden">YES</span>
-          {y != null ? `${y}¢` : "—"}
+          {secondary ? (ySec != null ? ySec.toFixed(2) : "—") : y != null ? `${y}¢` : "—"}
         </span>
-        <span className="font-num inline-flex min-w-16 items-baseline justify-end gap-1 rounded-md bg-rose-400/[0.08] px-2 py-1 text-[15px] font-semibold text-rose-200 md:bg-transparent md:px-0">
+        <span className="font-num inline-flex min-w-16 items-baseline justify-end gap-1 rounded-md bg-rose-400/[0.08] px-2 py-1 text-[15px] font-semibold text-rose-200 md:bg-transparent md:px-0" title={secondary ? "Last observed secondary price (USDC/share)" : undefined}>
           <span className="text-[10px] font-semibold tracking-wider text-rose-300 md:hidden">NO</span>
-          {n != null ? `${n}¢` : "—"}
+          {secondary ? (nSec != null ? nSec.toFixed(2) : "—") : n != null ? `${n}¢` : "—"}
         </span>
         <span className="font-num hidden text-right text-[13px] text-ink-2 md:block">{vol ?? "—"}</span>
         <span className="font-num hidden text-[13px] text-ink-2 xl:block">{end ?? "—"}</span>
@@ -265,7 +263,11 @@ export function MarketShowcase() {
       .map((m) => mergeMarket(m, details.get(m.marketId)))
       // Re-check phase on the merged record: the detail can be fresher than the catalog row.
       .filter((m) => (filter === "resolved" ? isResolved(m) : isOpen(m)))
-      .filter((m) => !isUntitledMarket(m) && hasSpotPrice(impliedSide(m).yes ?? impliedSide(m).no));
+      .filter((m) => {
+        if (isUntitledMarket(m)) return false;
+        const d = deskPriceDisplay(m);
+        return d.mode === "probability" || (d.mode === "secondary" && (d.yes != null || d.no != null));
+      });
     const sorted =
       filter === "volume"
         ? merged.sort((a, b) => (catalogVolume(b) ?? 0) - (catalogVolume(a) ?? 0))

@@ -11,9 +11,11 @@ import { marketProbability } from "@/lib/panta/prices";
 import type { Position } from "@/lib/panta/domain";
 
 const [primaryNo, secYes, secNo] = parsePositions(fixture);
-const coherent = marketProbability({ phase: "secondary", yesPrice: "0.52", noPrice: "0.48" });
-const incoherent = marketProbability({ phase: "secondary", yesPrice: "1", noPrice: "1" });
-const oneSided = marketProbability({ phase: "secondary", yesPrice: "0.6", noPrice: null });
+const coherentSecondary = marketProbability({ phase: "secondary", yesPrice: "0.52", noPrice: "0.48" });
+const incoherentSecondary = marketProbability({ phase: "secondary", yesPrice: "1", noPrice: "1" });
+const oneSidedSecondary = marketProbability({ phase: "secondary", yesPrice: "0.6", noPrice: null });
+const coherentPrimary = marketProbability({ phase: "primary", yesPrice: "0.52", noPrice: "0.48" });
+const incoherentPrimary = marketProbability({ phase: "primary", yesPrice: "1", noPrice: "1" });
 
 const withVal = (p: Position, patch: Partial<NonNullable<Position["valuation"]>>): Position => ({
   ...p,
@@ -51,13 +53,12 @@ describe("Panta valuation preferred when valid", () => {
   it("complete primary valuation is used as-is (no market prices needed)", () => {
     expect(bookMark(primaryNo, undefined)).toMatchObject({ value: 5.043216, source: "panta", indicative: false });
   });
-  it("indicative secondary valuation is used when the market prices validate", () => {
-    expect(bookMark(secYes, coherent)).toMatchObject({ value: 4.96984, source: "panta", indicative: true });
-    expect(bookMark(secNo, coherent)).toMatchObject({ value: 5.029019, source: "panta", indicative: true });
-  });
-  it("indicative valuation on top of incoherent / one-sided prices is NOT a mark", () => {
-    expect(bookMark(secYes, incoherent)).toMatchObject({ value: null, reason: "inconsistent_prices" });
-    expect(bookMark(secYes, oneSided)).toMatchObject({ value: null, reason: "incomplete_prices" });
+  it("indicative secondary valuation is used once prices are loaded (no complementary pair required)", () => {
+    expect(bookMark(secYes, coherentSecondary)).toMatchObject({ value: 4.96984, source: "panta", indicative: true });
+    expect(bookMark(secNo, coherentSecondary)).toMatchObject({ value: 5.029019, source: "panta", indicative: true });
+    // 1/1 last-obs is not a probability pair, but Panta's per-side indicative still checks out.
+    expect(bookMark(secYes, incoherentSecondary)).toMatchObject({ value: 4.96984, source: "panta", indicative: true });
+    expect(bookMark(secYes, oneSidedSecondary)).toMatchObject({ value: 4.96984, source: "panta", indicative: true });
   });
   it("indicative valuation waits for prices instead of guessing", () => {
     expect(bookMark(secYes, undefined)).toMatchObject({ value: null, reason: "pending_prices" });
@@ -67,25 +68,25 @@ describe("Panta valuation preferred when valid", () => {
 describe("invalid Panta valuation is rejected, not trusted and not zeroed", () => {
   it("shares × price ≠ currentValueUsdc", () => {
     const p = withVal(primaryNo, { currentValueUsdc: "9.99", currentValueUsdcBase: "9990000" });
-    expect(typeof pantaValuation(p, coherent)).toBe("string");
-    expect(bookMark(p, coherent)).toMatchObject({ value: null, reason: "panta_valuation_invalid" });
+    expect(typeof pantaValuation(p, coherentPrimary)).toBe("string");
+    expect(bookMark(p, coherentPrimary)).toMatchObject({ value: null, reason: "panta_valuation_invalid" });
   });
   it("human vs base value disagree", () => {
-    expect(bookMark(withVal(primaryNo, { currentValueUsdcBase: "6043216" }), coherent)).toMatchObject({ value: null });
+    expect(bookMark(withVal(primaryNo, { currentValueUsdcBase: "6043216" }), coherentPrimary)).toMatchObject({ value: null });
   });
   it("price outside [0, 1]", () => {
-    expect(bookMark(withVal(primaryNo, { price: "1.4" }), coherent)).toMatchObject({ value: null, reason: "panta_valuation_invalid" });
+    expect(bookMark(withVal(primaryNo, { price: "1.4" }), coherentPrimary)).toMatchObject({ value: null, reason: "panta_valuation_invalid" });
   });
   it("unknown / missing valuationStatus", () => {
-    expect(bookMark(withVal(primaryNo, { status: "stale" }), coherent)).toMatchObject({ value: null });
-    expect(bookMark(withVal(primaryNo, { status: null }), coherent)).toMatchObject({ value: null });
+    expect(bookMark(withVal(primaryNo, { status: "stale" }), coherentPrimary)).toMatchObject({ value: null });
+    expect(bookMark(withVal(primaryNo, { status: null }), coherentPrimary)).toMatchObject({ value: null });
   });
   it("negative or non-numeric value", () => {
-    expect(bookMark(withVal(primaryNo, { currentValueUsdc: "-1", currentValueUsdcBase: null }), coherent).value).toBeNull();
-    expect(bookMark(withVal(primaryNo, { currentValueUsdc: "abc", currentValueUsdcBase: null }), coherent).value).toBeNull();
+    expect(bookMark(withVal(primaryNo, { currentValueUsdc: "-1", currentValueUsdcBase: null }), coherentPrimary).value).toBeNull();
+    expect(bookMark(withVal(primaryNo, { currentValueUsdc: "abc", currentValueUsdcBase: null }), coherentPrimary).value).toBeNull();
   });
   it("indicative with no price can't be checked", () => {
-    expect(bookMark(withVal(secYes, { price: null }), coherent)).toMatchObject({ value: null, reason: "panta_valuation_invalid" });
+    expect(bookMark(withVal(secYes, { price: null }), coherentSecondary)).toMatchObject({ value: null, reason: "panta_valuation_invalid" });
   });
   it("a genuine zero valuation stays 0 (not unavailable)", () => {
     const p = withVal(primaryNo, { price: "0", currentValueUsdc: "0", currentValueUsdcBase: "0" });
@@ -94,24 +95,27 @@ describe("invalid Panta valuation is rejected, not trusted and not zeroed", () =
 });
 
 describe("fallbacks without a Panta valuation", () => {
-  it("open market: validated spot × shares", () => {
-    expect(bookMark(bare({}), coherent)).toMatchObject({ value: 5.2, source: "spot" });
+  it("open primary market: validated spot × shares", () => {
+    expect(bookMark(bare({ phase: "primary" }), coherentPrimary)).toMatchObject({ value: 5.2, source: "spot" });
   });
-  it("open market with incoherent prices: unavailable, never a number", () => {
-    expect(bookMark(bare({}), incoherent)).toMatchObject({ value: null, reason: "inconsistent_prices" });
+  it("open secondary market: no spot probability fallback", () => {
+    expect(bookMark(bare({}), coherentSecondary)).toMatchObject({ value: null, reason: "not_applicable" });
+  });
+  it("open primary with incoherent prices: unavailable, never a number", () => {
+    expect(bookMark(bare({ phase: "primary" }), incoherentPrimary)).toMatchObject({ value: null, reason: "inconsistent_prices" });
   });
   it("resolved winner = shares × 1, loser = 0 (settlement, spot ignored)", () => {
-    expect(bookMark(bare({ phase: "resolved", outcome: "yes" }), incoherent)).toMatchObject({ value: 10, source: "settlement" });
-    expect(bookMark(bare({ phase: "resolved", outcome: "no" }), incoherent)).toMatchObject({ value: 0, source: "settlement" });
+    expect(bookMark(bare({ phase: "resolved", outcome: "yes" }), incoherentSecondary)).toMatchObject({ value: 10, source: "settlement" });
+    expect(bookMark(bare({ phase: "resolved", outcome: "no" }), incoherentSecondary)).toMatchObject({ value: 0, source: "settlement" });
   });
   it("resolved with unknown outcome: unavailable (no spot)", () => {
-    expect(bookMark(bare({ phase: "resolved", outcome: null }), coherent).value).toBeNull();
+    expect(bookMark(bare({ phase: "resolved", outcome: null }), coherentPrimary).value).toBeNull();
   });
   it("cancelled / claimed / unknown side / unknown shares: unavailable", () => {
-    expect(bookMark(bare({ phase: "cancelled" }), coherent)).toMatchObject({ value: null, reason: "cancelled" });
-    expect(bookMark(bare({ phase: "resolved", outcome: "yes", claimed: true }), coherent)).toMatchObject({ value: null, reason: "claimed" });
-    expect(bookMark(bare({ side: null }), coherent)).toMatchObject({ value: null, reason: "unknown_side" });
-    expect(bookMark(bare({ sharesNum: null, shares: "" }), coherent)).toMatchObject({ value: null, reason: "unknown_shares" });
+    expect(bookMark(bare({ phase: "cancelled" }), coherentPrimary)).toMatchObject({ value: null, reason: "cancelled" });
+    expect(bookMark(bare({ phase: "resolved", outcome: "yes", claimed: true }), coherentPrimary)).toMatchObject({ value: null, reason: "claimed" });
+    expect(bookMark(bare({ phase: "primary", side: null }), coherentPrimary)).toMatchObject({ value: null, reason: "unknown_side" });
+    expect(bookMark(bare({ phase: "primary", sharesNum: null, shares: "" }), coherentPrimary)).toMatchObject({ value: null, reason: "unknown_shares" });
   });
   it("prices not loaded yet: pending, not 0", () => {
     expect(bookMark(bare({}), undefined)).toMatchObject({ value: null, reason: "pending_prices" });

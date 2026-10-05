@@ -124,7 +124,13 @@ export function probabilityForms(yes: number | null, no: number | null): Set<str
 
 export function checkLlmBrief(
   content: string,
-  ctx: { probabilityAvailable: boolean; probability?: Set<string>; evidence: EvidenceNumbers },
+  ctx: {
+    probabilityAvailable: boolean;
+    probability?: Set<string>;
+    evidence: EvidenceNumbers;
+    /** When true, forbid primary probability / bonding-curve / obsolete secondary market AMM wording. */
+    secondaryPhase?: boolean;
+  },
 ): GuardResult {
   const text = content.trim();
   if (!text) return { ok: false, reason: "empty" };
@@ -146,6 +152,15 @@ export function checkLlmBrief(
 
   if (containsAdvice(text)) return { ok: false, reason: "advice" };
   if (INJECTION_ECHO_RE.test(text)) return { ok: false, reason: "injection_echo" };
+  if (ctx.secondaryPhase) {
+    const ammLabel = new RegExp(`secondary\\s+${"amm"}\\b`, "i");
+    if (ammLabel.test(text)) return { ok: false, reason: "secondary_market_amm_label" };
+    if (/bonding-curve/i.test(text)) return { ok: false, reason: "secondary_bonding_curve" };
+    if (/YES\s*\+\s*NO\s*=\s*1|yes\s*\+\s*no\s*=\s*1/i.test(text)) return { ok: false, reason: "secondary_complementarity" };
+    if (/\b(implied probability|fair value|best bid|best ask|\bmid\b|\bspread\b)\b/i.test(text)) {
+      return { ok: false, reason: "secondary_price_mislabel" };
+    }
+  }
 
   // Numbers must come from the evidence.
   for (const n of numbersIn(text)) {

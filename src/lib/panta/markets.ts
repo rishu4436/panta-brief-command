@@ -253,6 +253,7 @@ export function marketCompleteness(m: Market | null | undefined): number {
   let n = 0;
   if (m.title) n += 4;
   if (m.yesPrice != null || m.noPrice != null) n += 4;
+  if (m.secondaryYesPrice != null || m.secondaryNoPrice != null) n += 2;
   if (m.description || m.resolutionRule) n += 2;
   if (m.volumeUsdc || m.totalVolumeUsdc) n += 1;
   if (m.phase) n += 1;

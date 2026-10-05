@@ -35,7 +35,7 @@
 1. Empty attribution ledger until a real `POST /trades/` lands for this API key.
 2. No true cost-basis P&L on Book marks.
 3. CSS motion only — no framer-motion.
-4. Secondary AMM execute still out of scope.
+4. Secondary CLOB execute still out of scope (read-only Secondary Intelligence; no order routing from Brief Command).
 5. Category remap never invented — sports-on-politics may still appear when keywords unclear.
 
 ## Guardrails confirmed

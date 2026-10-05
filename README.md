@@ -19,7 +19,7 @@ Dark-glass **prediction desk** on Solana powered by the [Panta API](https://docs
 
 ### Stubbed / deferred
 
-- Secondary-market routing (desk is primary-buy focused)
+- Secondary CLOB order placement from this desk (read-only Secondary Intelligence is shipped; execution remains out of scope)
 - Attribution for creator-fee claims (Panta rejects them on `POST /trades/` with `TX_MISMATCH`, so the desk labels them as not attributed)
 - Market creation flow (out of scope for this desk)
 
@@ -158,16 +158,17 @@ Browser ─▶ /api/panta/* (allowlist, server-only X-Api-Key) ─▶ Panta API
 
 ## Roadmap
 
-Phase 0 is the hackathon product as it ships and is demonstrated today. Phases 1 to 5 describe where we intend to take Brief Command next: a platform for prediction-market intelligence, research and execution. Nothing listed under Phases 1 to 5 is implemented yet. Those items are planned direction, not shipped features.
+Phase 0 is the hackathon product as it ships and is demonstrated today. Phase 1 (Position Intelligence) is shipped on the Book. Phase 2 (Secondary Intelligence, read-only) is shipped on the desk and market detail. Later phases describe where we intend to take Brief Command next: a platform for prediction-market intelligence, research and execution. Items still listed under Phases 2 to 5 are planned direction, not shipped features.
 
 | Phase | Focus | Status |
 | --- | --- | --- |
 | 0 | Hackathon / Mainnet Proof | `Current` |
-| 1 | Position Intelligence | `Next` |
-| 2 | Market Intelligence | `Planned` |
-| 3 | Strategy Research | `Planned` |
-| 4 | Autonomous Desk | `Future` |
-| 5 | Open Agent / Protocol Layer | `Future` |
+| 1 | Position Intelligence | `Shipped` |
+| 2 | Secondary Intelligence (read-only) | `Shipped` |
+| 3 | Secondary CLOB execution | `Future / Dependency blocked` |
+| 4 | Strategy Research | `Planned` |
+| 5 | Autonomous Desk | `Future` |
+| 6 | Open Agent / Protocol Layer | `Future` |
 
 ### Phase 0 — Hackathon / Mainnet Proof — Now (`Current`)
 
@@ -181,28 +182,44 @@ Phase 0 is the hackathon product as it ships and is demonstrated today. Phases 1
 - Real mainnet transaction proof
 - Submission and demo readiness
 
-### Phase 1 — Position Intelligence (`Next`)
+### Phase 1 — Position Intelligence (`Shipped`)
 
-- Reliable position synchronization
-- Position value and P&L
-- Average entry and exposure
-- Potential settlement value
-- Market and position lifecycle
-- Resolution countdown
-- Claim readiness
-- Explicit handling of Panta indexing/data delays
+Shipped on `/book`:
 
-### Phase 2 — Market Intelligence (`Planned`)
+- Portfolio overview (position count, valid marked value, claimable / active / secondary / resolved counts)
+- YES vs NO exposure from validated marks only (unavailable marks never coerced to zero)
+- Largest-position insight (% of total valid marked value)
+- Position rows: mark value + mark source (Panta valuation / Indicative / Settlement / Validated spot / Unavailable), authoritative lifecycle, resolution countdown, claim readiness
+- Data freshness from the positions query (Updated just now / Xs ago / Refreshing / Refresh failed)
+- Explicit note: P&L unavailable (Panta does not expose a complete cost basis on current partner surfaces)
+- Positions vs Activity clarification (wallet holdings vs API-key-attributed ledger)
 
-- Watchlists
-- Opportunity Scanner
-- Market movement monitoring
-- Flow and liquidity analysis
-- Evidence timeline
-- Thesis tracking
-- Alerts when important market conditions change
+Not shipped (still out of scope for Phase 1):
 
-### Phase 3 — Strategy Research (`Planned`)
+- Average entry, cost basis, ROI, or any fabricated P&L
+- Secondary-market execution / order-book prices
+
+### Phase 2 — Secondary Intelligence (`Shipped`, read-only)
+
+Shipped on `/desk` (Secondary Radar) and secondary-phase market detail:
+
+- Last observed YES/NO secondary prices (independent per-side; never probabilities / bid-ask / mid / spread)
+- Secondary tape filter (`isPrimary === false`), flow, tape quality (partial/failed never “quiet”)
+- Deterministic secondary activity / radar score (documented in `src/lib/panta/secondary-intel.ts`)
+- Secondary Market Intelligence panel with “Trade on Panta ↗” navigation only
+- AI/template briefs use secondary lifecycle and observations (no primary bonding-curve execution language)
+
+Panta supports secondary CLOB trading, but Brief Command intentionally does not reproduce undocumented website transaction construction until a supported partner execution interface exists. Order-book depth is unavailable through the current partner data surface.
+
+Not shipped:
+
+- Placing or cancelling secondary orders, secondary Anchor instruction builds, signing/broadcasting secondary txs
+
+### Phase 3 — Secondary CLOB execution (`Future / Dependency blocked`)
+
+Blocked on a supported partner secondary execution interface.
+
+### Phase 4 — Strategy Research (`Planned`)
 
 - Paper trading
 - Strategy builder
@@ -212,7 +229,7 @@ Phase 0 is the hackathon product as it ships and is demonstrated today. Phases 1
 - User-defined risk limits
 - Strategy experimentation/evolution
 
-### Phase 4 — Autonomous Desk (`Future`)
+### Phase 5 — Autonomous Desk (`Future`)
 
 - Continuous market monitoring
 - Autonomous research agents
@@ -223,7 +240,7 @@ Phase 0 is the hackathon product as it ships and is demonstrated today. Phases 1
 - Multi-wallet support
 - Portfolio-level controls
 
-### Phase 5 — Open Agent / Protocol Layer (`Future`)
+### Phase 6 — Open Agent / Protocol Layer (`Future`)
 
 - MCP interface
 - Agent-to-agent access

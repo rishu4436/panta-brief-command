@@ -9,8 +9,8 @@ const market = (over: Partial<Market> = {}): Market => ({
   marketId: "3wdVRLDiMeuWRjGcFq2FZgAyCLhswTwNSKEHgNFRSZNB",
   title: "Will it rain?",
   category: "weather",
-  phase: "secondary",
-  status: "secondary_active",
+  phase: "primary",
+  status: "primary",
   yesPrice: "0.60",
   noPrice: "0.40",
   resolutionTime: nowSec + 86_400,
@@ -31,6 +31,15 @@ const trade = (side: "yes" | "no", i: number, shares = 10): Trade => ({
 });
 
 describe("computeMarketSignals", () => {
+  it("secondary complementary prices are not a probability", () => {
+    const s = computeMarketSignals(
+      market({ phase: "secondary", status: "secondary_active", yesPrice: "0.60", noPrice: "0.40" }),
+      [],
+      NOW,
+    );
+    expect(s.probability).toMatchObject({ yes: null, no: null, source: "unavailable" });
+  });
+
   it("YES 60% / NO 40% gives a YES lean", () => {
     const tape = [
       ...Array.from({ length: 6 }, (_, i) => trade("yes", i)),

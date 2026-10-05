@@ -146,7 +146,7 @@ describe("deterministic signals from authoritative market", () => {
     expect(s.execution.primaryOpen).toBe(false);
     expect(s.execution.lines).toEqual([
       "Secondary phase · primary buys closed",
-      "This desk routes primary buys only; secondary AMM routing is out of scope",
+      "Brief Command provides secondary-market intelligence here; secondary CLOB execution is not currently routed through this desk.",
     ]);
     expect(s.execution.lines.join(" ")).not.toMatch(/bonding-curve|quote required|Primary YES/);
   });
@@ -168,7 +168,7 @@ describe("deterministic signals from authoritative market", () => {
     const m = resolveAuthoritativeMarket(catalogSecondary(), secondaryFull())!;
     const p = marketProbability(m);
     expect(p.source).toBe("unavailable");
-    expect(p.reason).toBe("inconsistent_prices");
+    expect(p.reason).toBe("not_applicable");
     expect(p.yes).toBeNull();
     const s = computeMarketSignals(m, [], Date.now());
     expect(s.probability.source).toBe("unavailable");

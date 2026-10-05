@@ -23,7 +23,7 @@ const tape: Trade[] = Array.from({ length: 10 }, (_, i) => ({
   wallet: i < 8 ? "whale" : `w${i}`,
   signature: `s${i}`,
   blockTime: NOW / 1000 - 600 + i,
-  isPrimary: true,
+  isPrimary: false, // secondary-phase flow uses secondary prints only
   kind: "buy",
   side: i % 2 ? "no" : "yes",
   shares: i < 8 ? 100 : 1,

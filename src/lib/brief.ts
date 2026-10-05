@@ -12,10 +12,15 @@ import "server-only";
  */
 
 import { catalogText, type MarketSignals } from "./panta/signals";
+import {
+  formatSecondaryPrice,
+  secondaryObservedPrices,
+} from "./panta/secondary-intel";
 import { BRIEF_MODE_IDS, BRIEF_MODES } from "./brief-modes";
 import { printConcentrationLine, sizeConcentrationLine } from "./concentration";
 import type { BriefMode, Market } from "./types";
 import { BRIEF_SECTION_HEADERS, TEMPLATE_INTERPRETATION } from "./brief-sections";
+import { formatCountdownMinutes } from "@/lib/format";
 import {
   checkLlmBrief,
   containsAdvice,
@@ -50,11 +55,9 @@ function istTime(unixSec: number | null): string {
   );
 }
 
+/** Remaining time — same shared countdown as SI / Book (e.g. "1h 42m"). */
 function duration(minutes: number | null): string {
-  if (minutes == null) return "n/a";
-  if (minutes < 60) return `${minutes}m`;
-  if (minutes < 48 * 60) return `${(minutes / 60).toFixed(minutes < 600 ? 1 : 0)}h`;
-  return `${(minutes / 1440).toFixed(1)}d`;
+  return formatCountdownMinutes(minutes) ?? "n/a";
 }
 
 const num = (n: number | null, dp = 2) =>
@@ -68,8 +71,9 @@ function sourceLabel(s: MarketSignals["probability"]["source"]): string {
 }
 
 function question(m: Market): string {
-  return (m.title || "").trim() || "Untitled market";
+  return (m.title || "").trim() || "Title unavailable";
 }
+
 
 // ---------------------------------------------------------------------------
 // Shared evidence lines (derived only from signals)
@@ -84,7 +88,36 @@ function probabilityLine(s: MarketSignals): string {
   return `Market probability: YES ${pct(s.probability.yes)} / NO ${pct(s.probability.no)} (${sourceLabel(s.probability.source)}).`;
 }
 
+
+function isSecondaryPhase(s: MarketSignals): boolean {
+  return (s.phase || "").toLowerCase() === "secondary";
+}
+
+/** Secondary: independent last-observed prices — never labeled probability. */
+function secondaryPriceLine(market: Market, s: MarketSignals): string {
+  const px = secondaryObservedPrices(market);
+  const y = px.yes != null ? formatSecondaryPrice(px.yes) : "unavailable";
+  const n = px.no != null ? formatSecondaryPrice(px.no) : "unavailable";
+  return `Last observed YES secondary price: ${y}; Last observed NO secondary price: ${n} (independent per-side observations; not probabilities; sum is not required to equal 1). Secondary prints ${s.tape.secondaryPrints} of ${s.tape.count} readable rows in the window (primary-phase rows excluded from secondary flow).`;
+}
+
 function flowLine(s: MarketSignals): string {
+  if (isSecondaryPhase(s)) {
+    const sec = s.tape.secondaryPrints;
+    const pri = s.tape.primaryPrints;
+    if (sec === 0) {
+      return pri > 0
+        ? `No observed secondary prints — secondary flow unavailable (${pri} historical primary observation${pri === 1 ? "" : "s"} in sample; excluded from secondary flow).`
+        : "No observed secondary prints — secondary flow unavailable.";
+    }
+    const basis = s.flow.basis === "shares" ? "share-weighted" : "print-weighted";
+    const hist =
+      pri > 0
+        ? ` ${pri} historical primary observation${pri === 1 ? "" : "s"} in sample are shown separately and excluded from secondary flow.`
+        : "";
+    if (s.flow.yesFlowShare == null) return `Secondary flow: ${sec} secondary print(s) without a readable side.${hist}`;
+    return `Secondary flow (${basis}): YES ${pct(s.flow.yesFlowShare)} · NO ${pct(1 - s.flow.yesFlowShare)} across ${sec} secondary print(s) (${s.tape.yesPrints} YES / ${s.tape.noPrints} NO).${hist}`;
+  }
   if (s.flow.yesFlowShare == null) return "Flow: no sided prints in the window.";
   const basis = s.flow.basis === "shares" ? "share-weighted" : "print-weighted";
   return `Flow (${basis}): YES ${pct(s.flow.yesFlowShare)} · NO ${pct(1 - s.flow.yesFlowShare)} across ${s.tape.count} prints (${s.tape.yesPrints} YES / ${s.tape.noPrints} NO).`;
@@ -92,6 +125,9 @@ function flowLine(s: MarketSignals): string {
 
 function divergenceLine(s: MarketSignals): string {
   const d = s.divergence;
+  if (isSecondaryPhase(s)) {
+    return "Price vs flow: not compared on secondary — last observed secondary prices are independent per-side observations, not a YES probability.";
+  }
   if (d.gapPts == null) return `Price vs flow: not compared — ${d.reason || "insufficient data"}`;
   if (d.direction === "aligned") return `Price vs flow: aligned (flow ${d.gapPts >= 0 ? "+" : ""}${d.gapPts} pts vs price).`;
   return `Price vs flow: flow is ${Math.abs(d.gapPts)} pts ${d.direction === "flow_above_price" ? "above" : "below"} the market's YES probability.`;
@@ -173,10 +209,12 @@ export function buildTemplateBrief(
     const warn = s.riskFlags.filter((f) => f.severity === "warn").length;
     observation = `${warn} warning flag${warn === 1 ? "" : "s"} and ${s.riskFlags.length - warn} informational flag${s.riskFlags.length - warn === 1 ? "" : "s"}; data quality is **${s.dataQuality.grade.toUpperCase()}**.`;
     evidence = [
-      probabilityLine(s),
+      isSecondaryPhase(s) ? secondaryPriceLine(market, s) : probabilityLine(s),
       resolutionLine(s),
       windowLine(s),
-      `Probability change across the window: ${s.probabilityChange.value == null ? `not derivable — ${s.probabilityChange.reason}` : pct(s.probabilityChange.value)}`,
+      isSecondaryPhase(s)
+        ? "Probability change across the window: not applicable on secondary (independent last-observed prices, not complementary probabilities)."
+        : `Probability change across the window: ${s.probabilityChange.value == null ? `not derivable — ${s.probabilityChange.reason}` : pct(s.probabilityChange.value)}`,
     ];
     risk = riskLines(s);
   } else if (mode === "catalysts") {
@@ -191,12 +229,16 @@ export function buildTemplateBrief(
       cat
         ? `The event that decides this market is whatever the ${cat.kind} above names; there is little else to go on.`
         : "No catalog text to extract catalysts from.",
-      probabilityLine(s),
+      isSecondaryPhase(s) ? secondaryPriceLine(market, s) : probabilityLine(s),
     ];
     risk = [
       "- Catalysts here come only from the catalog text and resolution time; no external news is used.",
       ...riskLines(s, (id) => ["resolution_soon", "resolution_passed", "no_description", "resolved", "cancelled"].includes(id)),
     ];
+  } else if (isSecondaryPhase(s)) {
+    observation = `${question(market)} — secondary phase · primary buys closed. ${s.headline}`;
+    evidence = [secondaryPriceLine(market, s), flowLine(s), divergenceLine(s), windowLine(s), volumeLine(s), resolutionLine(s)];
+    risk = riskLines(s);
   } else {
     observation = `${question(market)} — ${s.probability.yes != null ? `the market prices YES at ${pct(s.probability.yes)} (${sourceLabel(s.probability.source)})` : s.probability.reason === "inconsistent_prices" ? "no usable probability is available (Panta's YES/NO prices are inconsistent)" : "no market price is available"}. ${s.headline}`;
     evidence = [probabilityLine(s), flowLine(s), divergenceLine(s), windowLine(s), volumeLine(s), resolutionLine(s)];
@@ -244,6 +286,7 @@ const SYSTEM_PROMPT = [
   "3. Never give buy, sell, hold, or sizing recommendations. Do not say what the reader should do, which side to prefer, or that a trade 'requires conviction'. Describe; do not advise.",
   "4. If a field is null, say it is unavailable and why (a reason field is usually provided).",
   "4b. probability.raw contains Panta's raw price fields for evidence only. When probability.source is \"unavailable\" (e.g. reason \"inconsistent_prices\"), say the implied probability is unavailable; never present raw prices as probabilities or odds, and state NO probability, percentage likelihood, odds or chance for YES or NO.",
+  "4c. When market.phase is secondary: secondary YES/NO prices are independent last-observed secondary prices (P2P CLOB), never complementary probabilities, never say YES+NO=1, never use bonding-curve / primary-quote execution language, never label the secondary market as an AMM. Restate execution lines exactly.",
   "5. Output markdown with exactly these five sections, in order, and no other headings: `### Observation`, `### Evidence`, `### Interpretation`, `### Risk`, `### Execution considerations`.",
   "5a. Keep the three kinds of statement apart. Observation: what the market data shows right now, restated (no reading into it). Evidence: bullet list of the signal values the brief rests on, quoted exactly. Interpretation: what that evidence MAY indicate, hedged (\"may\", \"could\", \"is consistent with\"), introducing no new numbers or facts and no advice; if the data is too thin, say so. Risk: bullet list. Execution considerations: restate the factual execution lines (phase, quote required, quote expiry) without advice.",
   "6. Under 260 words.",
@@ -265,10 +308,13 @@ export function guardLlmBrief(
   // in a description ("90%") never becomes strict evidence.
   const bare: Market = { ...market, title: "", description: undefined, resolutionRule: undefined };
   const templates = BRIEF_MODE_IDS.map((m) => buildTemplateBrief(bare, signals, m));
+  const secondary = (signals.phase || "").toLowerCase() === "secondary";
+  const probOk = !secondary && signals.probability.yes != null && signals.probability.no != null;
   return checkLlmBrief(content, {
-    probabilityAvailable: signals.probability.yes != null && signals.probability.no != null,
+    probabilityAvailable: probOk,
     probability: probabilityForms(signals.probability.yes, signals.probability.no),
     evidence: evidenceNumbers(signals, templates, [untrusted.question, untrusted.description, untrusted.resolutionRule]),
+    secondaryPhase: secondary,
   });
 }
 

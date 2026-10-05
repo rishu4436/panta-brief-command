@@ -73,7 +73,7 @@
 - **No cost-basis P&L:** Book can show shares and a live notional mark (spot × shares), not realized/unrealized P&L.
 - **Attribution starts empty:** attributed trades remain empty until a real fill is broadcast and a successful `POST /trades/` lands for this API key.
 - **Quiet tape stays quiet:** no mock trades, candles, or fake activity are inserted.
-- **Execution scope:** the desk focuses on primary buys; secondary-market routing is out of scope.
+- **Execution scope:** primary buys on primary-open markets; secondary markets show read-only Secondary Intelligence (no secondary order placement from this desk).
 
 ## Dual-submit reminders
 

@@ -1,6 +1,5 @@
 "use client";
 
-import { rawPriceNote } from "@/lib/panta/prices";
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -9,7 +8,7 @@ import { describeErr } from "@/lib/errors";
 import {
   catalogVolume,
   formatVolumeUsdc,
-  impliedSide,
+  deskPriceDisplay,
   isUntitledMarket,
   marketLabel,
   marketSubtitle,
@@ -22,9 +21,10 @@ import type { Market } from "@/lib/types";
 import { useRecents, useWatchlist } from "@/hooks/useLocalIds";
 import { Panel } from "./Panel";
 import { LifecycleBadge } from "./PhaseBadge";
-import { ProbBar } from "./ProbBar";
+import { DeskPriceCell } from "./desk/DeskPriceCell";
 import { WatchStar } from "./WatchStar";
 import { HotTapeRail } from "./HotTapeRail";
+import { SecondaryRadar } from "./SecondaryRadar";
 
 type ViewMode = "rows" | "cards";
 type SortMode = "default" | "volume" | "ending" | "phase";
@@ -80,15 +80,9 @@ function hasHumanLabel(m: Market): boolean {
 }
 
 function hasAnySpot(m: Market): boolean {
-  const { yes, no } = impliedSide(m);
-  if (yes !== null && yes !== undefined && yes !== "") {
-    const n = typeof yes === "string" ? Number(yes) : yes;
-    if (Number.isFinite(n)) return true;
-  }
-  if (no !== null && no !== undefined && no !== "") {
-    const n = typeof no === "string" ? Number(no) : no;
-    if (Number.isFinite(n)) return true;
-  }
+  const d = deskPriceDisplay(m);
+  if (d.mode === "probability") return true;
+  if (d.mode === "secondary") return d.yes != null || d.no != null;
   return false;
 }
 
@@ -586,7 +580,6 @@ export function MarketList() {
             ) : view === "cards" ? (
               <div className="grid gap-3 p-3.5 sm:grid-cols-2 lg:grid-cols-3">
                 {filtered.map((m, idx) => {
-                  const { yes, no, unavailable, probability } = impliedSide(m);
                   const thumb = m.images?.[0];
                   const hi = idx === highlight;
                   return (
@@ -625,7 +618,7 @@ export function MarketList() {
                             </span>
                           ) : null}
                         </div>
-                        <ProbBar yes={yes} no={no} unavailable={unavailable} note={rawPriceNote(probability)} size="sm" showLabels />
+                        <DeskPriceCell market={m} size="sm" showLabels />
                         <div className="mt-auto flex justify-between font-num text-[10px] text-zinc-500">
                           <span>{formatVolumeUsdc(catalogVolume(m))}</span>
                           <span>Ends {formatEnd(m.endTime)}</span>
@@ -656,11 +649,10 @@ export function MarketList() {
                   <span>Phase</span>
                   <span className="hidden lg:inline">Volume</span>
                   <span className="text-right">Ends</span>
-                  <span className="text-right">Prob</span>
+                  <span className="text-right">Price / Prob</span>
                 </div>
 
                 {filtered.map((m, idx) => {
-                  const { yes, no, unavailable, probability } = impliedSide(m);
                   const thumb = m.images?.[0];
                   const hi = idx === highlight;
                   return (
@@ -710,7 +702,7 @@ export function MarketList() {
                         {formatEnd(m.endTime)}
                       </div>
                       <div className="sm:text-right">
-                        <ProbBar yes={yes} no={no} unavailable={unavailable} note={rawPriceNote(probability)} size="sm" showLabels />
+                        <DeskPriceCell market={m} size="sm" showLabels />
                       </div>
                       </Link>
                     </div>
@@ -757,6 +749,7 @@ export function MarketList() {
         )}
       </Panel>
       <aside className="hidden lg:block lg:sticky lg:top-16">
+        <SecondaryRadar markets={items} catalogLoading={showSkeleton} />
         <HotTapeRail markets={filtered} watchIds={watchIds} catalogState={showSkeleton ? "loading" : showSetup ? "error" : "ready"} />
       </aside>
       </div>

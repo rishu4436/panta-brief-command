@@ -1,4 +1,11 @@
-import { marketProbability, type MarketProbability, type PriceFields, type ProbabilityUnavailableReason } from "./panta/prices";
+import {
+  isSecondaryPhase,
+  marketProbability,
+  secondaryLastObservedPrices,
+  type MarketProbability,
+  type PriceFields,
+  type ProbabilityUnavailableReason,
+} from "./panta/prices";
 import { marketVolumeUsdc } from "./panta/normalize";
 import type { Trade } from "./panta/domain";
 
@@ -143,6 +150,85 @@ export function impliedSide(market: PriceFields): {
   };
 }
 
+
+/**
+ * Desk / rail price cell: probabilities for primary; independent last-observed
+ * secondary USDC prices for secondary — never a % for secondary.
+ */
+export type DeskPriceDisplay =
+  | {
+      mode: "probability";
+      yes: string;
+      no: string;
+      unavailable: null;
+      probability: MarketProbability;
+    }
+  | {
+      mode: "secondary";
+      yesLabel: string;
+      noLabel: string;
+      yes: number | null;
+      no: number | null;
+      unavailable: null;
+      probability: MarketProbability;
+    }
+  | {
+      mode: "unavailable";
+      yes: null;
+      no: null;
+      unavailable: ProbabilityUnavailableReason;
+      probability: MarketProbability;
+      secondaryHint?: boolean;
+    };
+
+export function formatUsdcPerShare(v: number | null | undefined): string {
+  if (v == null) return "—";
+  return `${v.toLocaleString(undefined, { maximumFractionDigits: 3, minimumFractionDigits: 2 })} USDC`;
+}
+
+export function deskPriceDisplay(market: PriceFields): DeskPriceDisplay {
+  const probability = marketProbability(market);
+  if (isSecondaryPhase(market) && !market.resolved) {
+    const obs = secondaryLastObservedPrices(market);
+    if (obs.yes == null && obs.no == null) {
+      return {
+        mode: "unavailable",
+        yes: null,
+        no: null,
+        unavailable: probability.reason ?? "missing_prices",
+        probability,
+        secondaryHint: true,
+      };
+    }
+    return {
+      mode: "secondary",
+      yesLabel: obs.yes == null ? "—" : formatUsdcPerShare(obs.yes),
+      noLabel: obs.no == null ? "—" : formatUsdcPerShare(obs.no),
+      yes: obs.yes,
+      no: obs.no,
+      unavailable: null,
+      probability,
+    };
+  }
+  if (probability.yes == null || probability.no == null) {
+    return {
+      mode: "unavailable",
+      yes: null,
+      no: null,
+      unavailable: probability.reason ?? "missing_prices",
+      probability,
+    };
+  }
+  return {
+    mode: "probability",
+    yes: String(probability.yes),
+    no: String(probability.no),
+    unavailable: null,
+    probability,
+  };
+}
+
+
 /** True when API gave no human question/title. */
 export function isUntitledMarket(market: {
   title?: string | null;
@@ -166,7 +252,7 @@ export function marketLabel(
   const desc = (market.description || "").trim();
   if (desc) return opts?.max ? truncate(desc, opts.max) : desc;
   // Honest untitled — short id lives in the subtitle, not the headline
-  return "Untitled market";
+  return "Title unavailable";
 }
 
 /** Secondary line under the headline: short id · never duplicates the label. */
@@ -254,4 +340,25 @@ export function marketActivityRank(m: {
   if (phase === "secondary" || status === "secondary" || phase === "active")
     return 1;
   return 2;
+}
+
+/**
+ * Shared resolution / remaining countdown used by Book, Secondary Intelligence,
+ * signals risk text, and AI brief — so all surfaces agree (e.g. "1h 42m", not "2h").
+ */
+export function formatResolutionCountdown(totalSec: number): string {
+  if (totalSec <= 0) return "0m";
+  const d = Math.floor(totalSec / 86_400);
+  const h = Math.floor((totalSec % 86_400) / 3_600);
+  const m = Math.floor((totalSec % 3_600) / 60);
+  if (d >= 1) return h > 0 ? `${d}d ${h}h` : `${d}d`;
+  if (h >= 1) return m > 0 ? `${h}h ${m}m` : `${h}h`;
+  return `${Math.max(1, m)}m`;
+}
+
+/** Remaining duration from minutes (fractional OK); null when unknown. */
+export function formatCountdownMinutes(minutes: number | null | undefined): string | null {
+  if (minutes == null || !Number.isFinite(minutes)) return null;
+  if (minutes <= 0) return "0m";
+  return formatResolutionCountdown(minutes * 60);
 }

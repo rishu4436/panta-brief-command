@@ -21,6 +21,8 @@ import { Panel } from "./Panel";
 import { PhaseBadge } from "./PhaseBadge";
 import { ProbabilityPanel } from "./desk/ProbabilityPanel";
 import { PrimaryBuyPanel } from "./PrimaryBuyPanel";
+import { SecondaryIntelligence } from "./SecondaryIntelligence";
+import { showsSecondaryIntelligence } from "@/lib/panta/secondary-intel";
 import { TapeSparkline } from "./TapeSparkline";
 import { TradeTape } from "./TradeTape";
 import { MarketSidebar } from "./MarketSidebar";
@@ -136,6 +138,7 @@ export function MarketDetail({ marketId }: { marketId: string }) {
   const showDesc = desc && !descIsDupe;
 
   const vol = formatVolumeUsdc(catalogVolume(market));
+  const secondaryDesk = showsSecondaryIntelligence(market);
 
   return (
     <div className="grid gap-4 animate-fade-in lg:grid-cols-[minmax(0,1fr)_360px] lg:grid-rows-[auto_auto_1fr] xl:grid-cols-[256px_minmax(0,1fr)_392px] 2xl:grid-cols-[280px_minmax(0,1fr)_420px]">
@@ -190,18 +193,25 @@ export function MarketDetail({ marketId }: { marketId: string }) {
           </div>
         </header>
 
-        <ProbabilityPanel
-          yes={yes}
-          no={no}
-          unavailable={unavailable}
-          note={rawPriceNote(probability)}
-          volume={vol}
-          ends={market.endTime ? `${formatEnd(market.endTime)} IST` : "—"}
-          resolves={market.resolutionTime ? `${formatEnd(market.resolutionTime)} IST` : "—"}
-          prints={printsLabel(tapeSt)}
-        />
+        {secondaryDesk ? (
+          <p className="rounded-xl border border-line bg-inset/50 px-3 py-2 text-[12px] text-ink-3">
+            Secondary phase — last observed secondary prices and flow are in Secondary Market Intelligence
+            (right / below). Independent YES/NO prices are not shown as probabilities.
+          </p>
+        ) : (
+          <ProbabilityPanel
+            yes={yes}
+            no={no}
+            unavailable={unavailable}
+            note={rawPriceNote(probability)}
+            volume={vol}
+            ends={market.endTime ? `${formatEnd(market.endTime)} IST` : "—"}
+            resolves={market.resolutionTime ? `${formatEnd(market.resolutionTime)} IST` : "—"}
+            prints={printsLabel(tapeSt)}
+          />
+        )}
 
-        <TapeSparkline state={tapeSt} onRetry={retryTape} size="lg" />
+        <TapeSparkline state={tapeSt} onRetry={retryTape} size="lg" secondaryPhase={secondaryDesk} />
       </div>
 
       {/* Right: AI brief */}
@@ -211,7 +221,17 @@ export function MarketDetail({ marketId }: { marketId: string }) {
 
       {/* Centre: trade ticket */}
       <div className="min-w-0 self-start lg:col-start-1 lg:row-start-2 xl:col-start-2">
-        <PrimaryBuyPanel initialMarketId={market.marketId} compact market={market} />
+        {secondaryDesk ? (
+          <SecondaryIntelligence
+            market={market}
+            trades={trades}
+            marketUpdatedAt={updatedAt}
+            marketFetching={detail.isFetching}
+            marketError={Boolean(detail.error)}
+          />
+        ) : (
+          <PrimaryBuyPanel initialMarketId={market.marketId} compact market={market} />
+        )}
       </div>
 
       {/* Centre: activity + context */}

@@ -88,6 +88,7 @@ export function TapeSparkline({
   error: errorProp = null,
   state,
   onRetry,
+  secondaryPhase = false,
 }: {
   items?: Trade[];
   busy?: boolean;
@@ -98,8 +99,18 @@ export function TapeSparkline({
   state?: TapeState<Trade>;
   /** Re-run the tape request (shown only on failure). */
   onRetry?: () => void;
+  /** Secondary markets: chart uses only isPrimary===false prints (never invent from primary). */
+  secondaryPhase?: boolean;
 }) {
-  const items = state ? (state.kind === "ok" ? state.items : NO_ROWS) : (itemsProp ?? NO_ROWS);
+  const rawItems = state ? (state.kind === "ok" ? state.items : NO_ROWS) : (itemsProp ?? NO_ROWS);
+  const items = useMemo(() => {
+    if (!secondaryPhase) return rawItems;
+    return rawItems.filter((t) => t.isPrimary === false);
+  }, [rawItems, secondaryPhase]);
+  const primaryHistoricalCount = useMemo(() => {
+    if (!secondaryPhase) return 0;
+    return rawItems.filter((t) => t.isPrimary === true).length;
+  }, [rawItems, secondaryPhase]);
   const busy = state ? state.kind === "loading" : busyProp;
   const error = state ? (state.kind === "failed" ? state.message : null) : errorProp;
   const [range, setRange] = useState<(typeof RANGES)[number]["id"]>("all");
@@ -125,7 +136,7 @@ export function TapeSparkline({
   return (
     <Panel
       title="Market activity"
-      subtitle="Cumulative YES share of flow"
+      subtitle={secondaryPhase ? "Cumulative YES share of secondary flow" : "Cumulative YES share of flow"}
       action={
         sided.length >= 2 ? (
           <div className="segmented mr-3" role="group" aria-label="Prints included">
@@ -155,8 +166,18 @@ export function TapeSparkline({
         <div className={`skeleton w-full ${hCls}`} />
       ) : !enough || !path ? (
         <div className={`flex flex-col items-center justify-center rounded-xl border border-dashed border-line bg-inset/60 px-3 text-center ${hCls}`}>
-          <div className="text-[13px] font-medium text-ink-2">No flow series yet</div>
-          <p className="type-meta mt-1">Needs at least 2 timed prints with a side. Nothing is invented.</p>
+          <div className="text-[13px] font-medium text-ink-2">
+            {secondaryPhase && items.length === 0
+              ? "No observed secondary prints — secondary flow unavailable"
+              : "No flow series yet"}
+          </div>
+          <p className="type-meta mt-1">
+            {secondaryPhase && items.length === 0
+              ? primaryHistoricalCount > 0
+                ? `${primaryHistoricalCount} historical primary observation${primaryHistoricalCount === 1 ? "" : "s"} excluded from this chart.`
+                : "Nothing is invented from empty secondary tape."
+              : "Needs at least 2 timed prints with a side. Nothing is invented."}
+          </p>
         </div>
       ) : (
         <div className="relative">
@@ -196,6 +217,11 @@ export function TapeSparkline({
           </div>
           <p className="mt-2 text-[11px] text-ink-3">
             Flow, not price: tape rows carry no per-trade price, so no price history is drawn. 50% line dashed.
+            {secondaryPhase
+              ? primaryHistoricalCount > 0
+                ? ` Secondary prints only; ${primaryHistoricalCount} historical primary observation${primaryHistoricalCount === 1 ? "" : "s"} excluded.`
+                : " Secondary prints only."
+              : ""}
           </p>
         </div>
       )}

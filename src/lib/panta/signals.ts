@@ -13,7 +13,15 @@
 
 import type { Market, TapeCompleteness, Trade } from "./domain";
 import { marketVolumeUsdc } from "./normalize";
-import { marketProbability, type MarketProbability, type ProbabilitySource, type ProbabilityUnavailableReason } from "./prices";
+import { formatCountdownMinutes } from "@/lib/format";
+import {
+  marketProbability,
+  secondaryLastObservedPrices,
+  type MarketProbability,
+  type ProbabilitySource,
+  type ProbabilityUnavailableReason,
+  type SecondaryLastObserved,
+} from "./prices";
 
 export const SIGNALS_VERSION = 2;
 
@@ -56,6 +64,12 @@ export type MarketSignals = {
     /** Raw Panta price fields as received (evidence; never used as odds). */
     raw: MarketProbability["raw"];
   };
+  /**
+   * Secondary only: independent last-observed YES/NO prices (USDC/share).
+   * Explicit price observations for evidence / numeric guard — not probabilities.
+   * null on primary / non-secondary.
+   */
+  secondaryLastObserved: SecondaryLastObserved | null;
   probabilityChange: {
     value: number | null;
     reason: string;
@@ -198,15 +212,33 @@ export function computeMarketSignals(
 
   // --- Probability
   const probability = resolveProbability(market, resolved);
+  const secondaryLastObserved =
+    phase === "secondary" && !resolved ? secondaryLastObservedPrices(market) : null;
   const outcome: "yes" | "no" | null =
     resolved && probability.yes === 1 ? "yes" : resolved && probability.yes === 0 ? "no" : null;
 
   // --- Tape
+  // Full-window counts (all readable rows) for honesty / primary vs secondary split.
   const count = tape.length;
-  let yesPrints = 0;
-  let noPrints = 0;
+  let yesPrintsAll = 0;
+  let noPrintsAll = 0;
   let primaryPrints = 0;
   let secondaryPrints = 0;
+  const timesAll: number[] = [];
+  for (const trow of tape) {
+    if (trow.side === "yes") yesPrintsAll += 1;
+    else if (trow.side === "no") noPrintsAll += 1;
+    if (trow.isPrimary === true) primaryPrints += 1;
+    else if (trow.isPrimary === false) secondaryPrints += 1;
+    if (trow.blockTime != null) timesAll.push(trow.blockTime);
+  }
+  const secondaryPhase = phase === "secondary";
+  // Flow / concentration / recent volume use secondary-only rows on secondary markets.
+  // Unknown isPrimary and primary prints are excluded from secondary flow metrics.
+  const flowTape = secondaryPhase ? tape.filter((tr) => tr.isPrimary === false) : tape;
+
+  let yesPrints = 0;
+  let noPrints = 0;
   let yesShares = 0;
   let noShares = 0;
   let sidedWithShares = 0;
@@ -222,39 +254,40 @@ export function computeMarketSignals(
   let walletPrintsWithUsdc = 0;
   const times: number[] = [];
 
-  for (const t of tape) {
-    if (t.side === "yes") yesPrints += 1;
-    else if (t.side === "no") noPrints += 1;
-    if (t.isPrimary === true) primaryPrints += 1;
-    else if (t.isPrimary === false) secondaryPrints += 1;
-    if (t.side && t.shares != null) {
+  for (const tr of flowTape) {
+    if (tr.side === "yes") yesPrints += 1;
+    else if (tr.side === "no") noPrints += 1;
+    if (tr.side && tr.shares != null) {
       sidedWithShares += 1;
-      if (t.side === "yes") yesShares += t.shares;
-      else noShares += t.shares;
+      if (tr.side === "yes") yesShares += tr.shares;
+      else noShares += tr.shares;
     }
-    if (t.shares != null && Number.isFinite(t.shares)) {
-      sharesSum += t.shares;
+    if (tr.shares != null && Number.isFinite(tr.shares)) {
+      sharesSum += tr.shares;
       sharesRows += 1;
     }
-    if (t.amountUsdc != null) {
-      usdcSum += t.amountUsdc;
+    if (tr.amountUsdc != null) {
+      usdcSum += tr.amountUsdc;
       usdcRows += 1;
     }
-    if (t.wallet) {
+    if (tr.wallet) {
       walletPrints += 1;
-      walletCounts.set(t.wallet, (walletCounts.get(t.wallet) || 0) + 1);
-      if (t.shares != null && Number.isFinite(t.shares) && t.shares >= 0) {
+      walletCounts.set(tr.wallet, (walletCounts.get(tr.wallet) || 0) + 1);
+      if (tr.shares != null && Number.isFinite(tr.shares) && tr.shares >= 0) {
         walletPrintsWithShares += 1;
-        walletShares.set(t.wallet, (walletShares.get(t.wallet) || 0) + t.shares);
+        walletShares.set(tr.wallet, (walletShares.get(tr.wallet) || 0) + tr.shares);
       }
-      if (t.amountUsdc != null && Number.isFinite(t.amountUsdc) && t.amountUsdc >= 0) {
+      if (tr.amountUsdc != null && Number.isFinite(tr.amountUsdc) && tr.amountUsdc >= 0) {
         walletPrintsWithUsdc += 1;
-        walletUsdc.set(t.wallet, (walletUsdc.get(t.wallet) || 0) + t.amountUsdc);
+        walletUsdc.set(tr.wallet, (walletUsdc.get(tr.wallet) || 0) + tr.amountUsdc);
       }
     }
-    if (t.blockTime != null) times.push(t.blockTime);
+    if (tr.blockTime != null) times.push(tr.blockTime);
   }
+  const flowCount = flowTape.length;
   const sided = yesPrints + noPrints;
+  const windowStartAll = timesAll.length ? Math.min(...timesAll) : null;
+  const windowEndAll = timesAll.length ? Math.max(...timesAll) : null;
   const windowStart = times.length ? Math.min(...times) : null;
   const windowEnd = times.length ? Math.max(...times) : null;
   const topWalletPrints = walletCounts.size ? Math.max(...walletCounts.values()) : 0;
@@ -269,7 +302,12 @@ export function computeMarketSignals(
     sizeConcentration = {
       topWalletShareOfSize: null,
       basis: null,
-      reason: count === 0 ? "No prints in the tape window" : "Prints carry no wallet",
+      reason:
+        flowCount === 0
+          ? secondaryPhase
+            ? "No observed secondary prints in the available tape"
+            : "No prints in the tape window"
+          : "Prints carry no wallet",
     };
   } else if (walletPrintsWithShares === walletPrints && topOf(walletShares) != null) {
     sizeConcentration = { topWalletShareOfSize: topOf(walletShares), basis: "shares", reason: null };
@@ -284,28 +322,36 @@ export function computeMarketSignals(
   }
 
   const tapeBlock: MarketSignals["tape"] = {
+    // count = full returned readable sample (not invented zeros for dropped rows)
     count,
-    yesPrints,
-    noPrints,
-    unknownSidePrints: count - sided,
-    yesPrintRatio: sided ? round(yesPrints / sided) : null,
+    // Flow-facing YES/NO print counts are secondary-only when secondary phase.
+    yesPrints: secondaryPhase ? yesPrints : yesPrintsAll,
+    noPrints: secondaryPhase ? noPrints : noPrintsAll,
+    unknownSidePrints: secondaryPhase ? flowCount - sided : count - (yesPrintsAll + noPrintsAll),
+    yesPrintRatio: sided > 0 ? round(yesPrints / sided) : null,
     primaryPrints,
     secondaryPrints,
-    windowStart,
-    windowEnd,
+    windowStart: secondaryPhase ? windowStart : windowStartAll,
+    windowEnd: secondaryPhase ? windowEnd : windowEndAll,
     windowMinutes:
-      windowStart != null && windowEnd != null ? Math.round((windowEnd - windowStart) / 60) : null,
-    lastPrintAgeMinutes: windowEnd != null ? Math.max(0, Math.round((nowSec - windowEnd) / 60)) : null,
+      (secondaryPhase ? windowStart : windowStartAll) != null && (secondaryPhase ? windowEnd : windowEndAll) != null
+        ? Math.round((((secondaryPhase ? windowEnd : windowEndAll) as number) - ((secondaryPhase ? windowStart : windowStartAll) as number)) / 60)
+        : null,
+    lastPrintAgeMinutes:
+      (secondaryPhase ? windowEnd : windowEndAll) != null
+        ? Math.max(0, Math.round((nowSec - ((secondaryPhase ? windowEnd : windowEndAll) as number)) / 60))
+        : null,
     printConcentration: {
       topWalletShareOfPrints: walletPrints ? round(topWalletPrints / walletPrints) : null,
       wallets: walletCounts.size,
-      printsWithoutWallet: count - walletPrints,
+      printsWithoutWallet: flowCount - walletPrints,
     },
     completeness: opts.tapeCompleteness ?? null,
     sizeConcentration,
   };
 
   // --- Flow (share-weighted only when every sided print has a size)
+  // Secondary: computed only from isPrimary===false; empty → unavailable (not zeros from primary).
   let flow: MarketSignals["flow"];
   if (sided > 0 && sidedWithShares === sided && yesShares + noShares > 0) {
     const total = yesShares + noShares;
@@ -328,20 +374,22 @@ export function computeMarketSignals(
     flow = { yesShares: null, noShares: null, yesFlowShare: null, imbalance: null, basis: null };
   }
 
-  // --- Volume
+  // --- Volume (recent window = same scope as flow: secondary-only on secondary markets)
   const volume: MarketSignals["volume"] = {
     catalogUsdc: marketVolumeUsdc(market),
-    recentUsdc: count > 0 && usdcRows === count ? round(usdcSum, 2) : null,
-    recentShares: count > 0 && sharesRows === count ? round(sharesSum, 2) : null,
-    sharesStatus: count > 0 && sharesRows === count ? "complete" : sharesRows > 0 ? "partial" : "none",
+    recentUsdc: flowCount > 0 && usdcRows === flowCount ? round(usdcSum, 2) : null,
+    recentShares: flowCount > 0 && sharesRows === flowCount ? round(sharesSum, 2) : null,
+    sharesStatus: flowCount > 0 && sharesRows === flowCount ? "complete" : sharesRows > 0 ? "partial" : "none",
     knownShares: sharesRows > 0 ? round(sharesSum, 2) : null,
-    printsWithoutShares: count - sharesRows,
+    printsWithoutShares: flowCount - sharesRows,
     note:
-      count === 0
-        ? "No prints in the tape window."
-        : sharesRows > 0 && sharesRows < count
-          ? `${count - sharesRows} of ${count} prints lack a share size, so the window's share volume is incomplete (known: ${round(sharesSum, 2)} shares across ${sharesRows} prints).`
-          : usdcRows === count
+      flowCount === 0
+        ? secondaryPhase
+          ? "No observed secondary prints — secondary flow unavailable."
+          : "No prints in the tape window."
+        : sharesRows > 0 && sharesRows < flowCount
+          ? `${flowCount - sharesRows} of ${flowCount} prints lack a share size, so the window's share volume is incomplete (known: ${round(sharesSum, 2)} shares across ${sharesRows} prints).`
+          : usdcRows === flowCount
             ? null
             : sharesRows === 0
               ? "Tape rows carry neither share sizes nor USDC paid; recent volume is unknown."
@@ -352,8 +400,10 @@ export function computeMarketSignals(
   const probabilityChange: MarketSignals["probabilityChange"] = {
     value: null,
     reason:
-      count === 0
-        ? "No prints in the window."
+      flowCount === 0
+        ? secondaryPhase
+          ? "No observed secondary prints in the available tape."
+          : "No prints in the window."
         : "Tape rows carry side and size but no per-trade price, so a change across the window cannot be derived honestly.",
   };
 
@@ -364,7 +414,7 @@ export function computeMarketSignals(
       ? {
           resolutionTime,
           minutesToResolution:
-            resolutionTime > nowSec ? Math.round((resolutionTime - nowSec) / 60) : null,
+            resolutionTime > nowSec ? (resolutionTime - nowSec) / 60 : null,
           passed: resolutionTime <= nowSec,
         }
       : { resolutionTime: null, minutesToResolution: null, passed: null };
@@ -387,9 +437,11 @@ export function computeMarketSignals(
       direction: null,
       reason:
         probability.yes == null
-          ? probability.reason === "inconsistent_prices"
-            ? "Panta's YES/NO prices are inconsistent, so there is no probability to compare."
-            : "No market price."
+          ? probability.reason === "not_applicable"
+            ? "Independent per-side last observations — probability not applicable; not compared to flow as a YES probability."
+            : probability.reason === "inconsistent_prices"
+              ? "Panta's YES/NO prices are inconsistent, so there is no probability to compare."
+              : "No market price."
           : "No sided prints in the window.",
     };
   } else if (sided < 3) {
@@ -427,19 +479,55 @@ export function computeMarketSignals(
   if (cancelled) add("cancelled", "Market cancelled — no trading");
   const partialDetail = opts.partialDetail ?? market.partial === true;
   if (partialDetail) add("partial_detail", "Panta returned a partial market record (no title or price)");
-  if (probability.reason === "inconsistent_prices") {
+  // Secondary: probability not_applicable is expected (independent last-obs), not a primary defect.
+  // Missing usable secondary last-obs is a separate, secondary-specific limitation (never "inconsistent").
+  if (probability.reason === "not_applicable") {
+    /* no primary-style price-defect flag */
+  } else if (probability.reason === "inconsistent_prices") {
     add("inconsistent_prices", "Panta's YES/NO prices are inconsistent — implied probability unavailable");
   } else if (probability.reason === "incomplete_prices") {
     add("incomplete_prices", "Panta priced only one side — implied probability unavailable");
   } else if (probability.yes == null) add("no_price", "No live price — odds unavailable");
-  if (count === 0) add("no_tape", "No recent prints in the tape window");
-  else if (count < T.thinTapePrints) add("thin_tape", `Thin tape — ${count} print${count === 1 ? "" : "s"}`);
+  if (secondaryPhase && !resolved && secondaryLastObserved) {
+    const hasYes = secondaryLastObserved.yes != null;
+    const hasNo = secondaryLastObserved.no != null;
+    if (!hasYes && !hasNo) {
+      add("no_secondary_price", "No last observed secondary price from Panta");
+    } else if (!hasYes || !hasNo) {
+      add(
+        "incomplete_secondary_price",
+        "Only one side has a last observed secondary price",
+        "info",
+      );
+    }
+  }
+  // Secondary: thin/no-tape flags reflect secondary prints only (not historical primary).
+  if (secondaryPhase) {
+    if (secondaryPrints === 0) {
+      add(
+        "no_secondary_tape",
+        primaryPrints > 0
+          ? `No observed secondary prints — secondary flow unavailable (${primaryPrints} historical primary print${primaryPrints === 1 ? "" : "s"} in sample)`
+          : "No observed secondary prints — secondary flow unavailable",
+        "info",
+      );
+    } else if (secondaryPrints < T.thinTapePrints) {
+      add("thin_tape", `Thin secondary tape — ${secondaryPrints} print${secondaryPrints === 1 ? "" : "s"}`);
+    }
+  } else if (count === 0) {
+    add("no_tape", "No recent prints in the tape window");
+  } else if (count < T.thinTapePrints) {
+    add("thin_tape", `Thin tape — ${count} print${count === 1 ? "" : "s"}`);
+  }
   if (
     resolution.minutesToResolution != null &&
     resolution.minutesToResolution < T.resolutionSoonMinutes &&
     !resolved
   ) {
-    add("resolution_soon", `Resolution in under 24h (${ageLabel(resolution.minutesToResolution)})`);
+    add(
+      "resolution_soon",
+      `Resolution in under 24h (${formatCountdownMinutes(resolution.minutesToResolution) ?? ageLabel(resolution.minutesToResolution!)})`,
+    );
   }
   if (resolution.passed && !resolved && !cancelled) {
     add("resolution_passed", "Resolution time has passed — awaiting settlement");
@@ -465,12 +553,13 @@ export function computeMarketSignals(
     const leadShare = flow.imbalance > 0 ? flow.yesFlowShare! : 1 - flow.yesFlowShare!;
     add("one_sided_flow", `One-sided flow — ${lead} is ${pct(leadShare)} of ${flow.basis}`);
   }
+  const activityCount = secondaryPhase ? secondaryPrints : count;
   const printTop = tapeBlock.printConcentration.topWalletShareOfPrints;
-  if (count >= T.thinTapePrints && printTop != null && printTop >= T.concentratedPrintShare) {
+  if (activityCount >= T.thinTapePrints && printTop != null && printTop >= T.concentratedPrintShare) {
     add("concentrated_prints", `Print concentration — top wallet made ${pct(printTop, 1)} of observed prints`);
   }
   const sizeTop = tapeBlock.sizeConcentration;
-  if (count >= T.thinTapePrints && sizeTop.topWalletShareOfSize != null && sizeTop.topWalletShareOfSize >= T.concentratedSizeShare) {
+  if (activityCount >= T.thinTapePrints && sizeTop.topWalletShareOfSize != null && sizeTop.topWalletShareOfSize >= T.concentratedSizeShare) {
     add(
       "concentrated_size",
       `Size concentration — top wallet accounts for ${pct(sizeTop.topWalletShareOfSize, 1)} of observed traded ${sizeTop.basis === "usdc" ? "USDC" : "shares"}`,
@@ -500,24 +589,63 @@ export function computeMarketSignals(
     const why = `Partial tape: ${tc.dropped} of ${tc.returned} rows unreadable (left out, not counted)`;
     cap(tc.dropped * 4 >= tc.returned ? 1 : 2, why);
   }
-  if (probability.reason === "inconsistent_prices") cap(1, "Panta's YES/NO prices are inconsistent (not probabilities)");
-  else if (probability.reason === "incomplete_prices") cap(1, "Only one side priced");
-  else if (probability.yes == null) cap(1, "No market price");
-  if (count === 0) cap(1, "No prints in the tape window");
-  else if (count < T.thinTapePrints) cap(1, `Only ${count} print(s)`);
-  else if (count < T.solidTapePrints) cap(2, `${count} prints (< ${T.solidTapePrints})`);
+  if (probability.reason === "not_applicable") {
+    // Not a primary complementarity defect. Secondary last-obs completeness is capped below.
+  } else if (probability.reason === "inconsistent_prices") {
+    cap(1, "Panta's YES/NO prices are inconsistent (not probabilities)");
+  } else if (probability.reason === "incomplete_prices") {
+    cap(1, "Only one side priced");
+  } else if (probability.yes == null) {
+    cap(1, "No market price");
+  }
+  /**
+   * Secondary price completeness (independent observations, never "inconsistent"):
+   *  - both sides missing → Low
+   *  - one side only → Medium (legit limitation; still usable on the observed side)
+   * Secondary print-count caps are monotonic Medium for empty and thin so 0 prints
+   * never grades better than 1–4 prints (thinTapePrints=5).
+   */
+  if (secondaryPhase && !resolved) {
+    const hasYes = secondaryLastObserved?.yes != null;
+    const hasNo = secondaryLastObserved?.no != null;
+    if (!hasYes && !hasNo) {
+      cap(1, "No last observed secondary price from Panta");
+    } else if (!hasYes || !hasNo) {
+      cap(2, "Only one side has a last observed secondary price");
+    }
+  }
+  // Tape-size quality uses activityCount (secondary prints only on secondary markets).
+  const tapeActivity = secondaryPhase ? secondaryPrints : count;
+  if (secondaryPhase) {
+    if (secondaryPrints === 0) {
+      // Empty secondary tape: flow unavailable; Medium (same band as thin) — never better than 1 print.
+      cap(2, "No observed secondary prints — secondary flow unavailable");
+    } else if (secondaryPrints < T.thinTapePrints) {
+      cap(2, `Thin secondary tape — ${secondaryPrints} print(s)`);
+    } else if (secondaryPrints < T.solidTapePrints) {
+      cap(2, `${secondaryPrints} secondary prints (< ${T.solidTapePrints})`);
+    }
+  } else if (count === 0) {
+    cap(1, "No prints in the tape window");
+  } else if (count < T.thinTapePrints) {
+    cap(1, `Only ${count} print(s)`);
+  } else if (count < T.solidTapePrints) {
+    cap(2, `${count} prints (< ${T.solidTapePrints})`);
+  }
   if (flow.basis === "prints") cap(2, "Flow is print-weighted (no share sizes)");
   if (tapeBlock.lastPrintAgeMinutes != null && !resolved) {
     if (tapeBlock.lastPrintAgeMinutes > T.staleLastPrintHours * 60) cap(1, "Last print is stale");
     else if (tapeBlock.lastPrintAgeMinutes > T.freshLastPrintHours * 60) cap(2, "Last print older than 24h");
   }
-  if (!(market.title || "").trim()) cap(2, "Untitled market");
+  if (!(market.title || "").trim()) cap(2, "Title unavailable");
   if (probability.source === "primary_curve") cap(2, "Price from primary curve, not live spot");
   if (level === 3) {
     reasons.push(
       resolved
-        ? `${count} prints, share-weighted, settled price (tape is pre-resolution)`
-        : `${count} prints, share-weighted, live price, fresh tape`,
+        ? `${tapeActivity} prints, share-weighted, settled price (tape is pre-resolution)`
+        : secondaryPhase
+          ? `${tapeActivity} secondary prints, share-weighted, last-observed secondary prices, fresh secondary tape`
+          : `${tapeActivity} prints, share-weighted, live price, fresh tape`,
     );
   }
   const grade: DataQualityGrade = level >= 3 ? "high" : level === 2 ? "medium" : "low";
@@ -536,23 +664,35 @@ export function computeMarketSignals(
     lines.push("Cancelled · no trading on this market");
   } else if (phase === "secondary") {
     lines.push("Secondary phase · primary buys closed");
-    lines.push("This desk routes primary buys only; secondary AMM routing is out of scope");
+    lines.push(
+      "Brief Command provides secondary-market intelligence here; secondary CLOB execution is not currently routed through this desk.",
+    );
   } else {
     lines.push("Phase unknown · check market detail before quoting");
   }
 
   // --- Headline (observational)
   let headline: string;
-  const n = count;
+  // Flow headline count = secondary prints on secondary markets (never invent from primary).
+  const n = secondaryPhase ? secondaryPrints : count;
   const basisWord = flow.basis === "shares" ? "of shares" : "of prints";
-  if (n === 0 || flow.yesFlowShare == null || flow.imbalance == null) {
+  if (secondaryPhase && secondaryPrints === 0) {
+    headline =
+      primaryPrints > 0
+        ? `No observed secondary prints — secondary flow unavailable (${primaryPrints} historical primary observation${primaryPrints === 1 ? "" : "s"} in sample).`
+        : "No observed secondary prints — secondary flow unavailable.";
+  } else if (n === 0 || flow.yesFlowShare == null || flow.imbalance == null) {
     headline = n === 0
       ? "No recent prints — flow signal unavailable."
       : `${n} recent print(s) without a readable side — flow signal unavailable.`;
   } else {
     const yesShare = pct(flow.yesFlowShare);
     const noShare = pct(1 - flow.yesFlowShare);
-    const prefix = resolved ? "Pre-resolution tape: " : "";
+    const prefix = resolved
+      ? "Pre-resolution tape: "
+      : secondaryPhase
+        ? "Secondary tape: "
+        : "";
     if (Math.abs(flow.imbalance) < T.balancedImbalance) {
       headline = `${prefix}Flow is balanced across the last ${n} prints (YES ${yesShare} · NO ${noShare} ${basisWord}).`;
     } else {
@@ -571,6 +711,7 @@ export function computeMarketSignals(
     resolved,
     outcome,
     probability,
+    secondaryLastObserved,
     probabilityChange,
     tape: tapeBlock,
     flow,

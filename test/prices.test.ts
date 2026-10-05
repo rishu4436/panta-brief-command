@@ -60,18 +60,30 @@ describe("marketProbability", () => {
         secondaryNoPrice: "1000000000",
       }),
     );
-    expect(p).toMatchObject({ yes: null, no: null, source: "unavailable", reason: "inconsistent_prices" });
+    expect(p).toMatchObject({ yes: null, no: null, source: "unavailable", reason: "not_applicable" });
     expect(p.raw).toMatchObject({ yesPrice: "1", noPrice: "1", secondaryYesPrice: "1000000000" });
   });
-  it("HYPE live fields → unavailable (no primary-curve substitute for a secondary market)", () => {
+  it("HYPE live fields → not_applicable (no primary-curve substitute; not a defect)", () => {
     const p = marketProbability(
       m({ yesPrice: "0.5", noPrice: "0.328260245", primaryYesPrice: "0.671739755", primaryNoPrice: "0.328260245" }),
     );
     expect(p.source).toBe("unavailable");
-    expect(p.reason).toBe("inconsistent_prices");
+    expect(p.reason).toBe("not_applicable");
   });
-  it("valid secondary spot", () => {
-    expect(marketProbability(m({ yesPrice: "0.62", noPrice: "0.38" }))).toMatchObject({ yes: 0.62, no: 0.38, source: "spot" });
+  it("complementary secondary YES/NO still not_applicable (independent last-trade, not a probability)", () => {
+    expect(marketProbability(m({ yesPrice: "0.62", noPrice: "0.38" }))).toMatchObject({
+      yes: null,
+      no: null,
+      source: "unavailable",
+      reason: "not_applicable",
+    });
+  });
+  it("valid primary spot unchanged", () => {
+    expect(marketProbability(m({ phase: "primary", yesPrice: "0.62", noPrice: "0.38" }))).toMatchObject({
+      yes: 0.62,
+      no: 0.38,
+      source: "spot",
+    });
   });
   it("resolved market reads as settled", () => {
     expect(marketProbability(m({ phase: "resolved", resolved: true, yesPrice: "1", noPrice: "0" }))).toMatchObject({
@@ -86,30 +98,44 @@ describe("marketProbability", () => {
     // Secondary market with only the (frozen) curve price → unavailable, missing.
     expect(
       marketProbability(m({ phase: "secondary", yesPrice: null, noPrice: null, primaryYesPrice: "0.6", primaryNoPrice: "0.4" })),
-    ).toMatchObject({ yes: null, source: "unavailable", reason: "missing_prices" });
+    ).toMatchObject({ yes: null, source: "unavailable", reason: "not_applicable" });
     // Inconsistent spot is never replaced by the curve, even while primary.
     expect(
       marketProbability(m({ phase: "primary", yesPrice: "1", noPrice: "1", primaryYesPrice: "0.6", primaryNoPrice: "0.4" })),
     ).toMatchObject({ yes: null, reason: "inconsistent_prices" });
   });
-  it("missing everything → missing_prices", () => {
-    expect(marketProbability(m())).toMatchObject({ yes: null, no: null, source: "unavailable", reason: "missing_prices" });
+  it("missing everything on secondary → not_applicable", () => {
+    expect(marketProbability(m())).toMatchObject({ yes: null, no: null, source: "unavailable", reason: "not_applicable" });
+  });
+  it("missing everything on primary → missing_prices", () => {
+    expect(marketProbability(m({ phase: "primary", status: "primary" }))).toMatchObject({
+      yes: null,
+      no: null,
+      source: "unavailable",
+      reason: "missing_prices",
+    });
   });
 });
 
 describe("impliedSide (display consumers)", () => {
   it("never returns inconsistent prices for display", () => {
-    expect(impliedSide(m({ yesPrice: "1", noPrice: "1" }))).toMatchObject({ yes: null, no: null, unavailable: "inconsistent_prices" });
-    expect(impliedSide(m({ yesPrice: "0.62", noPrice: "0.38" }))).toMatchObject({ yes: "0.62", no: "0.38", unavailable: null });
+    expect(impliedSide(m({ yesPrice: "1", noPrice: "1" }))).toMatchObject({ yes: null, no: null, unavailable: "not_applicable" });
+    // Secondary complementary pair is still not a probability for display.
+    expect(impliedSide(m({ yesPrice: "0.62", noPrice: "0.38" }))).toMatchObject({ yes: null, no: null, unavailable: "not_applicable" });
+    expect(impliedSide(m({ phase: "primary", yesPrice: "0.62", noPrice: "0.38" }))).toMatchObject({
+      yes: "0.62",
+      no: "0.38",
+      unavailable: null,
+    });
   });
 });
 
 describe("positionMark", () => {
-  const bad = marketProbability(m({ yesPrice: "1", noPrice: "1" }));
-  const ok = marketProbability(m({ yesPrice: "0.62", noPrice: "0.38" }));
+  const bad = marketProbability(m({ phase: "primary", yesPrice: "1", noPrice: "1" }));
+  const ok = marketProbability(m({ phase: "primary", yesPrice: "0.62", noPrice: "0.38" }));
   it("no mark when the probability is unavailable", () => {
     expect(positionMark(100, "yes", bad)).toEqual({ value: null, price: null, reason: "inconsistent_prices" });
-    expect(positionMark(100, "no", marketProbability(m()))).toMatchObject({ value: null, reason: "missing_prices" });
+    expect(positionMark(100, "no", marketProbability(m({ phase: "primary", status: "primary" })))).toMatchObject({ value: null, reason: "missing_prices" });
   });
   it("shares × validated side price", () => {
     expect(positionMark(100, "no", ok)).toEqual({ value: 38, price: 0.38, reason: null });
@@ -123,29 +149,109 @@ describe("positionMark", () => {
 
 describe("signals use the price layer", () => {
   const NOW = Date.UTC(2026, 9, 3, 3, 0, 0);
-  it("inconsistent → unavailable, flagged, no divergence, raw kept", () => {
-    const s = computeMarketSignals(m({ yesPrice: "0.5", noPrice: "0.328260245" }), [], NOW);
-    expect(s.probability).toMatchObject({ yes: null, no: null, source: "unavailable", reason: "inconsistent_prices" });
-    expect(s.probability.raw.noPrice).toBe("0.328260245");
-    expect(s.riskFlags.map((f) => f.id)).toContain("inconsistent_prices");
-    expect(s.riskFlags.map((f) => f.id)).not.toContain("no_price");
-    expect(s.divergence.gapPts).toBeNull();
+  it("secondary independent prices → not_applicable, no inconsistent flag or quality cap", () => {
+    const s = computeMarketSignals(
+      m({
+        yesPrice: "0.5",
+        noPrice: "0.328260245",
+        secondaryYesPrice: "500000000",
+        secondaryNoPrice: "0",
+      }),
+      [],
+      NOW,
+    );
+    expect(s.probability).toMatchObject({ yes: null, no: null, source: "unavailable", reason: "not_applicable" });
+    expect(s.riskFlags.map((f) => f.id)).not.toContain("inconsistent_prices");
+    expect(s.riskFlags.map((f) => f.id)).not.toContain("incomplete_prices");
+    expect(s.dataQuality.reasons.join(" ")).not.toMatch(/inconsistent/i);
+    expect(s.divergence.reason).toMatch(/not applicable/i);
   });
-  it("one-sided price → incomplete_prices flag", () => {
-    const s = computeMarketSignals(m({ yesPrice: "0.6", noPrice: null }), [], NOW);
+  it("primary incoherent → inconsistent flag and quality cap kept", () => {
+    const s = computeMarketSignals(
+      m({ phase: "primary", status: "primary", yesPrice: "0.5", noPrice: "0.328260245" }),
+      [],
+      NOW,
+    );
+    expect(s.probability.reason).toBe("inconsistent_prices");
+    expect(s.riskFlags.map((f) => f.id)).toContain("inconsistent_prices");
+    expect(s.dataQuality.grade).toBe("low");
+    expect(s.dataQuality.reasons.join(" ")).toMatch(/inconsistent/i);
+  });
+  it("one-sided primary price → incomplete_prices flag", () => {
+    const s = computeMarketSignals(m({ phase: "primary", status: "primary", yesPrice: "0.6", noPrice: null }), [], NOW);
     expect(s.probability.reason).toBe("incomplete_prices");
     expect(s.riskFlags.map((f) => f.id)).toContain("incomplete_prices");
   });
 });
 
 describe("template brief with inconsistent prices", () => {
-  it("says the probability is unavailable and never prints 100%", async () => {
+  it("secondary: last-observed prices, never 100% probability language", async () => {
     const { buildTemplateBrief } = await import("@/lib/brief");
-    const market = m({ yesPrice: "1", noPrice: "1" });
+    const market = m({ yesPrice: "1", noPrice: "1" }); // default phase secondary
+    const s = computeMarketSignals(market, [], Date.UTC(2026, 9, 3, 3, 0, 0));
+    const text = buildTemplateBrief(market, s, "desk");
+    expect(text).toMatch(/Last observed YES secondary price/);
+    expect(text).toMatch(/not probabilities|not a YES probability|not applicable/i);
+    expect(text).not.toMatch(/YES\/NO prices are inconsistent/i);
+    expect(text).not.toMatch(/YES at 100/);
+    expect(text).not.toMatch(/Market probability: YES 100/);
+  });
+  it("primary: says the probability is unavailable and never prints 100%", async () => {
+    const { buildTemplateBrief } = await import("@/lib/brief");
+    const market = m({ phase: "primary", status: "primary", yesPrice: "1", noPrice: "1" });
     const s = computeMarketSignals(market, [], Date.UTC(2026, 9, 3, 3, 0, 0));
     const text = buildTemplateBrief(market, s, "desk");
     expect(text).toMatch(/probability is unavailable|probability: unavailable|no usable probability/i);
     expect(text).toMatch(/inconsistent/);
     expect(text).not.toMatch(/YES at 100/);
+  });
+});
+
+describe("decodeSecondaryPriceField / secondaryLastObservedPrices", () => {
+  it("0 means no observation (never 0.00 USDC)", async () => {
+    const { decodeSecondaryPriceField, secondaryLastObservedPrices } = await import("@/lib/panta/prices");
+    expect(decodeSecondaryPriceField(0)).toBeNull();
+    expect(decodeSecondaryPriceField("0")).toBeNull();
+    expect(decodeSecondaryPriceField("800000000")).toBeCloseTo(0.8);
+    expect(decodeSecondaryPriceField("1000000000")).toBe(1);
+    expect(decodeSecondaryPriceField("0.506406474")).toBeCloseTo(0.506406474);
+    const ansem = secondaryLastObservedPrices(
+      m({ secondaryYesPrice: "0", secondaryNoPrice: "800000000", yesPrice: "0.671", noPrice: "0.8" }),
+    );
+    expect(ansem.yes).toBeNull(); // 0 → —
+    expect(ansem.no).toBeCloseTo(0.8);
+    expect(ansem.observedAtLabel).toBe("time not provided");
+    const france = secondaryLastObservedPrices(
+      m({
+        secondaryYesPrice: "506406474",
+        secondaryNoPrice: "493593526",
+        yesPrice: "0.506406474",
+        noPrice: "0.493593526",
+      }),
+    );
+    expect(france.yes).toBeCloseTo(0.506406474);
+    expect(france.no).toBeCloseTo(0.493593526);
+  });
+});
+
+describe("deskPriceDisplay", () => {
+  it("secondary shows USDC last-obs, not %", async () => {
+    const { deskPriceDisplay } = await import("@/lib/format");
+    const d = deskPriceDisplay(
+      m({
+        secondaryYesPrice: "506406474",
+        secondaryNoPrice: "493593526",
+        yesPrice: "0.506406474",
+        noPrice: "0.493593526",
+      }),
+    );
+    expect(d.mode).toBe("secondary");
+    if (d.mode === "secondary") {
+      expect(d.yesLabel).toMatch(/0\.506.*USDC/);
+      expect(d.noLabel).toMatch(/0\.494.*USDC|0\.493.*USDC/);
+    }
+    const empty = deskPriceDisplay(m({ secondaryYesPrice: "0", secondaryNoPrice: "0" }));
+    expect(empty.mode).toBe("unavailable");
+    if (empty.mode === "unavailable") expect(empty.secondaryHint).toBe(true);
   });
 });

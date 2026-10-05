@@ -3,7 +3,8 @@ import { maybeOpenAIBrief } from "@/lib/brief";
 import { BRIEF_MODE_IDS, BRIEF_RATE_LIMIT, isBriefMode } from "@/lib/brief-modes";
 import { BASE58_PUBKEY_RE } from "@/lib/panta/routes";
 import { sanitizeMarket, sanitizeTape } from "@/lib/panta/sanitize";
-import { getMarketServer, getMarketTradesServer, UpstreamError } from "@/lib/panta/server";
+import { getAuthoritativeMarket } from "@/lib/panta/catalog-server";
+import { getMarketTradesServer, UpstreamError } from "@/lib/panta/server";
 import { computeMarketSignals } from "@/lib/panta/signals";
 import { clientIp } from "@/lib/rate-limit";
 import { limitShared, SharedCache, storeHeaderValue, type LimitResult } from "@/lib/shared-store";
@@ -13,10 +14,12 @@ import type { BriefMode, BriefPayload } from "@/lib/types";
  * POST /api/brief  { marketId, mode }
  *
  * The browser supplies only a market id and an analytical mode. Evidence
- * (market detail + tape) is fetched here from Panta with the server key,
- * parsed by the adapter layer (zod), normalized into deterministic signals
- * (src/lib/panta/signals.ts), and only then interpreted by the LLM or the
- * template. Clients cannot inject data.
+ * (authoritative market + tape) is fetched here with the server key: the
+ * market is the same catalog/on-chain + detail merge as GET /api/catalog
+ * (getAuthoritativeMarket), so a partial Panta detail cannot demote a known
+ * secondary market to primary. Signals are deterministic
+ * (src/lib/panta/signals.ts); the LLM / template only interprets them.
+ * Clients cannot inject or override market data.
  */
 
 const MAX_BODY_BYTES = 2 * 1024;
@@ -51,12 +54,12 @@ function fail(status: number, code: string, detail?: string, headers?: Record<st
 async function buildBrief(marketId: string, mode: BriefMode): Promise<BriefPayload> {
   // A failed tape fetch must surface as an error, not as an empty tape: an
   // empty array would be reported as "No recent prints" (and cached for 60s).
-  const [detail, tape] = await Promise.all([
-    getMarketServer(marketId),
+  const [authoritative, tape] = await Promise.all([
+    getAuthoritativeMarket(marketId),
     getMarketTradesServer(marketId, SIGNAL_TAPE_ROWS),
   ]);
-  if (!detail) throw new UpstreamError(404, "MARKET_NOT_FOUND");
-  const market = sanitizeMarket(detail);
+  if (!authoritative) throw new UpstreamError(404, "MARKET_NOT_FOUND");
+  const market = sanitizeMarket(authoritative);
   // A partial page (some rows unreadable) is a partial sample: signals say so
   // and cap data quality; unreadable rows are never counted as zero prints.
   const signals = computeMarketSignals(market, tape.trades.slice(0, SIGNAL_TAPE_ROWS), Date.now(), {

@@ -17,14 +17,13 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Connection, PublicKey } from "@solana/web3.js";
 import { fetchAccountTrades } from "@/lib/panta/attribution";
-import { filterCatalog, type CatalogFilter, type CatalogPayload } from "@/lib/panta/catalog";
+import { filterCatalog, resolveAuthoritativeMarket, type CatalogFilter, type CatalogPayload } from "@/lib/panta/catalog";
 import type { Market } from "@/lib/panta/domain";
 import {
   fetchCatalog,
   fetchCategories,
   fetchMarket,
   fetchMarketTrades,
-  preferFuller,
 } from "@/lib/panta/markets";
 import { fetchPositions } from "@/lib/panta/positions";
 import { ApiError } from "@/lib/panta/client";
@@ -87,16 +86,22 @@ function catalogRow(qc: QueryClient, id: string): Market | undefined {
 
 /**
  * Detail query fn: retries a partial record (markets.fetchMarketWithRetry)
- * and never lets a partial record replace a fuller cached one.
+ * and merges with the catalog/on-chain row (same rule as /api/brief) so a
+ * partial or stale detail never replaces a fuller / authoritative record.
  */
 async function loadMarket(qc: QueryClient, id: string): Promise<Market> {
   const prev = qc.getQueryData<Market>(qk.market(id));
+  const fromCatalog = catalogRow(qc, id);
+  // Catalog row first: it carries on-chain lifecycle. Else the previous cache.
+  const foundation = fromCatalog ?? prev;
   const next = await fetchMarket(id);
   if (!next) {
-    if (prev) return prev;
+    if (foundation) return foundation;
     throw new Error("MARKET_NOT_FOUND");
   }
-  return preferFuller(prev, next);
+  const merged = resolveAuthoritativeMarket(foundation, next);
+  if (!merged) throw new Error("MARKET_NOT_FOUND");
+  return merged;
 }
 
 export function useMarket(id: string) {

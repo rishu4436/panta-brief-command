@@ -27,12 +27,13 @@ import {
   lifecycleRank,
   mergeCatalog,
   sortCatalog,
+  resolveAuthoritativeMarket,
   withDetail,
   type CatalogPayload,
 } from "./catalog";
 import type { Market } from "./domain";
 import { fetchMarketWithRetry, parseCategories, parseMarketPage } from "./markets";
-import { pantaServerGet } from "./server";
+import { getMarketServer, pantaServerGet, UpstreamError } from "./server";
 
 export const CATALOG_TTL_MS = 120_000;
 const LIST_LIMIT = 50;
@@ -179,6 +180,35 @@ export async function buildCatalog(): Promise<CatalogPayload> {
 
 let cached: { at: number; payload: CatalogPayload } | null = null;
 let inflight: Promise<CatalogPayload> | null = null;
+
+/**
+ * Market view for /api/brief (and any other server reader that must match the
+ * catalog): the cached catalog/on-chain row merged with a fresh detail fetch.
+ * A partial Panta detail (no title/prices, stale phase) never overwrites the
+ * authoritative lifecycle. Falls back to detail alone only when the catalog
+ * has no row for this id; returns null when both are missing.
+ */
+export async function getAuthoritativeMarket(marketId: string): Promise<Market | null> {
+  let row: Market | undefined;
+  try {
+    const { payload } = await getCatalog();
+    row = payload.items.find((m) => m.marketId === marketId);
+  } catch {
+    /* catalog unavailable — try detail alone */
+  }
+  let detail: Market | null = null;
+  try {
+    detail = await getMarketServer(marketId);
+  } catch (e) {
+    if (e instanceof UpstreamError) {
+      if (!row) throw e;
+      // Keep the catalog row when detail is temporarily unreachable.
+    } else {
+      throw e;
+    }
+  }
+  return resolveAuthoritativeMarket(row, detail);
+}
 
 /** Cached build (per server instance). Serves the last good payload if a rebuild fails. */
 export async function getCatalog(): Promise<{ payload: CatalogPayload; stale: boolean }> {

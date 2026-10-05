@@ -183,3 +183,17 @@ export function filterCatalog(items: Market[], f: CatalogFilter, now: number = n
     return (m.phase || "").toLowerCase() === st;
   });
 }
+
+/**
+ * Single-market merge used by the catalog detail overlay and by /api/brief.
+ * When `row` carries on-chain lifecycle (or any catalog foundation), a partial
+ * or stale detail never demotes its phase (see mergeMarket). Detail-only is
+ * returned only when there is no catalog row at all.
+ */
+export function resolveAuthoritativeMarket(
+  row: Market | null | undefined,
+  detail: Market | null | undefined,
+): Market | null {
+  if (row) return withDetail(row, detail);
+  return detail ?? null;
+}

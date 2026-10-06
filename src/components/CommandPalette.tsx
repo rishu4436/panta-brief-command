@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useCatalog } from "@/lib/data/hooks";
 import { marketLabel } from "@/lib/format";
 import { getRecents, getWatchlist, notifyStorage, pushRecent } from "@/lib/storage";
+import { marketHref } from "@/lib/panta/lifecycle";
 
 type Row = {
   marketId: string;
@@ -92,7 +93,7 @@ export function CommandPalette() {
     pushRecent(id);
     notifyStorage();
     setOpen(false);
-    router.push(`/markets/${encodeURIComponent(id)}`);
+    router.push(marketHref(id));
   };
 
   if (!open) return null;

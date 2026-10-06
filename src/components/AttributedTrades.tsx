@@ -10,6 +10,7 @@ import { formatVolumeUsdc, shortAddr } from "@/lib/format";
 import { Panel } from "./Panel";
 import { StatusBadge } from "./ui/StatusBadge";
 import { EmptyState, ErrorState, SkeletonLoader } from "./ui/States";
+import { marketHref } from "@/lib/panta/lifecycle";
 
 function formatCreatedAt(iso?: string | null): string {
   if (!iso) return "—";
@@ -231,7 +232,7 @@ export function AttributedTrades({
                 <td className="px-3 py-2.5">
                   {row.marketId ? (
                     <Link
-                      href={`/markets/${encodeURIComponent(row.marketId)}`}
+                      href={marketHref(row.marketId)}
                       className="font-num text-[11px] text-cyan-400 hover:underline"
                     >
                       {shortAddr(row.marketId, 5)}
@@ -256,9 +257,16 @@ export function AttributedTrades({
                   )}
                 </td>
                 <td className="px-3 py-2.5">
-                  <StatusBadge tone="success" size="xs" title="Listed in Panta's attribution ledger">
-                    Verified
-                  </StatusBadge>
+                  {/* The ledger proves attribution to this app, not Panta order verification. */}
+                  {String(row.status || "").toLowerCase() === "processed" ? (
+                    <StatusBadge tone="info" size="xs" title="Listed in Panta's attribution ledger (status processed)">
+                      Attributed
+                    </StatusBadge>
+                  ) : (
+                    <StatusBadge tone="pending" size="xs" title={`Listed in Panta's attribution ledger (status ${row.status || "unknown"})`}>
+                      Reported
+                    </StatusBadge>
+                  )}
                 </td>
                 <td className="px-3 py-2.5 font-num text-[11px] text-zinc-500">
                   {formatCreatedAt(row.createdAt)} IST

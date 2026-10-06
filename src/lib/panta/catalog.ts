@@ -114,6 +114,8 @@ export function applyChainEvent(row: Market | undefined, ev: ChainEvent): Market
     phase,
     status: phase,
     resolved: ev.isResolved,
+    // On-chain Event yesWins is meaningful only once the account is resolved.
+    ...(ev.isResolved ? { outcome: ev.yesWins ? ("yes" as const) : ("no" as const) } : {}),
     startTime: ev.startTime || base.startTime || null,
     endTime: ev.endTime || base.endTime || null,
     resolutionTime: ev.resolutionTime || base.resolutionTime || null,

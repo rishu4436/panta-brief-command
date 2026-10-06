@@ -13,6 +13,7 @@ import { StatusBadge, phaseTone } from "../ui/StatusBadge";
 import { EmptyState, ErrorState, Skeleton, SkeletonLoader } from "../ui/States";
 import { IconArrowRight, IconSparkles } from "../ui/Icons";
 import { EvidenceTag } from "../brief/EvidenceTag";
+import { marketHref } from "@/lib/panta/lifecycle";
 
 type Filter = "volume" | "ending" | "resolved";
 const isOpen = (m: Market) => isLiveMarket(m);
@@ -139,7 +140,7 @@ function MarketRow({ m, selected, onSelect }: { m: Market; selected: boolean; on
         <span className="font-num hidden text-right text-[13px] text-ink-2 md:block">{vol ?? "—"}</span>
         <span className="font-num hidden text-[13px] text-ink-2 xl:block">{end ?? "—"}</span>
         <Link
-          href={`/markets/${m.marketId}`}
+          href={marketHref(m.marketId)}
           className="relative z-10 ml-auto inline-flex h-11 min-w-11 items-center justify-center gap-1 rounded-lg px-2 text-[13px] font-medium text-cyan-300 hover:bg-cyan-400/10 hover:text-cyan-200 md:justify-self-end"
         >
           Open <IconArrowRight className="h-3.5 w-3.5" />
@@ -229,7 +230,7 @@ function BriefPreview({ market, enabled, loading }: { market: Market | null; ena
             <span>
               {new Date(b.generatedAt).toLocaleTimeString("en-IN", { timeZone: "Asia/Calcutta", hour: "2-digit", minute: "2-digit" })} IST · not advice
             </span>
-            <Link href={`/markets/${b.market.marketId}#brief`} className="inline-flex min-h-11 items-center gap-1 font-medium text-violet-300 hover:text-violet-200">
+            <Link href={`${marketHref(b.market.marketId)}#brief`} className="inline-flex min-h-11 items-center gap-1 font-medium text-violet-300 hover:text-violet-200">
               Full brief <IconArrowRight className="h-3.5 w-3.5" />
             </Link>
           </div>

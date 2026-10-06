@@ -57,6 +57,7 @@ export type TradeStateId =
   | "reporting"
   | "attribution_needs_attention"
   | "attributed"
+  | "attributed_unverified"
   | "closed_resolved"
   | "closed_cancelled"
   | "closed_secondary";
@@ -450,11 +451,24 @@ export const TRADE_STATES: Record<TradeStateId, TradeStateSpec> = {
     icon: "check",
     title: "Verified and attributed",
     explain: "Panta confirmed the order and attributed the trade to this app.",
-    safe: "Your position shows in your Book.",
+    safe: "Your position appears in your Book once Panta indexes it.",
     action: "view_activity",
     actionLabel: "View in Book",
     step: "attribute",
     mark: "done",
+    txLink: true,
+  },
+  attributed_unverified: {
+    tone: "info",
+    icon: "clock",
+    title: "Attributed · Panta verification pending",
+    explain: "The trade is confirmed on Solana and attributed to this app, but Panta hasn't verified the order yet.",
+    safe: "Your transaction is confirmed on Solana. This is a delay, not a failure.",
+    action: "recheck_verify",
+    actionLabel: "Check again",
+    step: "attribute",
+    mark: "done",
+    also: { verify: "pending" },
     txLink: true,
   },
   closed_resolved: {
@@ -832,7 +846,13 @@ const RUNNING_STATE: Record<FlowStage, TradeStateId> = {
 /** Single source of truth for which state the ticket is in. */
 export function deriveTradeState(s: TradeSnapshot): TradeStateId {
   if (s.closed) return s.closed === "resolved" ? "closed_resolved" : s.closed === "cancelled" ? "closed_cancelled" : "closed_secondary";
-  if (s.attrPhase === "attributed") return "attributed";
+  // Attribution alone is not Panta verification: "Verified" needs verifyPhase confirmed.
+  if (s.attrPhase === "attributed") {
+    if (s.verifyPhase === "confirmed") return "attributed";
+    if (s.verifyPhase === "failed") return "verify_failed";
+    if (s.running === "verify") return "verifying";
+    return "attributed_unverified";
+  }
   // Reporting a verified trade: Verify stays completed, Attribute is active.
   if (s.running === "attribute" && s.verifyPhase === "confirmed") return "reporting";
   if (s.running) return RUNNING_STATE[s.running];

@@ -25,6 +25,8 @@ import { DeskPriceCell } from "./desk/DeskPriceCell";
 import { WatchStar } from "./WatchStar";
 import { HotTapeRail } from "./HotTapeRail";
 import { SecondaryRadar } from "./SecondaryRadar";
+import { marketHref } from "@/lib/panta/lifecycle";
+import { CreatedMarketsNotice } from "./market/MarketCommand";
 
 type ViewMode = "rows" | "cards";
 type SortMode = "default" | "volume" | "ending" | "phase";
@@ -419,7 +421,7 @@ export function MarketList() {
         if (!m) return;
         e.preventDefault();
         openMarket(m.marketId);
-        router.push(`/markets/${encodeURIComponent(m.marketId)}`);
+        router.push(marketHref(m.marketId));
       }
     };
     window.addEventListener("keydown", onKey);
@@ -463,13 +465,15 @@ export function MarketList() {
 
       <CatalogSummary counts={all.counts} sources={all.sources} />
 
+      <CreatedMarketsNotice catalog={all.items} loaded={all.isSuccess} />
+
       {recentIds.length > 0 && (
         <div className="flex flex-wrap items-center gap-2">
           <span className="type-section">Recent</span>
           {recentMarkets.map((m) => (
             <Link
               key={m.marketId}
-              href={`/markets/${encodeURIComponent(m.marketId)}`}
+              href={marketHref(m.marketId)}
               onClick={() => openMarket(m.marketId)}
               className="max-w-[180px] truncate rounded-full border border-line bg-surface px-2.5 py-1 text-[11px] text-zinc-300 transition hover:border-cyan-400/30 hover:text-cyan-300"
               title={marketLabel(m)}
@@ -597,7 +601,7 @@ export function MarketList() {
                         <WatchStar marketId={m.marketId} size="sm" />
                       </div>
                       <Link
-                        href={`/markets/${encodeURIComponent(m.marketId)}`}
+                        href={marketHref(m.marketId)}
                         onClick={() => openMarket(m.marketId)}
                         className="group flex min-h-[44px] flex-col active:scale-[0.99]"
                       >
@@ -670,7 +674,7 @@ export function MarketList() {
                         <WatchStar marketId={m.marketId} size="sm" />
                       </div>
                       <Link
-                        href={`/markets/${encodeURIComponent(m.marketId)}`}
+                        href={marketHref(m.marketId)}
                         onClick={() => openMarket(m.marketId)}
                         className="group desk-row grid flex-1 grid-cols-1 items-center gap-3 px-3 desk-row-pad transition-colors sm:grid-cols-[1fr_88px_96px_110px] lg:grid-cols-[1fr_88px_96px_96px_110px]"
                       >
@@ -736,7 +740,7 @@ export function MarketList() {
                     <div key={id} className="flex items-center gap-1">
                       <WatchStar marketId={id} size="sm" />
                       <Link
-                        href={`/markets/${encodeURIComponent(id)}`}
+                        href={marketHref(id)}
                         onClick={() => openMarket(id)}
                         className="rounded-md border border-line px-2 py-1 font-num text-[11px] text-zinc-400 hover:border-cyan-400/30 hover:text-cyan-300"
                       >

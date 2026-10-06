@@ -135,7 +135,10 @@ describe("deriveTradeState", () => {
     expect(d({ ...sent, txPhase: "confirmed", verifyPhase: "timeout", attrPhase: "reported" })).toBe("verify_slow");
     expect(d({ ...sent, txPhase: "confirmed", verifyPhase: "confirmed", attrPhase: "reported" })).toBe("verified");
     expect(d({ ...sent, txPhase: "confirmed", attrPhase: "reported" })).toBe("reported");
-    expect(d({ ...sent, txPhase: "confirmed", verifyPhase: "timeout", attrPhase: "attributed" })).toBe("attributed");
+    // Stage D: attribution without Panta verification is not "Verified".
+    expect(d({ ...sent, txPhase: "confirmed", verifyPhase: "timeout", attrPhase: "attributed" })).toBe("attributed_unverified");
+    expect(d({ ...sent, txPhase: "confirmed", verifyPhase: "confirmed", attrPhase: "attributed" })).toBe("attributed");
+    expect(d({ ...sent, txPhase: "confirmed", verifyPhase: "failed", attrPhase: "attributed" })).toBe("verify_failed");
     expect(d({ ...sent, txPhase: "confirmed", failure: "submit_failed" })).toBe("submit_failed");
   });
   it("never reports verified or attributed without the matching Panta result", () => {

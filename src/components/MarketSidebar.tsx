@@ -11,6 +11,7 @@ import { isLiveMarket, lifecycleRank, marketLifecycle } from "@/lib/panta/catalo
 import { SkeletonLoader } from "./ui/States";
 import { MarketListRow } from "./desk/MarketListRow";
 import { IconSearch } from "./ui/Icons";
+import { marketHref } from "@/lib/panta/lifecycle";
 
 /**
  * Compact market switcher for the market workspace (left column, xl+).
@@ -88,7 +89,7 @@ export function MarketSidebar({ activeId }: { activeId: string }) {
               return (
                 <li key={m.marketId} ref={track(m.marketId)}>
                   <MarketListRow
-                    href={`/markets/${m.marketId}`}
+                    href={marketHref(m.marketId)}
                     active={m.marketId === activeId}
                     title={marketLabel(m)}
                     untitled={isUntitledMarket(m)}

@@ -39,6 +39,7 @@ import { PhaseBadge } from "./PhaseBadge";
 import { StatusBadge } from "./ui/StatusBadge";
 import { EmptyState, ErrorState, SkeletonLoader } from "./ui/States";
 import { IconExternal, IconPortfolio, IconWallet } from "./ui/Icons";
+import { marketHref } from "@/lib/panta/lifecycle";
 
 export type BookTab = "positions" | "claims";
 
@@ -374,12 +375,20 @@ export function BookPanel({
                           >
                             <td className="px-4 py-3">
                               <Link
-                                href={`/markets/${r.marketId}`}
+                                href={marketHref(r.marketId)}
                                 className="font-medium text-ink hover:text-cyan-200"
                                 title={r.title}
                               >
-                                {r.title.length > 48 ? `${r.title.slice(0, 46)}…` : r.title}
+                                {r.title === r.marketId
+                                  ? shortAddr(r.marketId, 6)
+                                  : r.title.length > 48
+                                    ? `${r.title.slice(0, 46)}…`
+                                    : r.title}
                               </Link>
+                              {r.title === r.marketId ? (
+                                // Panta returned no title and the market record couldn't be loaded: keep the row, say so.
+                                <span className="mt-0.5 block text-[10px] text-ink-3">Metadata unavailable</span>
+                              ) : null}
                             </td>
                             <td
                               className={`px-3 py-3 font-semibold uppercase ${

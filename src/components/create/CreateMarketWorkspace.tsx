@@ -12,6 +12,8 @@ import { checkMainnet } from "@/lib/network";
 import { checkSignatureOnce, confirmSignature } from "@/lib/solana";
 import { pantaFetch } from "@/lib/panta/client";
 import { fetchMarket } from "@/lib/panta/markets";
+import { browserCreatedMarkets } from "@/lib/panta/created-markets";
+import { marketHref } from "@/lib/panta/lifecycle";
 import { formatUsdcBaseUnits, sessionStaleReason, type CreateSession, type RegisterReceipt } from "@/lib/panta/create-market";
 import {
   CREATE_SIGNING_DISABLED_COPY,
@@ -427,6 +429,9 @@ export function CreateMarketWorkspace() {
     try {
       const r = await actions.registerFromRecord(rec);
       setReceipt(r);
+      // Stage D: keep the checked receipt as "awaiting Panta indexing" evidence
+      // for the catalog and /markets/{id} (pruned once Panta returns the market).
+      browserCreatedMarkets.remember({ marketId: r.marketId, signature: r.signature, question: rec.question });
       safeGo("SUCCESS");
       void checkIndexedFor(r.marketId);
     } catch (e) {
@@ -470,6 +475,7 @@ export function CreateMarketWorkspace() {
     try {
       const m = await fetchMarket(marketId);
       setIndexing(m ? "indexed" : "waiting");
+      if (m) browserCreatedMarkets.prune([marketId]);
     } catch {
       setIndexing("waiting");
     }
@@ -1111,7 +1117,7 @@ export function PostBroadcastPanel({
           <Row label="Registration" value={<span className="capitalize">{receipt.status}</span>} />
         </dl>
         <div className="flex flex-wrap gap-2 border-t border-line pt-4">
-          <Link href={`/markets/${receipt.marketId}`} className="btn btn-primary btn-sm">
+          <Link href={marketHref(receipt.marketId)} className="btn btn-primary btn-sm">
             Open market
           </Link>
           {tx ? (

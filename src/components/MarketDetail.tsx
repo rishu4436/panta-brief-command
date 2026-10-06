@@ -16,9 +16,19 @@ import {
   shouldShowCategoryChip,
 } from "@/lib/format";
 import { notifyStorage, pushRecent } from "@/lib/storage";
+import { useCreateEvidence } from "@/lib/data/created";
+import { useQuoteUnavailable } from "@/lib/data/reconcile";
+import { browserCreatedMarkets } from "@/lib/panta/created-markets";
+import { isMarketNotFound, isPantaIndexed, marketState } from "@/lib/panta/lifecycle";
+import {
+  AwaitingIndexingNote,
+  AwaitingIndexingView,
+  MarketStateStrip,
+  RegistrationNeedsAttention,
+  YourMarketPanel,
+} from "./market/MarketCommand";
 import { AiBrief } from "./AiBrief";
 import { Panel } from "./Panel";
-import { PhaseBadge } from "./PhaseBadge";
 import { ProbabilityPanel } from "./desk/ProbabilityPanel";
 import { PrimaryBuyPanel } from "./PrimaryBuyPanel";
 import { SecondaryIntelligence } from "./SecondaryIntelligence";
@@ -91,6 +101,28 @@ export function MarketDetail({ marketId }: { marketId: string }) {
   const retryTape = () => void trades.refetch();
   const load = () => void detail.refetch();
 
+  // Canonical state (Stage D): Panta record first; local create evidence only
+  // while Panta has no record; API failure ≠ closed; quote failure ≠ 0 %.
+  const evidence = useCreateEvidence();
+  const quoteUnavailable = useQuoteUnavailable(id);
+  const createdRec = evidence.created.find((r) => r.marketId === id) ?? null;
+  const needsRegistration = evidence.needsAttention.some((r) => r.expectedEventPda === id);
+  const state = marketState({
+    marketId: id,
+    market,
+    loading: busy && !market,
+    error: detail.error,
+    notFound: isMarketNotFound(detail.error),
+    quoteUnavailable,
+    createdEvidence: createdRec,
+    registrationNeedsAttention: needsRegistration,
+  });
+  const indexed = isPantaIndexed(market);
+  // Panta now returns the market: drop the local "awaiting indexing" evidence.
+  useEffect(() => {
+    if (indexed && createdRec) browserCreatedMarkets.prune([id]);
+  }, [indexed, createdRec, id]);
+
   // Record the visit (localStorage only; no React state involved).
   useEffect(() => {
     if (!id || !detail.isSuccess || detail.isPlaceholderData) return;
@@ -106,14 +138,40 @@ export function MarketDetail({ marketId }: { marketId: string }) {
     );
   }
 
+  if (error && !market && !evidence.ready) {
+    return (
+      <div className="animate-fade-in" role="status" aria-label="Loading market">
+        <DetailSkeleton />
+      </div>
+    );
+  }
+
+  if (!market && state.kind === "awaiting_indexing" && createdRec) {
+    return (
+      <AwaitingIndexingView
+        marketId={id}
+        signature={createdRec.signature}
+        question={createdRec.question}
+        checking={detail.isFetching}
+        onCheck={load}
+      />
+    );
+  }
+
   if (error && !market) {
+    const notIndexed = isMarketNotFound(detail.error);
     return (
       <div className="mx-auto max-w-xl py-10">
+        {state.kind === "registration_needs_attention" ? (
+          <div className="mb-3">
+            <RegistrationNeedsAttention marketId={id} />
+          </div>
+        ) : null}
         <ErrorState
-          title="Couldn't load this market"
+          title={notIndexed ? "Market not indexed by Panta" : "Panta API unavailable"}
           description={
             <>
-              {error}. Check the link or try again.
+              {notIndexed ? "Panta has no market with this id. Check the link, or wait if it was just created." : `${error}. The market's status is unknown, not closed. Try again.`}
               <span className="mt-1 block break-all font-addr text-[11px] opacity-70">marketId: {marketId}</span>
             </>
           }
@@ -177,7 +235,6 @@ export function MarketDetail({ marketId }: { marketId: string }) {
             </button>
           </div>
           <div className="mt-3 flex flex-wrap items-center gap-2">
-            <PhaseBadge phase={market.phase} />
             {shouldShowCategoryChip(market.category, market.title, market.description) ? (
               <span className="rounded-md border border-line px-2 py-0.5 text-[11px] capitalize text-ink-3">{market.category}</span>
             ) : null}
@@ -192,6 +249,8 @@ export function MarketDetail({ marketId }: { marketId: string }) {
             </span>
           </div>
         </header>
+
+        <MarketStateStrip state={state} market={market} />
 
         {secondaryDesk ? (
           <p className="rounded-xl border border-line bg-inset/50 px-3 py-2 text-[12px] text-ink-3">
@@ -208,6 +267,9 @@ export function MarketDetail({ marketId }: { marketId: string }) {
             ends={market.endTime ? `${formatEnd(market.endTime)} IST` : "—"}
             resolves={market.resolutionTime ? `${formatEnd(market.resolutionTime)} IST` : "—"}
             prints={printsLabel(tapeSt)}
+            {...(state.kind === "resolved"
+              ? { title: "Settlement", subtitle: "Panta's final prices after resolution · not a live probability" }
+              : {})}
           />
         )}
 
@@ -229,6 +291,10 @@ export function MarketDetail({ marketId }: { marketId: string }) {
             marketFetching={detail.isFetching}
             marketError={Boolean(detail.error)}
           />
+        ) : state.kind === "registration_needs_attention" ? (
+          <RegistrationNeedsAttention marketId={market.marketId} />
+        ) : state.kind === "awaiting_indexing" ? (
+          <AwaitingIndexingNote onCheck={load} checking={detail.isFetching} />
         ) : (
           <PrimaryBuyPanel initialMarketId={market.marketId} compact market={market} />
         )}
@@ -242,6 +308,7 @@ export function MarketDetail({ marketId }: { marketId: string }) {
             Counts and flow cover the {tapePartial.parsed} readable rows only.
           </p>
         )}
+        <YourMarketPanel market={market} />
         <TradeTape state={tapeSt} onRetry={retryTape} />
 
         <Panel title="Context">

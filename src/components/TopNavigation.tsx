@@ -7,6 +7,7 @@ import { useRecents } from "@/hooks/useLocalIds";
 import { BrandMark } from "./BrandMark";
 import { WalletButton } from "./WalletButton";
 import { IconArrowRight, IconClose, IconMenu } from "./ui/Icons";
+import { marketHref } from "@/lib/panta/lifecycle";
 
 /** `wide`: desktop bar shows it only at xl+ (still in the mobile menu); keeps the 1024–1279px bar uncrowded. */
 type NavItem = { href: string; label: string; active: boolean; wide?: boolean };
@@ -43,7 +44,7 @@ function useNavItems(): { marketing: boolean; items: NavItem[] } {
         href: onMarket
           ? `${pathname}#brief`
           : recentIds[0]
-            ? `/markets/${encodeURIComponent(recentIds[0])}#brief`
+            ? `${marketHref(recentIds[0])}#brief`
             : "/desk",
         label: "Briefs",
         active: false,

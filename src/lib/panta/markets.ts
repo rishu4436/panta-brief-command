@@ -60,6 +60,7 @@ export const RawMarketSchema = z.looseObject({
   creatorAddress: optStr,
   oracle: optStr,
   primaryPhaseEndTime: optNum,
+  yesWins: optBool,
 });
 export type RawMarket = z.infer<typeof RawMarketSchema>;
 
@@ -135,6 +136,8 @@ export function toMarket(r: RawMarket): Market {
     creatorAddress: r.creatorAddress ?? null,
     oracle: r.oracle ?? null,
     primaryPhaseEndTime: r.primaryPhaseEndTime && r.primaryPhaseEndTime > 0 ? r.primaryPhaseEndTime : null,
+    // Outcome only from Panta's own resolved record (never from prices / expiry).
+    ...(r.resolved === true && typeof r.yesWins === "boolean" ? { outcome: r.yesWins ? ("yes" as const) : ("no" as const) } : {}),
   };
 }
 
@@ -324,6 +327,7 @@ export function mergeMarket(list: Market, detail: Market | null | undefined): Ma
         : (detail.resolved ?? list.resolved),
     primaryPhaseEndTime: pick(detail.primaryPhaseEndTime, list.primaryPhaseEndTime) ?? null,
     category: detail.category || list.category,
+    ...((detail.outcome ?? list.outcome) ? { outcome: detail.outcome ?? list.outcome } : {}),
   };
 }
 

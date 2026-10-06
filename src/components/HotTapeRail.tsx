@@ -15,6 +15,7 @@ import {
 } from "@/lib/format";
 import type { Market, Trade } from "@/lib/panta/domain";
 import { Panel } from "./Panel";
+import { marketHref } from "@/lib/panta/lifecycle";
 
 type TapeHit = {
   marketId: string;
@@ -158,7 +159,7 @@ export function HotTapeRail({
             return (
               <Link
                 key={`${h.marketId}-${h.trade.signature || h.trade.id || i}`}
-                href={`/markets/${encodeURIComponent(h.marketId)}`}
+                href={marketHref(h.marketId)}
                 className="block px-3 py-1.5 transition hover:bg-elevated focus-visible:bg-elevated"
               >
                 <div className="flex items-center justify-between gap-2">

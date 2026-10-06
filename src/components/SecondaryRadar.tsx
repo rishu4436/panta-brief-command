@@ -18,6 +18,7 @@ import {
   type RadarRow,
 } from "@/lib/panta/secondary-intel";
 import { Panel } from "./Panel";
+import { marketHref } from "@/lib/panta/lifecycle";
 
 const MAX_CANDIDATES = 6;
 const MAX_ROWS = 5;
@@ -101,7 +102,7 @@ export function SecondaryRadar({ markets, catalogLoading = false }: { markets: M
               {r.activityScore.toFixed(1)}
             </span>
             <Link
-              href={`/markets/${r.marketId}`}
+              href={marketHref(r.marketId)}
               className="block pr-12 text-[12px] font-medium leading-snug text-ink hover:text-cyan-200"
               title={r.title}
               style={{

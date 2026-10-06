@@ -59,6 +59,8 @@ import { Panel } from "./Panel";
 import { TransactionStepper } from "./TransactionStepper";
 import { MarketSummary, QuoteSummary, SideToggle, stepsForState } from "./trade/TicketParts";
 import { TradeStateNotice } from "./trade/TradeStateNotice";
+import { useTradeReconciler } from "@/lib/data/reconcile";
+import { noteQuoteAvailability } from "@/lib/data/trade-session";
 import { IconWallet } from "./ui/Icons";
 
 /** Step index = number of completed stages. */
@@ -125,6 +127,8 @@ export function PrimaryBuyPanel({
   const [toast, setToast] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const onAttributionUpdate = useInvalidateAttribution();
+  // Stage D: post-confirmation refresh + session record (never alters the flow).
+  const reconciler = useTradeReconciler();
   const [pickerQuery, setPickerQuery] = useState("");
 
   const [quote, setQuote] = useState<Quote | null>(null);
@@ -285,6 +289,7 @@ export function PrimaryBuyPanel({
     );
     sessionAttrRef.current = ref;
     setQuote(data);
+    noteQuoteAvailability(marketId.trim(), false);
     setQuoteWallet(publicKey!.toBase58());
     setQuoteReceivedAt(Date.now());
     setNow(Date.now());
@@ -413,6 +418,17 @@ export function PrimaryBuyPanel({
     if (!applyConfirm(outcome)) {
       throw new StopFlow(outcome.status === "confirmed" ? "" : outcome.message);
     }
+    // Confirmed on-chain: refresh market / positions / balance / activity from
+    // Panta. Expected market, side and amount come from the decoded signed tx.
+    reconciler.onConfirmed({
+      signature: sig,
+      marketId: check.verified.marketId,
+      wallet: check.verified.wallet,
+      side: check.verified.side,
+      amountBase: check.verified.amountBase,
+      orderId: built.orderId || null,
+      quotedShares: built.expectedShares || null,
+    });
     return sig;
   };
 
@@ -423,6 +439,17 @@ export function PrimaryBuyPanel({
     const outcome = await checkSignatureOnce(connection, signature, lastValidBlockHeight);
     const ok = applyConfirm(outcome);
     if (!ok) throw new StopFlow(outcome.status === "confirmed" ? "" : outcome.message);
+    if (ixCheck?.ok) {
+      reconciler.onConfirmed({
+        signature,
+        marketId: ixCheck.verified.marketId,
+        wallet: ixCheck.verified.wallet,
+        side: ixCheck.verified.side,
+        amountBase: ixCheck.verified.amountBase,
+        orderId: build?.orderId || null,
+        quotedShares: build?.expectedShares || null,
+      });
+    }
     return ok;
   };
 
@@ -453,6 +480,7 @@ export function PrimaryBuyPanel({
     if (!orderId) throw new Error("Build first");
     setVerifyPhase("polling");
     setVerifyStatus(null);
+    reconciler.onVerify(sig, "polling", null);
     push("Verification requested");
     const started = Date.now();
     setVerifyStartedAt(started);
@@ -467,6 +495,7 @@ export function PrimaryBuyPanel({
         setVerifyStatus(last);
         if (last && VERIFY_SUCCESS.has(last)) {
           setVerifyPhase("confirmed");
+          reconciler.onVerify(sig, "confirmed", last);
           track("trade_verified", { marketId: marketId.trim() });
           setStep((s) => Math.max(s, S.verified));
           push("Verified · Panta order status confirmed");
@@ -474,6 +503,7 @@ export function PrimaryBuyPanel({
         }
         if (last && VERIFY_FAILURE.has(last)) {
           setVerifyPhase("failed");
+          reconciler.onVerify(sig, "failed", last);
           push(`Verification failed · Panta order status ${last}`);
           throw new StopFlow(`Panta verification failed (order status: ${last}).`);
         }
@@ -483,6 +513,7 @@ export function PrimaryBuyPanel({
         const transient = !(e instanceof ApiError) || e.status === 429 || e.status >= 500;
         if (!transient) {
           setVerifyPhase("failed");
+          reconciler.onVerify(sig, "failed", null);
           push(`Verification failed · ${describeErr(e)}`);
           throw e;
         }
@@ -493,6 +524,7 @@ export function PrimaryBuyPanel({
       await sleep(delay);
     }
     setVerifyPhase("timeout");
+    reconciler.onVerify(sig, "timeout", last);
     push(`Still pending after 30s · last Panta status ${last ?? "unknown"}`);
     return "timeout" as const;
   };
@@ -618,6 +650,7 @@ export function PrimaryBuyPanel({
         ? "quote_expired"
         : classifyFailure(stageRef.current, e, { presign: e instanceof PresignStop });
     setFailure(kind);
+    if (kind === "quote_unavailable") noteQuoteAvailability(marketId.trim(), true);
     // Expected refusals are explained as ticket state (no console noise);
     // anything unexpected stays visible in the console.
     if (failureConsoleLevel(kind, e) === "error") {

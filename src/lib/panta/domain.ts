@@ -64,6 +64,11 @@ export type Market = {
   resolutionTime?: number | null;
   region?: string;
   resolved?: boolean;
+  /**
+   * Winning side, only when Panta marks the market resolved (detail `yesWins`).
+   * Never inferred from prices or expiry; undefined when Panta didn't say.
+   */
+  outcome?: "yes" | "no";
   /** Human decimals (strings keep precision) and 6-dec base units. */
   volumeUsdc?: string;
   volumeUsdcBase?: string | number;

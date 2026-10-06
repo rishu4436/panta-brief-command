@@ -455,6 +455,9 @@ export function MarketList() {
           <button type="button" onClick={() => void catalog.refetch()} className="btn btn-secondary btn-sm" disabled={busy}>
             {busy ? "Syncing…" : "Refresh"}
           </button>
+          <Link href="/create" className="btn btn-primary btn-sm">
+            + Create Market
+          </Link>
         </div>
       </div>
 

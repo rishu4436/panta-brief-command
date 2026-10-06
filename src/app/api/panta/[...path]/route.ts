@@ -5,6 +5,7 @@ import {
   type ProxyMethod,
 } from "@/lib/panta/routes";
 import { PANTA_UPSTREAM, serverApiKey } from "@/lib/panta/server";
+import { sanitizeCreateResponse, validateCreateRequest } from "@/lib/panta/create-requests";
 import { clientIp } from "@/lib/rate-limit";
 import { limitShared, storeHeaderValue, type LimitResult } from "@/lib/shared-store";
 
@@ -135,6 +136,11 @@ async function forward(req: NextRequest, ctx: Ctx, method: ProxyMethod) {
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
       return deny(400, "INVALID_JSON", "Body must be a JSON object");
     }
+    if (route.bodyValidator) {
+      const v = validateCreateRequest(route.bodyValidator, parsed);
+      if (!v.ok) return deny(400, "INVALID_REQUEST", v.detail, rlh);
+      parsed = v.body;
+    }
     headers.set("Content-Type", "application/json");
     init.body = JSON.stringify(parsed);
   }
@@ -162,6 +168,7 @@ async function forward(req: NextRequest, ctx: Ctx, method: ProxyMethod) {
     const retryAfter = upstream.headers.get("retry-after");
     if (retryAfter) out.set("Retry-After", retryAfter);
 
+    if (route.stripAccountIds) text = sanitizeCreateResponse(text);
     return new NextResponse(text, { status: upstream.status, headers: out });
   } catch (err) {
     const timedOut = err instanceof Error && err.name === "TimeoutError";

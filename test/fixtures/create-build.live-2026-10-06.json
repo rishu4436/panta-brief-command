@@ -1,0 +1,189 @@
+{
+  "_note": "Real Panta create quote+build responses (POST /markets/create/quote/ + /build/), 6 Oct 2026, test wallet 41VsSh…, NOT signed or broadcast. userId/apiKeyId removed; the Panta user folder id inside the Cloudinary image URL is replaced by a same-length placeholder (the URL is not part of the transaction bytes). marketConfig = on-chain MarketConfig account data (base64) read via getAccountInfo the same minute.",
+  "breaking": {
+    "capturedAt": "2026-10-06T06:14:26.402Z",
+    "request": {
+      "wallet": "41VsShZb5VTKCxRRiGq11GF6foLBVpLocjytBbQmYaGZ",
+      "question": "Brief Command integration check (breaking, 2026-10-06T06:14 UTC): will the ECB deposit facility rate be unchanged after its next scheduled decision?",
+      "resolutionRule": "Resolves YES if the ECB's official press release for its next scheduled monetary policy decision leaves the deposit facility rate unchanged; NO otherwise.",
+      "sourcesOfTruth": [
+        "https://www.ecb.europa.eu/press/pr/html/index.en.html"
+      ],
+      "category": "finance",
+      "startTime": 1791274463,
+      "endTime": 1791360863,
+      "resolutionTime": 1791364463,
+      "marketType": "breaking",
+      "title": "Integration check · breaking",
+      "description": "Discovery quote for Brief Command create-flow validation. Not signed.",
+      "imageUrl": "https://res.cloudinary.com/dyvupboym/image/upload/v1791267255/balr-market/events/usr_0000000000000000000000/cfbcdd70f17648de9deb858d32f0a677.png",
+      "region": "Global",
+      "eventInProgress": false
+    },
+    "quote": {
+      "createId": "cr_3e37a805b2274a0a9e999f903679bb1d",
+      "expectedEventPda": "54PEvqk2ZZEm4y2CGeSAdhggezwnnmsn9RxfL6VqyrLg",
+      "paymentUsdc": "20000000",
+      "liquidityInjectionUsdc": "5000000",
+      "platformRevenueUsdc": "15000000",
+      "marketType": "breaking",
+      "expiresAt": "2026-10-06T06:19:42.967368Z",
+      "blockhashExpiryHintSec": 60
+    },
+    "build": {
+      "createId": "cr_3e37a805b2274a0a9e999f903679bb1d",
+      "expectedEventPda": "54PEvqk2ZZEm4y2CGeSAdhggezwnnmsn9RxfL6VqyrLg",
+      "transaction": "AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACAAQAIESyztDBVVyNFoIQquWguTwLzqNf5W7YiRZdphgTu7PCiHtaKxlN5MOTqpgp/fL/afCzPUpGMqcaw0HQo3SF0YlEp18Nk4ZOup8B4wtdPxwtr+WywTyHPuojwiQj4AvmZdTxMoxvBcqZfBYyEmnYLC7ym9nxRdIi2oJtVh4sGRURZgVpqgvc1EWXAeoybXVkomM9gzASo3H+Hd4siXRXLwoWc1fDfmwApn4nXGfJ46/09vqInkj+1HRwIibdoDXa+CLGr3XUES5LRhci5uiej26wtCYZo7XN5PjxXmK+sMnvc/FDZ/NEaoKqukfzLozriGqjn79s2ji9E1+5GEwiLm838h4HH9/E1N5lpwtXPiMwD2h+/9Ku3+TIBMNgL9K6dFQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAwZGb+UhFzL/7K26csOb57yM5bvF9xJrLEObOkAAAAAG3fbh12Whk9nL4UbO63msHLSF7V9bN5E6jPWFfv8AqSgj5fK672ebG0qKvqytmbJyLaxSCJR4b0brJDOkbWENVF7KIBZj7LY/0UC7ZoTJpoZL1HzOEVaf+6th8u3ycwdzW2r89NtAtgRMz+3R31ydzAHNeUlOo6kqAKng1SelMIyXJY9OJInxuz0QKRSODYMLWhOZ2v8QhASOe9jb6fhZxvp6877brTo9ZfNqq8l0MbG75MLS9uDkfKYCA0UvXWHA8fvzJfD0q9rGqOMVgyTJ+ig2cEpbufUs9XmaniyhvQIKAAUCgBoGAA0PAA4MAwYBBQcCEAgECw8JnAMZZ0vG4EksRd+txGoAAAAAX//FagAAAABvDcZqAAAAAJQAAABCcmllZiBDb21tYW5kIGludGVncmF0aW9uIGNoZWNrIChicmVha2luZywgMjAyNi0xMC0wNlQwNjoxNCBVVEMpOiB3aWxsIHRoZSBFQ0IgZGVwb3NpdCBmYWNpbGl0eSByYXRlIGJlIHVuY2hhbmdlZCBhZnRlciBpdHMgbmV4dCBzY2hlZHVsZWQgZGVjaXNpb24/AC0xAQAAAACaAAAAUmVzb2x2ZXMgWUVTIGlmIHRoZSBFQ0IncyBvZmZpY2lhbCBwcmVzcyByZWxlYXNlIGZvciBpdHMgbmV4dCBzY2hlZHVsZWQgbW9uZXRhcnkgcG9saWN5IGRlY2lzaW9uIGxlYXZlcyB0aGUgZGVwb3NpdCBmYWNpbGl0eSByYXRlIHVuY2hhbmdlZDsgTk8gb3RoZXJ3aXNlLgEAAAA1AAAAaHR0cHM6Ly93d3cuZWNiLmV1cm9wYS5ldS9wcmVzcy9wci9odG1sL2luZGV4LmVuLmh0bWwAAA==",
+      "recentBlockhash": "DzBHpaPsTuTZrED3QmmCEbffiQBZq8kyJnWrmfGUXEWQ",
+      "lastValidBlockHeight": 431855594,
+      "blockhashExpiryHintSec": 60,
+      "buildFingerprint": "86755dc7d7c9750b613c24ac2271383c8aa1779b8cce5105050a7da1f73d4c99",
+      "paymentUsdc": "20000000",
+      "liquidityInjectionUsdc": "5000000",
+      "platformRevenueUsdc": "15000000",
+      "marketType": "breaking",
+      "derived": {
+        "event": "54PEvqk2ZZEm4y2CGeSAdhggezwnnmsn9RxfL6VqyrLg",
+        "vaultAuthority": "CxZAL4pqDSJ3Sg6ov95oGErLmu13mCwMfRTyJccPx755",
+        "marketConfig": "8mJjfx7SuWwS4yfVZXtqC2cvzxr3TQHsCgKyjpuDWKAP",
+        "creatorWhitelist": "3hh4H3AdyqmSeJhyPq2h7Pro2t8QrC7iwYgC8YRDLgGt",
+        "creatorFeeVault": "BZDp493KQBF4t219JDp6fCovabojExt5pphqAmmBzp9M",
+        "creatorPosition": "3pLYBv5QJBTsazNRqGYTcx8a8P5zbYT1Bg3HTkuypD3z",
+        "creatorTokenAccount": "Hzmaoo71rRda7LrodLy1uLtjWTwXqD3xtAB38A7S9jbi",
+        "vaultTokenAccount": "35NySKW4Q1saGCA2Q4fS8U94dG9aXGCXNxfgc3cMt9Tv",
+        "treasuryTokenAccount": "9hwZLD2JZuWFDDQXEnHsnny7EF2LeyHqwcMFVssYEGpC"
+      },
+      "expiresAt": "2026-10-06T06:16:16.838756Z"
+    }
+  },
+  "standard": {
+    "capturedAt": "2026-10-06T06:17:17.106Z",
+    "request": {
+      "wallet": "41VsShZb5VTKCxRRiGq11GF6foLBVpLocjytBbQmYaGZ",
+      "question": "Brief Command integration check (standard, 2026-10-06T06:17:17 UTC): will the ECB deposit facility rate be unchanged after its next scheduled decision?",
+      "resolutionRule": "Resolves YES if the ECB's official press release for its next scheduled monetary policy decision leaves the deposit facility rate unchanged; NO otherwise.",
+      "sourcesOfTruth": [
+        "https://www.ecb.europa.eu/press/pr/html/index.en.html"
+      ],
+      "category": "finance",
+      "startTime": 1791530237,
+      "endTime": 1791616637,
+      "resolutionTime": 1791620237,
+      "marketType": "standard",
+      "title": "Integration check · standard",
+      "description": "Discovery quote for Brief Command create-flow validation. Not signed.",
+      "imageUrl": "https://res.cloudinary.com/dyvupboym/image/upload/v1791267255/balr-market/events/usr_0000000000000000000000/cfbcdd70f17648de9deb858d32f0a677.png",
+      "region": "Global"
+    },
+    "quote": {
+      "createId": "cr_e4c678d377094128b54559498008b937",
+      "expectedEventPda": "GN6zCD6ETcCjcpwbSSp6fDqe61MfaG5NYBgoGT573zo7",
+      "paymentUsdc": "50000000",
+      "liquidityInjectionUsdc": "10000000",
+      "platformRevenueUsdc": "40000000",
+      "marketType": "standard",
+      "expiresAt": "2026-10-06T06:23:08.683113Z",
+      "blockhashExpiryHintSec": 60
+    },
+    "build": {
+      "createId": "cr_e4c678d377094128b54559498008b937",
+      "expectedEventPda": "GN6zCD6ETcCjcpwbSSp6fDqe61MfaG5NYBgoGT573zo7",
+      "transaction": "AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACAAQAIESyztDBVVyNFoIQquWguTwLzqNf5W7YiRZdphgTu7PCiF27Oqqrhm+vpFFA2pFMwZu469RiRtYVp2ee+1Q3y9kp6af56nzJ4GIglcX6d3f/fV9uTRuCOul7kMMXlMl9TjYFaaoL3NRFlwHqMm11ZKJjPYMwEqNx/h3eLIl0Vy8KFnpbro2oiVhNrca+DDPecjV1XOy3DfMTkudhi6n0BkAPCYN1OFDYp0XlcNU61zdLJNzoJgZHRhpBxlLmikVyCXcgFo4BWGIh6mHhqmOyDRICSIusDbiLo0HrZlXrP4AQo5EdE9hX3roOOctDUO7aKOLuvNjKPMaPSARz6yLgChKb8h4HH9/E1N5lpwtXPiMwD2h+/9Ku3+TIBMNgL9K6dFQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAwZGb+UhFzL/7K26csOb57yM5bvF9xJrLEObOkAAAAAG3fbh12Whk9nL4UbO63msHLSF7V9bN5E6jPWFfv8AqSgj5fK672ebG0qKvqytmbJyLaxSCJR4b0brJDOkbWENVF7KIBZj7LY/0UC7ZoTJpoZL1HzOEVaf+6th8u3ycwdzW2r89NtAtgRMz+3R31ydzAHNeUlOo6kqAKng1SelMIyXJY9OJInxuz0QKRSODYMLWhOZ2v8QhASOe9jb6fhZxvp6877brTo9ZfNqq8l0MbG75MLS9uDkfKYCA0UvXWGkHoL2WAkOaaDANGDvRyz4XcmAuUzD1LDK0Yd0hJ7M5QIKAAUCgBoGAA0PAA4MBwYEBQECEAgDCw8JngNQCczVlttXov2UyGoAAAAAfebJagAAAACN9MlqAAAAAJcAAABCcmllZiBDb21tYW5kIGludGVncmF0aW9uIGNoZWNrIChzdGFuZGFyZCwgMjAyNi0xMC0wNlQwNjoxNzoxNyBVVEMpOiB3aWxsIHRoZSBFQ0IgZGVwb3NpdCBmYWNpbGl0eSByYXRlIGJlIHVuY2hhbmdlZCBhZnRlciBpdHMgbmV4dCBzY2hlZHVsZWQgZGVjaXNpb24/gPD6AgAAAACaAAAAUmVzb2x2ZXMgWUVTIGlmIHRoZSBFQ0IncyBvZmZpY2lhbCBwcmVzcyByZWxlYXNlIGZvciBpdHMgbmV4dCBzY2hlZHVsZWQgbW9uZXRhcnkgcG9saWN5IGRlY2lzaW9uIGxlYXZlcyB0aGUgZGVwb3NpdCBmYWNpbGl0eSByYXRlIHVuY2hhbmdlZDsgTk8gb3RoZXJ3aXNlLgEAAAA1AAAAaHR0cHM6Ly93d3cuZWNiLmV1cm9wYS5ldS9wcmVzcy9wci9odG1sL2luZGV4LmVuLmh0bWwA",
+      "recentBlockhash": "C3er8P1roMks3bit9EHDSLNVvyBntnRVQR4YPV5VguUY",
+      "lastValidBlockHeight": 431856240,
+      "blockhashExpiryHintSec": 60,
+      "buildFingerprint": "9f6aec043828e7b28432e08a04f96adc2cba72a7faf3a2283d9e1e9f74d94bbf",
+      "paymentUsdc": "50000000",
+      "liquidityInjectionUsdc": "10000000",
+      "platformRevenueUsdc": "40000000",
+      "marketType": "standard",
+      "derived": {
+        "event": "GN6zCD6ETcCjcpwbSSp6fDqe61MfaG5NYBgoGT573zo7",
+        "vaultAuthority": "EToXXuBYEr6JAieidUbCd7CcAERrkrTpAa99Se2Ki2K9",
+        "marketConfig": "8mJjfx7SuWwS4yfVZXtqC2cvzxr3TQHsCgKyjpuDWKAP",
+        "creatorWhitelist": "3hh4H3AdyqmSeJhyPq2h7Pro2t8QrC7iwYgC8YRDLgGt",
+        "creatorFeeVault": "E5mm8KVbxMxvJUv2wKmuEjV2oNgCqe4ndcSkBukVAURS",
+        "creatorPosition": "9ErUtSin9dfYK8bmHDMdZHbXnjWavQdNKBVLXceB11cY",
+        "creatorTokenAccount": "Hzmaoo71rRda7LrodLy1uLtjWTwXqD3xtAB38A7S9jbi",
+        "vaultTokenAccount": "Bg4tgZ6QRavNXba95XBwNiUfBUA3NnnrCSpq7vv3RVuC",
+        "treasuryTokenAccount": "9hwZLD2JZuWFDDQXEnHsnny7EF2LeyHqwcMFVssYEGpC"
+      },
+      "expiresAt": "2026-10-06T06:19:08.911332Z"
+    }
+  },
+  "breakingInProgress": {
+    "capturedAt": "2026-10-06T06:17:17.106Z",
+    "request": {
+      "wallet": "41VsShZb5VTKCxRRiGq11GF6foLBVpLocjytBbQmYaGZ",
+      "question": "Brief Command integration check (breakingLive, 2026-10-06T06:17:17 UTC): will the ECB deposit facility rate be unchanged after its next scheduled decision?",
+      "resolutionRule": "Resolves YES if the ECB's official press release for its next scheduled monetary policy decision leaves the deposit facility rate unchanged; NO otherwise.",
+      "sourcesOfTruth": [
+        "https://www.ecb.europa.eu/press/pr/html/index.en.html"
+      ],
+      "category": "finance",
+      "startTime": 1791266837,
+      "endTime": 1791288437,
+      "resolutionTime": 1791292037,
+      "marketType": "breaking",
+      "title": "Integration check · breakingLive",
+      "description": "Discovery quote for Brief Command create-flow validation. Not signed.",
+      "imageUrl": "https://res.cloudinary.com/dyvupboym/image/upload/v1791267255/balr-market/events/usr_0000000000000000000000/cfbcdd70f17648de9deb858d32f0a677.png",
+      "region": "Global",
+      "eventInProgress": true
+    },
+    "quote": {
+      "createId": "cr_dc07cc085c384b85ac0096dc550f3185",
+      "expectedEventPda": "2MbKKBfnX361ULGJcpkr3R1P163jnz8Fmtm5Gi6W5jd7",
+      "paymentUsdc": "20000000",
+      "liquidityInjectionUsdc": "5000000",
+      "platformRevenueUsdc": "15000000",
+      "marketType": "breaking",
+      "expiresAt": "2026-10-06T06:22:38.261499Z",
+      "blockhashExpiryHintSec": 60
+    },
+    "build": {
+      "createId": "cr_dc07cc085c384b85ac0096dc550f3185",
+      "expectedEventPda": "2MbKKBfnX361ULGJcpkr3R1P163jnz8Fmtm5Gi6W5jd7",
+      "transaction": "AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACAAQAIESyztDBVVyNFoIQquWguTwLzqNf5W7YiRZdphgTu7PCiFCIaowvyGmKFQZrOEWNF+5GeUPrDutMNKybFfypI5WY6yl3eCwYWMgMWlp8auAMVXcWWOmmvBDXbP7XEl4sKQkf/vjhPSGoSfA5damM3/ln+CLSuaOFg1BUDj6DBqndrZEwed3A79fYORS9TUT8sA+cCy9PsSVrzOO9WUgMC1heBWmqC9zURZcB6jJtdWSiYz2DMBKjcf4d3iyJdFcvChd6PZNm2iGyfBriaFHhRFd7LAHjoqEekird+bLrn14CF8+BYkiCvnViWOyXM7XqU45OJ3rQwqqYwKU4jA+GIODj8h4HH9/E1N5lpwtXPiMwD2h+/9Ku3+TIBMNgL9K6dFQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAwZGb+UhFzL/7K26csOb57yM5bvF9xJrLEObOkAAAAAG3fbh12Whk9nL4UbO63msHLSF7V9bN5E6jPWFfv8AqSgj5fK672ebG0qKvqytmbJyLaxSCJR4b0brJDOkbWENVF7KIBZj7LY/0UC7ZoTJpoZL1HzOEVaf+6th8u3ycwdzW2r89NtAtgRMz+3R31ydzAHNeUlOo6kqAKng1SelMIyXJY9OJInxuz0QKRSODYMLWhOZ2v8QhASOe9jb6fhZxvp6877brTo9ZfNqq8l0MbG75MLS9uDkfKYCA0UvXWE+vF0XT0HzZha44fnaT0+QyTE3RMAnOzeaMWBq3SO5bwIKAAUCgBoGAA0PAA4MAQQCBwYDEAgFCw8JowMZZ0vG4EksRRWQxGoAAAAAdeTEagAAAACF8sRqAAAAAJsAAABCcmllZiBDb21tYW5kIGludGVncmF0aW9uIGNoZWNrIChicmVha2luZ0xpdmUsIDIwMjYtMTAtMDZUMDY6MTc6MTcgVVRDKTogd2lsbCB0aGUgRUNCIGRlcG9zaXQgZmFjaWxpdHkgcmF0ZSBiZSB1bmNoYW5nZWQgYWZ0ZXIgaXRzIG5leHQgc2NoZWR1bGVkIGRlY2lzaW9uPwAtMQEAAAAAmgAAAFJlc29sdmVzIFlFUyBpZiB0aGUgRUNCJ3Mgb2ZmaWNpYWwgcHJlc3MgcmVsZWFzZSBmb3IgaXRzIG5leHQgc2NoZWR1bGVkIG1vbmV0YXJ5IHBvbGljeSBkZWNpc2lvbiBsZWF2ZXMgdGhlIGRlcG9zaXQgZmFjaWxpdHkgcmF0ZSB1bmNoYW5nZWQ7IE5PIG90aGVyd2lzZS4BAAAANQAAAGh0dHBzOi8vd3d3LmVjYi5ldXJvcGEuZXUvcHJlc3MvcHIvaHRtbC9pbmRleC5lbi5odG1sAQA=",
+      "recentBlockhash": "5DtsHeLgSevzmdXKXkVLb88B8q77EC7Ytt33zmdesLCe",
+      "lastValidBlockHeight": 431856246,
+      "blockhashExpiryHintSec": 60,
+      "buildFingerprint": "4af3c378bddaa415b0999f62efa4eb77d9f85cc2769855c4584d1ea811445574",
+      "paymentUsdc": "20000000",
+      "liquidityInjectionUsdc": "5000000",
+      "platformRevenueUsdc": "15000000",
+      "marketType": "breaking",
+      "derived": {
+        "event": "2MbKKBfnX361ULGJcpkr3R1P163jnz8Fmtm5Gi6W5jd7",
+        "vaultAuthority": "7kX6D8sfUEMhTRHi37cgEiNjExiiqnCeL36JgdnhfNqt",
+        "marketConfig": "8mJjfx7SuWwS4yfVZXtqC2cvzxr3TQHsCgKyjpuDWKAP",
+        "creatorWhitelist": "3hh4H3AdyqmSeJhyPq2h7Pro2t8QrC7iwYgC8YRDLgGt",
+        "creatorFeeVault": "HQzV2kHkskaLJXX6rpD1HsAq4Y84NgLekFP3j6owMexF",
+        "creatorPosition": "5r48NBtUM1QDfxxf8NoLkCv98CfeDyCYBn1Ru1yqwsTG",
+        "creatorTokenAccount": "Hzmaoo71rRda7LrodLy1uLtjWTwXqD3xtAB38A7S9jbi",
+        "vaultTokenAccount": "4xVczdJ45eLfEb3Qf2pizPYM2RaQrreScds6dnXh756Z",
+        "treasuryTokenAccount": "9hwZLD2JZuWFDDQXEnHsnny7EF2LeyHqwcMFVssYEGpC"
+      },
+      "expiresAt": "2026-10-06T06:19:10.439026Z"
+    }
+  },
+  "marketConfig": {
+    "address": "8mJjfx7SuWwS4yfVZXtqC2cvzxr3TQHsCgKyjpuDWKAP",
+    "owner": "6gM5afTQBq5VZCfgpGqcsqzfWd5maLSCKWtGjbEobZMp",
+    "dataBase64": "d//IWPxSgBhLloNjANHjg5uafjRmHs5KLaNDiS/jgJj6+4FCOLsQJO3/0WQHudP/ODS/I6XZgg1EoSJ9BLXyutJ5/ip8jkBNOAhNb4COitQTImlc0kkhsslafYv9BTXlg5ENVnkNpUQ4CE1vgI6K1BMiaVzSSSGyyVp9i/0FNeWDkQ1WeQ2lRDG0FBLUXGkTQgw7jZT5bIaYdlhRVTUzoO9gg3BG6DfbAMqaOwAAAAAQDgAAAAAAAMgAAAAAAAAAlgAAAAAAAAAA5AtUAgAAAAAAAAAAAAAAQEIPAAAAAAAyAAAAAHhBywIAAAAAAAAAAAAAAMb6evO+2606PWXzaqvJdDGxu+TC0vbg5HymAgNFL11hAAAAAAAAAAAAypo7AAAAAAAAAAAAAAAAQEIPAAAAAAAARsMjAAAAAAAAAAAAAAAAAC0xAQAAAABAS0wAAAAAAIDw+gIAAAAAgJaYAAAAAAA="
+  },
+  "imageUpload": {
+    "uploadUrl": "https://api.cloudinary.com/v1_1/dyvupboym/image/upload",
+    "publicId": "balr-market/events/usr_0000000000000000000000/cfbcdd70f17648de9deb858d32f0a677",
+    "secureUrl": "https://res.cloudinary.com/dyvupboym/image/upload/v1791267255/balr-market/events/usr_0000000000000000000000/cfbcdd70f17648de9deb858d32f0a677.png",
+    "fieldsKeys": [
+      "folder",
+      "overwrite",
+      "public_id",
+      "timestamp",
+      "upload_preset",
+      "api_key",
+      "signature"
+    ]
+  }
+}

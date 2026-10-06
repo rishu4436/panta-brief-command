@@ -8,7 +8,8 @@ import { BrandMark } from "./BrandMark";
 import { WalletButton } from "./WalletButton";
 import { IconArrowRight, IconClose, IconMenu } from "./ui/Icons";
 
-type NavItem = { href: string; label: string; active: boolean };
+/** `wide`: desktop bar shows it only at xl+ (still in the mobile menu); keeps the 1024–1279px bar uncrowded. */
+type NavItem = { href: string; label: string; active: boolean; wide?: boolean };
 
 export function isMarketingPath(pathname: string) {
   return pathname === "/" || pathname === "/about";
@@ -50,6 +51,8 @@ function useNavItems(): { marketing: boolean; items: NavItem[] } {
       { href: "/execute", label: "Trade", active: pathname.startsWith("/execute") },
       { href: "/book?tab=positions", label: "Positions", active: pathname.startsWith("/book") && tab !== "activity" && tab !== "claims" },
       { href: "/book?tab=activity", label: "Activity", active: pathname.startsWith("/book") && tab === "activity" },
+      // /desk also has "+ Create Market", so the bar link can drop out below xl (it stays visible while active).
+      { href: "/create", label: "Create", active: pathname.startsWith("/create"), wide: true },
     ],
   };
 }
@@ -66,13 +69,13 @@ function Brand() {
 function DesktopLinks() {
   const { items } = useNavItems();
   return (
-    <ul className="flex items-center gap-1">
+    <ul className="flex items-center gap-0.5 xl:gap-1">
       {items.map((item) => (
-        <li key={item.label}>
+        <li key={item.label} className={item.wide && !item.active ? "hidden xl:block" : undefined}>
           <Link
             href={item.href}
             aria-current={item.active ? "page" : undefined}
-            className={`type-nav relative flex h-16 items-center px-3 transition-colors ${
+            className={`type-nav relative flex h-16 items-center whitespace-nowrap px-2.5 transition-colors xl:px-3 ${
               item.active ? "text-ink" : "text-ink-2 hover:text-ink"
             }`}
           >
@@ -179,7 +182,7 @@ export function TopNavigation() {
   return (
     <header className="sticky top-0 z-40 border-b border-line/80 bg-bg/75 backdrop-blur-xl">
       <div className={`relative mx-auto flex h-16 items-center justify-between gap-4 px-4 sm:px-6 ${marketing ? "max-w-[1280px]" : "max-w-[1600px]"}`}>
-        <div className="flex min-w-0 items-center gap-8">
+        <div className={`flex min-w-0 items-center ${marketing ? "gap-8" : "gap-4 xl:gap-8"}`}>
           <Brand />
           {!marketing && (
             <nav aria-label="Desk" className="hidden lg:block">
@@ -196,7 +199,7 @@ export function TopNavigation() {
             </Suspense>
           </nav>
         )}
-        <div className="flex items-center gap-2.5">
+        <div className="flex shrink-0 items-center gap-2.5">
           {marketing ? (
             <>
               <a
@@ -217,10 +220,11 @@ export function TopNavigation() {
               <button
                 type="button"
                 onClick={() => window.dispatchEvent(new Event("panta-brief-cmdk"))}
-                className="hidden h-10 items-center gap-2 rounded-[10px] border border-line bg-surface px-3 text-[12px] text-ink-3 transition hover:text-ink lg:inline-flex"
+                className="hidden h-10 shrink-0 items-center gap-2 whitespace-nowrap rounded-[10px] border border-line bg-surface px-3 text-[12px] text-ink-3 transition hover:text-ink lg:inline-flex"
                 aria-label="Search markets (Command K)"
               >
-                Search markets
+                <span className="xl:hidden">Search</span>
+                <span className="hidden xl:inline">Search markets</span>
                 <kbd className="rounded border border-line px-1 font-sans text-[10px]">⌘K</kbd>
               </button>
               <div className="hidden lg:block">

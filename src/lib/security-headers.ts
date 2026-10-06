@@ -17,10 +17,15 @@
  *    arbitrary hosts (Cloudinary and others); wallet icons are data: URIs.
  *    Images can't run script.
  *  - font-src 'self' data: — next/font/google self-hosts the files.
- *  - connect-src 'self' only: Solana RPC goes through our /api/rpc relay
- *    (the provider URL + key stay server-side; confirmation is HTTP polling,
- *    so no wss), and Panta through our /api/panta proxy. No RPC or Panta
- *    host is needed in the browser.
+ *  - connect-src 'self' + one exact URL: Solana RPC goes through our /api/rpc
+ *    relay (the provider URL + key stay server-side; confirmation is HTTP
+ *    polling, so no wss), and Panta through our /api/panta proxy. No RPC or
+ *    Panta host is needed in the browser. The single exception is Panta's
+ *    signed Cloudinary upload endpoint (CLOUDINARY_UPLOAD_URL in
+ *    src/lib/panta/create-rules.ts): Panta's official image-upload flow
+ *    sends the image bytes straight from the browser to Cloudinary ("image
+ *    bytes never pass through Panta"), so we allow exactly that path — not
+ *    the host, not other clouds — instead of proxying bytes ourselves.
  *  - frame-src https://connect.solflare.com: the Solflare adapter opens its
  *    SDK iframe there when the extension isn't installed. Phantom / Solflare
  *    extensions inject via content scripts, which page CSP doesn't block.
@@ -28,9 +33,11 @@
  */
 
 export const SOLFLARE_FRAME = "https://connect.solflare.com";
+/** Must equal CLOUDINARY_UPLOAD_URL (create-rules.ts); kept literal so next.config can load this file. */
+export const CREATE_IMAGE_UPLOAD_ENDPOINT = "https://api.cloudinary.com/v1_1/dyvupboym/image/upload";
 
 export function buildCsp(opts: { dev?: boolean } = {}): string {
-  const connect = ["'self'"];
+  const connect = ["'self'", CREATE_IMAGE_UPLOAD_ENDPOINT];
   if (opts.dev) connect.push("ws:", "wss:"); // HMR socket
   const script = ["'self'", "'unsafe-inline'", ...(opts.dev ? ["'unsafe-eval'"] : [])];
   const directives: [string, string[]][] = [

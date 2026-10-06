@@ -16,12 +16,13 @@ Dark-glass **prediction desk** on Solana powered by the [Panta API](https://docs
 | **Book** — positions list + win / creator-fee claim build → sign → broadcast; win claims reported → attributed, creator-fee claims labelled not attributed | Working |
 | **UI** — modern dark glass trading terminal | Working |
 | Server proxy `/api/panta/*` — explicit route + method allowlist, server key only | Working |
+| **Create Market** (`/create`) — define → image upload → live quote → build → full transaction validation; wallet approval **disabled** pending review | 🚧 Stage A |
 
 ### Stubbed / deferred
 
 - Secondary CLOB order placement from this desk (read-only Secondary Intelligence is shipped; execution remains out of scope)
 - Attribution for creator-fee claims (Panta rejects them on `POST /trades/` with `TX_MISMATCH`, so the desk labels them as not attributed)
-- Market creation flow (out of scope for this desk)
+- Market creation signing / broadcast / registration (Stage A validates Panta's create transaction end to end, but "Approve in wallet" stays disabled until the review is accepted)
 
 ## Judge runbook
 
@@ -61,7 +62,7 @@ Open http://localhost:3000
 
 ### RPC
 
-The browser never talks to an RPC provider directly. The wallet `Connection` points at the same-origin relay `${window.location.origin}/api/rpc`, which forwards to the private server env var `SOLANA_RPC_URL` (a dedicated mainnet RPC such as Helius, QuickNode, Triton or Alchemy, key included). The provider URL and key never reach the client bundle, the CSP (`connect-src 'self'`) or the network tab.
+The browser never talks to an RPC provider directly. The wallet `Connection` points at the same-origin relay `${window.location.origin}/api/rpc`, which forwards to the private server env var `SOLANA_RPC_URL` (a dedicated mainnet RPC such as Helius, QuickNode, Triton or Alchemy, key included). The provider URL and key never reach the client bundle, the CSP (`connect-src 'self'` plus the single path-pinned Cloudinary upload endpoint used by Create Market) or the network tab.
 
 - **No silent public fallback**: with `SOLANA_RPC_URL` unset the relay answers `503 RPC_NOT_CONFIGURED` (outside production only, `NEXT_PUBLIC_DEFAULT_RPC` is accepted as the upstream for local dev).
 - **Method allowlist** (`src/lib/rpc-relay.ts`), derived from the client code: `getGenesisHash`, `getLatestBlockhash`, `sendTransaction`, `getSignatureStatuses`, `getBlockHeight`, `getAccountInfo`, `getTokenAccountsByOwner`. Anything else → 403 (JSON-RPC `-32601`), before the upstream is called.
@@ -79,6 +80,7 @@ Base `https://live-api.panta.market/api/v1` (trailing slashes required):
 - `GET /positions/?wallet=`
 - `POST /claim/build/`, `POST /claim/creator-fees/build/`
 - `POST /trades/`, `GET /account/trades/`
+- `POST /markets/create/image-upload/`, `POST /markets/create/quote/`, `POST /markets/create/build/`, `POST /markets/register/` (Create Market; register is wired but unreachable while signing is disabled)
 
 Browser calls `/api/panta/*`; the Next.js route forwards **only** the routes and methods listed in `src/lib/panta/routes.ts` (403 `ROUTE_NOT_ALLOWED` otherwise, 405 on a wrong method) and attaches the server's `X-Api-Key`. Client-supplied keys are ignored.
 
@@ -101,6 +103,22 @@ Browser calls `/api/panta/*`; the Next.js route forwards **only** the routes and
 - factual execution lines, e.g. "Primary YES and NO available · quote required before sizing"
 
 Anything that can't be derived is `null` with a reason. For example, `probabilityChange` is always null because tape rows carry no per-trade price. The LLM receives this JSON and is told to interpret it, not recompute it, and never to give buy/sell or sizing advice. Every brief has five sections, in this order: **Observation / Evidence / Interpretation / Risk / Execution considerations**. Observation restates the market data, Evidence lists the computed signals, Interpretation is the LLM's hedged reading (the template says plainly that it writes none), Risk lists the deterministic flags, and Execution considerations restates the factual execution lines. Market description / resolution text is treated as untrusted: it is sanitized (no markdown, HTML or control characters) and delimited, and the model is told it is data, not instructions. An LLM answer falls back to the template, which renders from the same signals (so the demo reads the same without an OpenAI key), if it does not have exactly those five sections in order, contains advice-like wording, uses a number that is not in the evidence it was given, states a probability other than the market's own, states any probability or odds when Panta's prices give no usable probability, or echoes prompt-injection phrasing (`src/lib/brief-guard.ts`). **Catalysts** mode uses only the catalog description and resolution time, and says so when there is little to go on.
+
+## Create Market
+
+`/create` (also **+ Create Market** on the desk and **Create** in the top nav) walks through **Define → Quote → Review → Wallet → Broadcast → Register**. Stage B (signing, broadcast, registration) is built and under review; no real market has been created by this app yet.
+
+- **Mainnet · real USDC** and **Market creation fees are non-refundable** are shown on the page. Creation fees are determined by Panta. Your live quote below is authoritative. The app never hard-codes amounts; every fee shown comes from Panta's live quote (converted exactly, in USDC base units).
+- **Define:** question, category, market type (Breaking or Standard; Breaking can be marked *event already in progress*), start / end / resolution in your local time zone, a resolution rule, 1–5 https sources of truth, and an optional image. The question-quality checklist and a live on-chain byte meter are shown while you type, because Solana's 1232-byte packet limit is checked client-side (Panta's build does not check it).
+- **Image upload:** the server asks Panta for a signed, short-lived upload grant, and the browser uploads the file **directly** to Panta's Cloudinary endpoint. Image bytes never pass through our proxy. Only the exact Panta delivery URL is accepted back.
+- **Quote:** fee, liquidity injection, platform portion, market type, the expected market address (re-derived locally from wallet + question) and an expiry countdown. Any edit, wallet change or expiry discards the quote and build.
+- **Review:** Panta builds the transaction, and the desk decodes and verifies it: one signer (your wallet, also the fee payer), only Compute Budget plus one Panta create instruction, every argument equal to what you reviewed, every account re-derived, the fee equal to the quote **and** to Panta's on-chain `MarketConfig` price. The exact transaction is then **simulated** on mainnet and the result must prove a USDC debit of exactly the quoted payment (split to the vault and treasury), no other token outflow, and SOL spent only on the network fee plus bounded account rent. Your USDC and SOL balances are checked with no buffer ("Insufficient USDC" / "Insufficient SOL for network fee").
+- **Approve in wallet:** every check runs again right before the wallet opens. The wallet signs the exact validated transaction; if the signed message differs, nothing is sent. The signed transaction is saved in this browser **before** it is broadcast once (preflight on), then confirmed against its blockhash window. Ambiguous outcomes show **Check status**; nothing is ever re-signed.
+- **Register:** the frozen `{createId, signature}` is sent to Panta and the response must match. If registration fails after the transaction confirmed, the page shows *Market transaction confirmed · Panta registration needs attention* with **Retry registration** (same pair; never re-signs or pays again). This survives a refresh (per browser).
+- Panta resolves markets using its resolution process against the declared sources of truth. Eligible resolutions are subject to Panta's dispute process.
+- Creator royalties, if earned, become claimable according to Panta's market rules.
+
+Full review: [`docs/CREATE_TRANSACTION_SECURITY.md`](docs/CREATE_TRANSACTION_SECURITY.md).
 
 ## Architecture
 
@@ -148,29 +166,31 @@ Browser ─▶ /api/panta/* (allowlist, server-only X-Api-Key) ─▶ Panta API
 
 ## Security
 
-- **Proxy allowlist.** `/api/panta/*` forwards only the routes, methods and query keys listed in `src/lib/panta/routes.ts`. Unknown routes get 403, wrong methods 405, encoded or traversal paths 400, bodies over 16 KB 413, non-JSON 415. Only the server's `PANTA_API_KEY` is sent upstream; client `X-Api-Key` / `Authorization` headers are dropped. Every route has a per-IP limit per minute (same shared store as the brief): reads 300, quote 30, build 20, submit 20, verify 90, trade report 20, claim builds 10. Responses carry `X-RateLimit-*` and `X-Store-Status`; over the limit is a 429 with `Retry-After`, and Panta is not called. Server modules import `server-only`, and the client bundle is checked for the key and upstream host.
+- **Proxy allowlist.** `/api/panta/*` forwards only the routes, methods and query keys listed in `src/lib/panta/routes.ts`. Unknown routes get 403, wrong methods 405, encoded or traversal paths 400, bodies over 16 KB 413, non-JSON 415. Only the server's `PANTA_API_KEY` is sent upstream; client `X-Api-Key` / `Authorization` headers are dropped. Every route has a per-IP limit per minute (same shared store as the brief): reads 300, quote 30, build 20, submit 20, verify 90, trade report 20, claim builds 10, create image grant 10, create quote 10, create build 6, register 10. Create bodies are strict zod schemas checked before the key is used (no oracle, no client-set payment, https sources only, Panta image URLs only), and `userId` / `apiKeyId` are stripped from create responses. Responses carry `X-RateLimit-*` and `X-Store-Status`; over the limit is a 429 with `Retry-After`, and Panta is not called. Server modules import `server-only`, and the client bundle is checked for the key and upstream host.
 - **Pre-sign instruction validation.** Before the wallet is asked to sign, the build is checked against the active quote (quote id, market, side, wallet) and every instruction must target an allowlisted program (Panta USDC program, Compute Budget, ATA, Token, System, Memo), include the Panta program, stay within 10 instructions, require no signer other than the wallet, and compile with the wallet as fee payer. Any mismatch blocks signing.
   - **Primary buys** (`src/lib/panta/primary-order.ts`): `primary_order_usdc` is decoded (side + exact USDC amount) and every account re-derived. The build's `expectedShares` must be within the user's max slippage of the quoted shares and its fee no higher than quoted. Max slippage is enforced by Panta **at build time only**: the instruction carries no minimum-shares limit, so the review labels share counts as estimates and says plainly that a price move after build is not protected on-chain.
   - **Claims** (`src/lib/panta/claim-build.ts`): wallet, market and claim kind must match the request (missing = blocked); `claim_win_usdc` / `claim_creator_fees_usdc` are decoded from layouts taken from 52 real mainnet claims (fixture in `test/fixtures/`), the payout destination must be the wallet's own USDC account, the win-claim record / position / creator-fee vault are re-derived, and nothing but bounded Compute Budget and "create my USDC account" may ride along. The vault authority (win) and creator-fee vault (creator fee) are also checked on-chain, failing closed on RPC error. The mainnet genesis check runs before build and before sign, and a wallet switch mid-claim blocks signing.
   - **Known limit:** the vault authority's seeds are not public and neither it nor the market account references the other, so the desk proves it is *a* Panta vault authority, not *this market's* (see `verifyVaultAuthorityOnChain`).
+- **Create Market transaction validation** (`src/lib/panta/create-market.ts`): see Create Market above and `docs/CREATE_TRANSACTION_SECURITY.md`. Signing is disabled in Stage A (`CREATE_SIGNING_ENABLED = false`).
 - **No custody.** The desk never holds keys or funds. Transactions are built by Panta, signed in the user's wallet and broadcast from the browser. The server only proxies read/build/report calls.
 - **Brief limits.** `/api/brief` accepts only `{ marketId, mode }` (extra fields 400, bad mode 400, 2 KB body cap), rate-limits 20 requests per minute per IP, and caches each market+mode for 60 seconds, so repeat clicks don't re-bill the model. Evidence is fetched server-side, so clients can't inject data. With `UPSTASH_REDIS_REST_URL`/`_TOKEN` (or `KV_REST_API_URL`/`_TOKEN`) set, the limiter and cache live in Upstash Redis and are shared by all instances; the response header `X-RateLimit-Store` says which store enforced the limit. Without those vars they are in-memory per instance, which only stops casual abuse: each serverless instance keeps its own counters. Redis keys are prefixed `pbc:` and hold only counters and the same public brief payloads the route returns.
 
 ## Roadmap
 
-Phase 0 is the hackathon product as it ships and is demonstrated today. Phase 1 (Position Intelligence) is shipped on the Book. Phase 2 (Secondary Intelligence, read-only) is shipped on the desk and market detail. Later phases describe where we intend to take Brief Command next: a platform for prediction-market intelligence, research and execution. Items still listed under Phases 2 to 5 are planned direction, not shipped features.
+Phase 0 is the hackathon product as it ships and is demonstrated today. Phase 1 (Position Intelligence) is shipped on the Book. Phase 2 (Secondary Intelligence, read-only) is shipped on the desk and market detail. Phase 3 (Market Creation) is in progress: Stage A (define, quote, build and full transaction validation) and Stage B (simulation, signing, broadcast, registration and recovery) are built; Stage B has not yet been exercised with a real creation. Later phases describe where we intend to take Brief Command next: a platform for prediction-market intelligence, research and execution. Items listed under later phases are planned direction, not shipped features.
 
 | Phase | Focus | Status |
 | --- | --- | --- |
-| 0 | Hackathon / Mainnet Proof | `Current` |
-| 1 | Position Intelligence | `Shipped` |
-| 2 | Secondary Intelligence (read-only) | `Shipped` |
-| 3 | Secondary CLOB execution | `Future / Dependency blocked` |
-| 4 | Strategy Research | `Planned` |
-| 5 | Autonomous Desk | `Future` |
-| 6 | Open Agent / Protocol Layer | `Future` |
+| 0 | Hackathon / Mainnet Proof | ✅ |
+| 1 | Position Intelligence | ✅ |
+| 2 | Secondary Intelligence (read-only) | ✅ |
+| 3 | Market Creation | 🚧 Stage A built · signing not enabled |
+| — | Secondary CLOB execution | Dependency blocked |
+| 4 | Strategy Research | Planned |
+| 5 | Autonomous Desk | Future |
+| 6 | Open Agent / Protocol Layer | Future |
 
-### Phase 0 — Hackathon / Mainnet Proof — Now (`Current`)
+### Phase 0 — Hackathon / Mainnet Proof ✅
 
 - Panta market discovery and intelligence
 - Evidence-backed AI Market Brief
@@ -182,7 +202,7 @@ Phase 0 is the hackathon product as it ships and is demonstrated today. Phase 1 
 - Real mainnet transaction proof
 - Submission and demo readiness
 
-### Phase 1 — Position Intelligence (`Shipped`)
+### Phase 1 — Position Intelligence ✅
 
 Shipped on `/book`:
 
@@ -199,7 +219,7 @@ Not shipped (still out of scope for Phase 1):
 - Average entry, cost basis, ROI, or any fabricated P&L
 - Secondary-market execution / order-book prices
 
-### Phase 2 — Secondary Intelligence (`Shipped`, read-only)
+### Phase 2 — Secondary Intelligence (read-only) ✅
 
 Shipped on `/desk` (Secondary Radar) and secondary-phase market detail:
 
@@ -215,9 +235,30 @@ Not shipped:
 
 - Placing or cancelling secondary orders, secondary Anchor instruction builds, signing/broadcasting secondary txs
 
-### Phase 3 — Secondary CLOB execution (`Future / Dependency blocked`)
+### Phase 3 — Market Creation 🚧
 
-Blocked on a supported partner secondary execution interface.
+Stage A (built):
+
+- `/create`: Define → Quote → Review, with a live on-chain size meter and a question-quality checklist
+- Direct-to-Cloudinary image upload using Panta's signed grant (no bytes through our server)
+- Live Panta quote (fee, liquidity, platform portion, expected market address, expiry)
+- Panta-built transaction decoded and validated (programs, instruction, arguments, all 15 accounts, signer, fee payer, size, blockhash, on-chain tier price)
+- Strict server-side create proxy routes with their own rate limits
+
+Stage B (built, pending one manual real creation):
+
+- Mainnet simulation of the exact bytes as defense in depth: exact USDC debit, no other token outflow, SOL bounded to fee + rent; fails closed
+- No-buffer USDC / SOL balance checks; final stale-state + mainnet recheck before simulation and before signing
+- Exact-bytes wallet signing, one broadcast (preflight on), blockhash-window confirmation, status check for ambiguous outcomes
+- `POST /markets/register/` with the frozen pair, strict response validation, durable registration recovery and retry
+
+Not enabled yet:
+
+- "Create related market from Brief" (deferred)
+
+### Secondary CLOB execution (Dependency blocked)
+
+Blocked on a supported partner secondary execution interface. No secondary order placement, cancellation or Anchor instruction building exists in this repo.
 
 ### Phase 4 — Strategy Research (`Planned`)
 
@@ -266,7 +307,7 @@ Tooling for collecting real usage evidence. It ships empty: no user data is bund
 npm test         # vitest run
 ```
 
-Vitest covers units and formatting (1 USDC vs 1000000 base, `sharesBase`, 0.63 shown as 63%), the signal engine (YES lean, empty tape, resolved market), the proxy route (allowlisted 200 with fetch mocked, 403, 405, client key ignored, encoded path 400, oversized body 413), `/api/brief` validation and rate limiting (400s, 429, rate-limit headers) on both the in-memory and a mocked shared-store path, the shared store (selection from env, cross-instance counts, Redis-failure fallback, shared cache), pre-sign instruction checks (fee payer, unknown program, allowed programs, instruction cap, quote/build mismatch), attribution status mapping, and the zod market adapter (passthrough, nullable fields, partial-record retry and merge). CI runs lint, test and build on every push and PR (`.github/workflows/ci.yml`, Node 22).
+Vitest covers units and formatting (1 USDC vs 1000000 base, `sharesBase`, 0.63 shown as 63%), the signal engine (YES lean, empty tape, resolved market), the proxy route (allowlisted 200 with fetch mocked, 403, 405, client key ignored, encoded path 400, oversized body 413), `/api/brief` validation and rate limiting (400s, 429, rate-limit headers) on both the in-memory and a mocked shared-store path, the shared store (selection from env, cross-instance counts, Redis-failure fallback, shared cache), pre-sign instruction checks (fee payer, unknown program, allowed programs, instruction cap, quote/build mismatch), Create Market (three real Panta create builds pass; adversarial mutations such as an extra signer, a swapped program or account, a payment off by 1, a changed question or timeline, an ALT, an oversize transaction or a SOL/token transfer all block; timeline, staleness, expiry, single-flight, registration retry, image grant/upload parsing, and the strict create proxy routes and limits), attribution status mapping, and the zod market adapter (passthrough, nullable fields, partial-record retry and merge). CI runs lint, test and build on every push and PR (`.github/workflows/ci.yml`, Node 22).
 
 ## Stack
 

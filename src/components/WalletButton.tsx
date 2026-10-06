@@ -69,7 +69,7 @@ export function WalletButton({ block = false }: { block?: boolean }) {
         aria-expanded={open}
         aria-label={`Wallet ${shortAddr(addr, 4)} connected. Open wallet menu`}
         onClick={() => setOpen((v) => !v)}
-        className={`btn btn-secondary ${block ? "w-full justify-between" : ""}`}
+        className={`btn btn-secondary gap-2.5 whitespace-nowrap ${block ? "w-full justify-between" : ""}`}
       >
         <span className="flex items-center gap-2">
           {wallet?.adapter.icon ? (
@@ -84,7 +84,7 @@ export function WalletButton({ block = false }: { block?: boolean }) {
             Mainnet
           </span>
         </span>
-        <IconChevronDown className="h-3.5 w-3.5 text-ink-3" />
+        <IconChevronDown className="h-3.5 w-3.5 shrink-0 text-ink-3" />
       </button>
       {open && (
         <div

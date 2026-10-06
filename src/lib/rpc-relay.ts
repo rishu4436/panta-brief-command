@@ -17,6 +17,13 @@
  *  - getBlockHeight             solana.ts blockhash-expiry check
  *  - getAccountInfo             vault-authority / creator-fee-vault checks
  *  - getTokenAccountsByOwner    hooks.ts useUsdcBalance (jsonParsed)
+ *  - simulateTransaction        create-flow.ts: Create Market pre-sign
+ *                               simulation (Stage B). Scoped: exactly
+ *                               [base64 tx ≤ 1232 bytes, config] with
+ *                               sigVerify false, replaceRecentBlockhash
+ *                               false, ≤ 4 post-state accounts (see
+ *                               checkSimulateParams). Read-only: a
+ *                               simulation never lands or moves funds.
  * Wallet adapters (Phantom, Solflare) only use signTransaction here: they
  * make no Connection calls, and confirmation is HTTP polling (no websocket).
  */
@@ -29,7 +36,44 @@ export const RPC_METHODS = new Set([
   "getBlockHeight",
   "getAccountInfo",
   "getTokenAccountsByOwner",
+  "simulateTransaction",
 ]);
+
+const B64_RE = /^[A-Za-z0-9+/]+={0,2}$/;
+const PUBKEY_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+/** base64 length of a 1232-byte transaction. */
+const MAX_SIM_TX_B64 = Math.ceil(1232 / 3) * 4;
+const SIM_CONFIG_KEYS = new Set(["encoding", "sigVerify", "replaceRecentBlockhash", "commitment", "innerInstructions", "accounts", "minContextSlot"]);
+
+/**
+ * simulateTransaction is only relayed in the exact shape the Create Market
+ * flow sends: one base64 transaction within the Solana packet limit, signature
+ * verification off (it is unsigned), no blockhash replacement (simulate the
+ * exact bytes), at most 4 base64 post-state accounts. Anything else → null
+ * reason string (rejected before upstream).
+ */
+export function checkSimulateParams(params: unknown): string | null {
+  if (!Array.isArray(params) || params.length !== 2) return "simulateTransaction needs [transaction, config]";
+  const [tx, cfg] = params as [unknown, unknown];
+  if (typeof tx !== "string" || tx.length < 100 || tx.length > MAX_SIM_TX_B64 || !B64_RE.test(tx)) return "simulateTransaction transaction must be base64 within the packet limit";
+  // Exact decoded size (base64 length alone admits 1233 bytes).
+  const pad = tx.endsWith("==") ? 2 : tx.endsWith("=") ? 1 : 0;
+  if ((tx.length / 4) * 3 - pad > 1232 || tx.length % 4 !== 0) return "simulateTransaction transaction must be base64 within the packet limit";
+  if (!cfg || typeof cfg !== "object" || Array.isArray(cfg)) return "simulateTransaction config must be an object";
+  const c = cfg as Record<string, unknown>;
+  for (const k of Object.keys(c)) if (!SIM_CONFIG_KEYS.has(k)) return `simulateTransaction config key not allowed: ${k.replace(/[^A-Za-z0-9_]/g, "").slice(0, 32)}`;
+  if (c.encoding !== "base64" || c.sigVerify !== false || c.replaceRecentBlockhash !== false) return "simulateTransaction must use base64, sigVerify false, replaceRecentBlockhash false";
+  if (c.commitment !== undefined && !["processed", "confirmed", "finalized"].includes(String(c.commitment))) return "simulateTransaction commitment not allowed";
+  if (c.innerInstructions !== undefined && typeof c.innerInstructions !== "boolean") return "simulateTransaction innerInstructions must be boolean";
+  if (c.minContextSlot !== undefined && !(typeof c.minContextSlot === "number" && Number.isSafeInteger(c.minContextSlot))) return "simulateTransaction minContextSlot must be an integer";
+  if (c.accounts !== undefined) {
+    const a = c.accounts as Record<string, unknown> | null;
+    if (!a || typeof a !== "object" || Array.isArray(a) || a.encoding !== "base64" || !Array.isArray(a.addresses) || a.addresses.length > 4) return "simulateTransaction accounts must be base64 with at most 4 addresses";
+    if (Object.keys(a).some((k) => k !== "encoding" && k !== "addresses")) return "simulateTransaction accounts has an unexpected key";
+    if (!a.addresses.every((x) => typeof x === "string" && PUBKEY_RE.test(x))) return "simulateTransaction account addresses must be public keys";
+  }
+  return null;
+}
 
 export const RPC_MAX_BATCH = 10;
 export const RPC_MAX_BODY_BYTES = 32 * 1024;
@@ -85,6 +129,10 @@ export function parseRpcBody(raw: unknown): ParsedBody {
     if (!validCall(c)) return { ok: false, status: 400, code: -32600, message: "Invalid request", id: firstId };
     if (!RPC_METHODS.has(c.method)) {
       return { ok: false, status: 403, code: -32601, message: `Method not allowed: ${c.method.replace(/[^A-Za-z0-9_]/g, "").slice(0, 40)}`, id: c.id ?? null };
+    }
+    if (c.method === "simulateTransaction") {
+      const bad = checkSimulateParams(c.params);
+      if (bad) return { ok: false, status: 400, code: -32602, message: bad, id: c.id ?? null };
     }
   }
   return { ok: true, calls: list as RpcCall[], batch };

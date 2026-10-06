@@ -8,6 +8,7 @@ import { NextRequest } from "next/server";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { clientRpcEndpoint, RPC_RELAY_PATH, serverRpcUrl } from "@/lib/rpc";
 import {
+  checkSimulateParams,
   parseRpcBody,
   redactUpstream,
   RPC_MAX_BATCH,
@@ -56,7 +57,8 @@ const configured = () => vi.stubEnv("SOLANA_RPC_URL", UPSTREAM);
 describe("method allowlist (derived from the client code)", () => {
   it("is exactly the calls the app makes", () => {
     expect([...RPC_METHODS].sort()).toEqual(
-      ["getAccountInfo", "getBlockHeight", "getGenesisHash", "getLatestBlockhash", "getSignatureStatuses", "getTokenAccountsByOwner", "sendTransaction"].sort(),
+      // Stage B (deliberate relay change): simulateTransaction, strictly scoped by checkSimulateParams.
+      ["getAccountInfo", "getBlockHeight", "getGenesisHash", "getLatestBlockhash", "getSignatureStatuses", "getTokenAccountsByOwner", "sendTransaction", "simulateTransaction"].sort(),
     );
   });
   it("rejects disallowed / malformed calls before reaching upstream", async () => {
@@ -279,5 +281,40 @@ describe("confirmation is HTTP polling (no websocket subscription)", () => {
     const dead = { getSignatureStatuses: vi.fn(async () => { throw new Error("relay down"); }), getBlockHeight: vi.fn() };
     const r = await confirmSignature(dead as unknown as Connection, "s", "b", 200, clock());
     expect(r.status === "pending" && r.message).toMatch(/RPC error: relay down/);
+  });
+});
+
+describe("simulateTransaction scoping (Stage B relay change)", () => {
+  const TX = Buffer.alloc(600, 7).toString("base64");
+  const W = "41Vs8iTkADCDDBb2KxPjpRbJwpN8WR6gHnMCDKV4e5Yz";
+  const ok = { encoding: "base64", sigVerify: false, replaceRecentBlockhash: false, commitment: "confirmed", innerInstructions: true, accounts: { encoding: "base64", addresses: [W] } };
+  const sim = (params: unknown) => ({ jsonrpc: "2.0", id: 3, method: "simulateTransaction", params });
+  it("accepts exactly the app's parameter shape", () => {
+    expect(checkSimulateParams([TX, ok])).toBeNull();
+    expect(parseRpcBody(sim([TX, ok])).ok).toBe(true);
+  });
+  it.each([
+    ["missing config", [TX]],
+    ["extra param", [TX, ok, 1]],
+    ["non-base64 tx", ["!".repeat(200), ok]],
+    ["tiny tx", ["AAAA", ok]],
+    ["oversize tx", [Buffer.alloc(1300, 1).toString("base64"), ok]],
+    ["sigVerify true", [TX, { ...ok, sigVerify: true }]],
+    ["replaceRecentBlockhash true", [TX, { ...ok, replaceRecentBlockhash: true }]],
+    ["base58 encoding", [TX, { ...ok, encoding: "base58" }]],
+    ["unknown key", [TX, { ...ok, foo: 1 }]],
+    ["bad commitment", [TX, { ...ok, commitment: "max" }]],
+    ["too many accounts", [TX, { ...ok, accounts: { encoding: "base64", addresses: [W, W, W, W, W] } }]],
+    ["bad account key", [TX, { ...ok, accounts: { encoding: "base64", addresses: ["not-a-key"] } }]],
+    ["accounts extra key", [TX, { ...ok, accounts: { encoding: "base64", addresses: [W], x: 1 } }]],
+    ["accounts jsonParsed", [TX, { ...ok, accounts: { encoding: "jsonParsed", addresses: [W] } }]],
+  ])("rejects %s with 400 before upstream", (_n, params) => {
+    expect(checkSimulateParams(params)).not.toBeNull();
+    const r = parseRpcBody(sim(params));
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.status).toBe(400);
+      expect(r.code).toBe(-32602);
+    }
   });
 });

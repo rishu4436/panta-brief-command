@@ -21,6 +21,13 @@ export type ProxyRoute = {
   forwardUserId?: boolean;
   /** Per-IP fixed-window limit (per minute) and the bucket it counts against. */
   limit: { bucket: string; perMinute: number };
+  /**
+   * Route-specific server-side body validation (src/lib/panta/create-requests.ts).
+   * When set, the body is validated strictly and only the parsed body is forwarded.
+   */
+  bodyValidator?: "create.imageUpload" | "create.quote" | "create.build" | "create.register";
+  /** Strip Panta account identifiers (userId, apiKeyId) from the JSON response. */
+  stripAccountIds?: boolean;
 };
 
 /**
@@ -39,6 +46,12 @@ export const PROXY_LIMITS = {
   verify: { bucket: "panta-verify", perMinute: 90 },
   report: { bucket: "panta-report", perMinute: 20 },
   claimBuild: { bucket: "panta-claim-build", perMinute: 10 },
+  // Create Market (Phase 3): one creation needs 1–2 image grants, a few
+  // quotes/builds as sessions (~5 min) and blockhashes (~60 s) expire, 1 register.
+  createImageUpload: { bucket: "panta-create-image-upload", perMinute: 10 },
+  createQuote: { bucket: "panta-create-quote", perMinute: 10 },
+  createBuild: { bucket: "panta-create-build", perMinute: 6 },
+  createRegister: { bucket: "panta-create-register", perMinute: 10 },
 } as const satisfies Record<string, { bucket: string; perMinute: number }>;
 
 /** Solana base58 public key (32–44 chars, no 0/O/I/l). */
@@ -95,6 +108,38 @@ export const PROXY_ROUTES: readonly ProxyRoute[] = [
     pattern: /^claim\/creator-fees\/build$/,
     methods: ["POST"],
     limit: PROXY_LIMITS.claimBuild,
+  },
+  // Create Market workspace (src/lib/panta/create-flow.ts). POST only, strict bodies.
+  {
+    id: "create.imageUpload",
+    pattern: /^markets\/create\/image-upload$/,
+    methods: ["POST"],
+    limit: PROXY_LIMITS.createImageUpload,
+    bodyValidator: "create.imageUpload",
+  },
+  {
+    id: "create.quote",
+    pattern: /^markets\/create\/quote$/,
+    methods: ["POST"],
+    limit: PROXY_LIMITS.createQuote,
+    bodyValidator: "create.quote",
+    stripAccountIds: true,
+  },
+  {
+    id: "create.build",
+    pattern: /^markets\/create\/build$/,
+    methods: ["POST"],
+    limit: PROXY_LIMITS.createBuild,
+    bodyValidator: "create.build",
+    stripAccountIds: true,
+  },
+  {
+    id: "create.register",
+    pattern: /^markets\/register$/,
+    methods: ["POST"],
+    limit: PROXY_LIMITS.createRegister,
+    bodyValidator: "create.register",
+    stripAccountIds: true,
   },
 ];
 

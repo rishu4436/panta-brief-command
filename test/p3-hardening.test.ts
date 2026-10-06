@@ -159,11 +159,13 @@ describe("CSP + anti-framing", () => {
     expect(prod).not.toContain("unsafe-eval");
     expect(dir(buildCsp({ dev: true }), "script-src")).toContain("'unsafe-eval'");
   });
-  it("connect-src is 'self' only: RPC goes through /api/rpc, no provider host or key", () => {
-    expect(dir(prod, "connect-src")).toBe("connect-src 'self'");
+  it("connect-src is 'self' + Panta's exact Cloudinary upload path: RPC goes through /api/rpc, no provider host or key", () => {
+    // The only non-self entry is the exact signed-upload endpoint Panta's image-upload grants point at
+    // (path-pinned, not a host wildcard) — see security-headers.ts and create-rules.ts.
+    expect(dir(prod, "connect-src")).toBe("connect-src 'self' https://api.cloudinary.com/v1_1/dyvupboym/image/upload");
     const fromEnv = securityHeaders({ NODE_ENV: "production", NEXT_PUBLIC_DEFAULT_RPC: "https://mainnet.helius-rpc.com/?api-key=abc", SOLANA_RPC_URL: "https://x.example/?api-key=abc" });
     const csp = fromEnv.find((h) => h.key === "Content-Security-Policy")!.value;
-    expect(dir(csp, "connect-src")).toBe("connect-src 'self'");
+    expect(dir(csp, "connect-src")).toBe("connect-src 'self' https://api.cloudinary.com/v1_1/dyvupboym/image/upload");
     expect(csp).not.toMatch(/helius|api-key|mainnet-beta|x\.example/);
   });
   it("wallet + images: Solflare SDK frame allowed, market images from any https host, no third-party styles", () => {

@@ -684,6 +684,7 @@ export function CreateMarketWorkspace() {
                       <input
                         ref={fileRef}
                         type="file"
+                        aria-label="Upload market image"
                         accept={IMAGE_ALLOWED_TYPES.join(",")}
                         className="block w-full text-[12px] text-ink-2 file:mr-3 file:rounded-md file:border file:border-line file:bg-elevated file:px-3 file:py-1.5 file:text-ink"
                         onChange={(e) => onPickFile(e.target.files?.[0] ?? null)}

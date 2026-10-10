@@ -44,6 +44,7 @@ import { forecastingState } from "@/lib/studio/service";
 import { roomKeys, signOutAndRefresh } from "@/lib/rooms/client";
 import { parseSyncMessage, SESSION_SYNC_CHANNEL } from "@/lib/rooms/session-sync";
 import { FakeRedis } from "./helpers/fake-redis";
+import { isolatedRedisBackends } from "./helpers/isolated-redis";
 
 const tmp = () => path.join(mkdtempSync(path.join(os.tmpdir(), "p7c-")), "rooms.sqlite");
 const secret = () => sessionSecret()!;
@@ -58,6 +59,7 @@ type Made = { name: string; repo: RoomRepository; file: string | null; fake: Fak
 const BACKENDS: { name: string; make: () => Made }[] = [
   { name: "sqlite", make: () => { const file = tmp(); return { name: "sqlite", repo: new SqliteRoomRepository(file), file, fake: null }; } },
   { name: "redis", make: () => { const fake = new FakeRedis(); return { name: "redis", repo: new RedisRoomRepository(fake), file: null, fake }; } },
+  ...isolatedRedisBackends().map((b) => ({ name: b.name, make: (): Made => ({ name: b.name, repo: b.open().repo, file: null, fake: null }) })),
 ];
 
 // ---------------------------------------------------------------- HTTP helpers

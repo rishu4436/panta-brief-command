@@ -35,6 +35,7 @@ import { __setStudioSnapshotForTests, __setStudioWindowForTests } from "@/lib/st
 import { buildInsights, type InsightInput } from "@/lib/studio/insights";
 import { getStudioOverview, getStudioRoom, listStudioRooms, summarizeDistribution, type StudioDeps } from "@/lib/studio/service";
 import { FakeRedis } from "./helpers/fake-redis";
+import { isolatedRedisBackends } from "./helpers/isolated-redis";
 
 // ---------------------------------------------------------------- fixtures
 
@@ -70,6 +71,7 @@ const factories = [
     const r = new FakeRedis();
     return { name: "redis", repo: new RedisRoomRepository(r), fake: r, file: null };
   } },
+  ...isolatedRedisBackends().map((b) => ({ name: b.name, make: (): Made => ({ name: b.name, repo: b.open().repo, fake: null, file: null }) })),
 ];
 
 let seq = 0;
@@ -488,6 +490,7 @@ describe.each(factories)("distribution events: $name", ({ make }) => {
     await beacon(room.slug, {}, { ip, ua: `${UA} UniqueMarker/123` });
     await embedGET(req(`/embed/rooms/${room.slug}`, { ip, ua: `${UA} UniqueMarker/123` }), ctx(room.slug));
     await vi.waitFor(async () => expect(count(await counters(m.repo, a), room.roomId, METRIC.embed)).toBe(1));
+    if (!m.file && !m.fake) return; // isolated-prefix backends: no raw keyspace dump (covered by the fake and sqlite runs)
     const dump = m.file ? readFileSync(m.file).toString("latin1") : JSON.stringify({ kv: [...m.fake!.kv], h: [...m.fake!.h].map(([k, v]) => [k, [...v]]) });
     expect(dump).not.toContain(ip);
     expect(dump).not.toContain("UniqueMarker");
@@ -543,7 +546,8 @@ describe.each(factories)("distribution events: $name", ({ make }) => {
       const ttl = (m.fake.exp.get(k) ?? 0) - Date.now();
       expect(ttl).toBeGreaterThan(ANALYTICS_RETENTION_DAYS * DAY);
       expect(ttl).toBeLessThanOrEqual((ANALYTICS_RETENTION_DAYS + 1) * DAY);
-    } else {
+    } else if (m.file) {
+      // sqlite prunes on write; Redis relies on the key TTL (checked above on the fake keyspace).
       expect(await m.repo.listStudioCounters(a, { days: [utcDay(old)] })).toEqual([]);
     }
     expect(count(await m.repo.listStudioCounters(a, { days: [utcDay(NOW)] }), room.roomId, METRIC.view)).toBe(1);

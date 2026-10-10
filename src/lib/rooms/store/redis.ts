@@ -89,6 +89,12 @@ import {
 } from "./types";
 
 export const ROOMS_REDIS_PREFIX = "pbc:rooms:v1:";
+/**
+ * Live-verification namespaces only (scripts/verify-upstash-live.mjs): every
+ * key the adapter touches then starts with this prefix, never the production
+ * one. Must look like `pbc:phase8test:<random>:`.
+ */
+export const ISOLATED_PREFIX_RE = /^pbc:phase8test:[a-z0-9]{8,32}:$/;
 const IDEM_TTL_MS = 7 * 24 * 3600_000;
 const CHALLENGE_GRACE_MS = 60_000;
 const REDIS_TIMEOUT_MS = 4_000;
@@ -173,15 +179,15 @@ export function upstashRedisLike(url: string, token: string): RedisLike {
   };
 }
 
-const K = {
-  room: (id: string) => `${ROOMS_REDIS_PREFIX}room:${id}`,
-  slug: (slug: string) => `${ROOMS_REDIS_PREFIX}slug:${slug}`,
-  idem: (wallet: string, key: string) => `${ROOMS_REDIS_PREFIX}idem:${wallet}:${key}`,
-  publicIndex: () => `${ROOMS_REDIS_PREFIX}public`,
-  creatorIndex: (wallet: string) => `${ROOMS_REDIS_PREFIX}creator:${wallet}`,
-  challenge: (nonce: string) => `${ROOMS_REDIS_PREFIX}challenge:${nonce}`,
-  session: (sidHash: string) => `${ROOMS_REDIS_PREFIX}session:${sidHash}`,
-};
+const keysFor = (P: string) => ({
+  room: (id: string) => `${P}room:${id}`,
+  slug: (slug: string) => `${P}slug:${slug}`,
+  idem: (wallet: string, key: string) => `${P}idem:${wallet}:${key}`,
+  publicIndex: () => `${P}public`,
+  creatorIndex: (wallet: string) => `${P}creator:${wallet}`,
+  challenge: (nonce: string) => `${P}challenge:${nonce}`,
+  session: (sidHash: string) => `${P}session:${sidHash}`,
+});
 
 /** Compare-and-set on one room key: KEYS room; ARGV expected JSON, new JSON. 1 = written, 0 = changed underneath. */
 const ROOM_CAS_SCRIPT = `
@@ -213,7 +219,20 @@ export class RedisRoomRepository implements RoomRepository {
   readonly kind = "redis" as const;
   readonly durable = true;
 
-  constructor(private readonly r: RedisLike) {}
+  private readonly p: string;
+  private readonly k: ReturnType<typeof keysFor>;
+
+  /** `opts.isolatedPrefix` is for live verification against a real instance only (see ISOLATED_PREFIX_RE). */
+  constructor(
+    private readonly r: RedisLike,
+    opts: { isolatedPrefix?: string } = {},
+  ) {
+    if (opts.isolatedPrefix !== undefined && !ISOLATED_PREFIX_RE.test(opts.isolatedPrefix)) {
+      throw new Error("isolatedPrefix must match pbc:phase8test:<random>:");
+    }
+    this.p = opts.isolatedPrefix ?? ROOMS_REDIS_PREFIX;
+    this.k = keysFor(this.p);
+  }
 
   private async call<T>(fn: () => Promise<T>): Promise<T> {
     try {
@@ -242,14 +261,14 @@ export class RedisRoomRepository implements RoomRepository {
     const roomId = sep > 0 ? value.slice(0, sep) : value;
     const fp = sep > 0 ? value.slice(sep + 1) : "";
     if (fp !== fingerprint) throw new IdempotencyConflictError();
-    const room = parseRoom(await this.r.get(K.room(roomId)));
+    const room = parseRoom(await this.r.get(this.k.room(roomId)));
     if (!room) throw new CreateInProgressError();
     return { status: "replayed", room };
   }
 
   createRoom(room: NewRoom, idem: { key: string; fingerprint: string }): Promise<CreateRoomResult> {
     return this.call(async () => {
-      const idemKey = K.idem(room.creatorWallet, idem.key);
+      const idemKey = this.k.idem(room.creatorWallet, idem.key);
       const prior = await this.r.get(idemKey);
       if (prior) return this.resolveIdem(prior, idem.fingerprint);
 
@@ -259,21 +278,21 @@ export class RedisRoomRepository implements RoomRepository {
         if (raced) return this.resolveIdem(raced, idem.fingerprint);
         throw new CreateInProgressError();
       }
-      if (!(await this.r.setNx(K.slug(record.slug), record.roomId))) {
+      if (!(await this.r.setNx(this.k.slug(record.slug), record.roomId))) {
         await this.r.del(idemKey).catch(() => undefined);
         throw new SlugTakenError(record.slug);
       }
       const writes: RedisWrite[] = [
-        { op: "set", key: K.room(record.roomId), value: JSON.stringify(record) },
-        { op: "zadd", key: K.creatorIndex(record.creatorWallet), score: record.createdAt, member: record.roomId },
+        { op: "set", key: this.k.room(record.roomId), value: JSON.stringify(record) },
+        { op: "zadd", key: this.k.creatorIndex(record.creatorWallet), score: record.createdAt, member: record.roomId },
       ];
       if (record.visibility === "public") {
-        writes.push({ op: "zadd", key: K.publicIndex(), score: record.createdAt, member: record.roomId });
+        writes.push({ op: "zadd", key: this.k.publicIndex(), score: record.createdAt, member: record.roomId });
       }
       try {
         await this.r.multi(writes);
       } catch {
-        await this.r.del(K.slug(record.slug)).catch(() => undefined);
+        await this.r.del(this.k.slug(record.slug)).catch(() => undefined);
         await this.r.del(idemKey).catch(() => undefined);
         throw new RoomStoreUnavailableError("failure", "room write failed; nothing was saved");
       }
@@ -282,34 +301,34 @@ export class RedisRoomRepository implements RoomRepository {
   }
 
   getRoomById(roomId: string) {
-    return this.call(async () => parseRoom(await this.r.get(K.room(roomId))));
+    return this.call(async () => parseRoom(await this.r.get(this.k.room(roomId))));
   }
 
   getRoomBySlug(slug: string) {
     return this.call(async () => {
-      const id = await this.r.get(K.slug(slug));
+      const id = await this.r.get(this.k.slug(slug));
       if (!id) return null;
-      const room = parseRoom(await this.r.get(K.room(id)));
+      const room = parseRoom(await this.r.get(this.k.room(id)));
       return room && room.slug === slug ? room : null;
     });
   }
 
   private async loadMany(ids: string[]): Promise<RoomRecord[]> {
     if (!ids.length) return [];
-    const raws = await this.r.mget(ids.map(K.room));
+    const raws = await this.r.mget(ids.map(this.k.room));
     return raws.map(parseRoom).filter((x): x is RoomRecord => x !== null);
   }
 
   listPublicRooms({ limit }: { limit: number }) {
     return this.call(async () => {
-      const ids = await this.r.zrevrange(K.publicIndex(), 0, limit - 1);
+      const ids = await this.r.zrevrange(this.k.publicIndex(), 0, limit - 1);
       return (await this.loadMany(ids)).filter((r) => r.visibility === "public" && r.status === "active");
     });
   }
 
   listRoomsByCreator(wallet: string, { limit, includeUnlisted }: { limit: number; includeUnlisted: boolean }) {
     return this.call(async () => {
-      const ids = await this.r.zrevrange(K.creatorIndex(wallet), 0, limit - 1);
+      const ids = await this.r.zrevrange(this.k.creatorIndex(wallet), 0, limit - 1);
       return (await this.loadMany(ids)).filter(
         (r) => r.creatorWallet === wallet && r.status === "active" && (includeUnlisted || r.visibility === "public"),
       );
@@ -317,7 +336,7 @@ export class RedisRoomRepository implements RoomRepository {
   }
 
   isSlugTaken(slug: string) {
-    return this.call(async () => (await this.r.get(K.slug(slug))) !== null);
+    return this.call(async () => (await this.r.get(this.k.slug(slug))) !== null);
   }
 
   /**
@@ -330,7 +349,7 @@ export class RedisRoomRepository implements RoomRepository {
   updateRoom(roomId: string, actorWallet: string, patch: RoomPatch, now: number) {
     return this.call(async () => {
       for (let attempt = 0; attempt < ROOM_CAS_ATTEMPTS; attempt++) {
-        const raw = await this.r.get(K.room(roomId));
+        const raw = await this.r.get(this.k.room(roomId));
         const cur = parseRoom(raw);
         if (!cur || !raw) throw new RoomNotFoundError();
         if (cur.creatorWallet !== actorWallet) throw new RoomForbiddenError();
@@ -342,9 +361,9 @@ export class RedisRoomRepository implements RoomRepository {
           status: patch.status ?? cur.status,
           updatedAt: Math.max(now, cur.updatedAt),
         };
-        if (Number(await this.r.eval(ROOM_CAS_SCRIPT, [K.room(roomId)], [raw, JSON.stringify(next)])) !== 1) continue;
+        if (Number(await this.r.eval(ROOM_CAS_SCRIPT, [this.k.room(roomId)], [raw, JSON.stringify(next)])) !== 1) continue;
         const listed = next.visibility === "public" && next.status === "active";
-        await this.r.eval(PUBLIC_INDEX_SCRIPT, [K.publicIndex()], [listed ? "add" : "rem", String(next.createdAt), roomId]);
+        await this.r.eval(PUBLIC_INDEX_SCRIPT, [this.k.publicIndex()], [listed ? "add" : "rem", String(next.createdAt), roomId]);
         return next;
       }
       throw new RoomStoreUnavailableError("failure", "room changed concurrently; try again");
@@ -353,7 +372,7 @@ export class RedisRoomRepository implements RoomRepository {
 
   listCreatorRoomsAll(wallet: string, { limit }: { limit: number }) {
     return this.call(async () => {
-      const ids = await this.r.zrevrange(K.creatorIndex(wallet), 0, limit - 1);
+      const ids = await this.r.zrevrange(this.k.creatorIndex(wallet), 0, limit - 1);
       return (await this.loadMany(ids)).filter((r) => r.creatorWallet === wallet);
     });
   }
@@ -361,7 +380,7 @@ export class RedisRoomRepository implements RoomRepository {
   saveChallenge(c: AuthChallengeRecord) {
     return this.call(async () => {
       const ttl = Math.max(1_000, c.expiresAt - c.issuedAt + CHALLENGE_GRACE_MS);
-      if (!(await this.r.setNx(K.challenge(c.nonce), JSON.stringify(c), ttl))) {
+      if (!(await this.r.setNx(this.k.challenge(c.nonce), JSON.stringify(c), ttl))) {
         throw new RoomStoreUnavailableError("failure", "challenge nonce collision");
       }
     });
@@ -369,7 +388,7 @@ export class RedisRoomRepository implements RoomRepository {
 
   consumeChallenge(nonce: string) {
     return this.call(async () => {
-      const raw = await this.r.getdel(K.challenge(nonce));
+      const raw = await this.r.getdel(this.k.challenge(nonce));
       if (!raw) return null;
       try {
         return JSON.parse(raw) as AuthChallengeRecord;
@@ -387,7 +406,7 @@ export class RedisRoomRepository implements RoomRepository {
     return this.call(async () => {
       const ttl = r.expiresAt - r.issuedAt;
       if (!(ttl > 0)) throw new RoomStoreUnavailableError("failure", "session already expired");
-      if (!(await this.r.setNx(K.session(r.sidHash), JSON.stringify({ w: r.wallet, iat: r.issuedAt, exp: r.expiresAt }), ttl))) {
+      if (!(await this.r.setNx(this.k.session(r.sidHash), JSON.stringify({ w: r.wallet, iat: r.issuedAt, exp: r.expiresAt }), ttl))) {
         throw new RoomStoreUnavailableError("failure", "session id collision");
       }
     });
@@ -395,7 +414,7 @@ export class RedisRoomRepository implements RoomRepository {
 
   getActiveSession(sidHash: string, now: number) {
     return this.call(async () => {
-      const raw = await this.r.get(K.session(sidHash));
+      const raw = await this.r.get(this.k.session(sidHash));
       if (!raw) return null;
       try {
         const p = JSON.parse(raw) as { w?: unknown; iat?: unknown; exp?: unknown };
@@ -409,7 +428,7 @@ export class RedisRoomRepository implements RoomRepository {
 
   revokeSession(sidHash: string) {
     return this.call(async () => {
-      await this.r.del(K.session(sidHash));
+      await this.r.del(this.k.session(sidHash));
     });
   }
 
@@ -417,144 +436,144 @@ export class RedisRoomRepository implements RoomRepository {
 
   submitForecast(cmd: SubmitForecastCommand, idem: { key: string; fingerprint: string }) {
     return this.call(async () => {
-      const room = parseRoom(await this.r.get(K.room(cmd.roomId)));
+      const room = parseRoom(await this.r.get(this.k.room(cmd.roomId)));
       if (!room || room.status !== "active") throw new RoomNotFoundError();
-      return submitForecastRedis(this.r, ROOMS_REDIS_PREFIX, cmd, idem);
+      return submitForecastRedis(this.r, this.p, cmd, idem);
     });
   }
 
   getCurrentForecast(roomId: string, wallet: string) {
-    return this.call(() => getCurrentForecastRedis(this.r, ROOMS_REDIS_PREFIX, roomId, wallet));
+    return this.call(() => getCurrentForecastRedis(this.r, this.p, roomId, wallet));
   }
 
   getForecastHistory(roomId: string, wallet: string, { limit }: { limit: number }) {
-    return this.call(() => getForecastHistoryRedis(this.r, ROOMS_REDIS_PREFIX, roomId, wallet, limit));
+    return this.call(() => getForecastHistoryRedis(this.r, this.p, roomId, wallet, limit));
   }
 
   listCurrentForecasts(roomId: string, { limit, offset }: { limit: number; offset: number }) {
-    return this.call(() => listCurrentForecastsRedis(this.r, ROOMS_REDIS_PREFIX, roomId, limit, offset));
+    return this.call(() => listCurrentForecastsRedis(this.r, this.p, roomId, limit, offset));
   }
 
   getForecastAggregate(roomId: string) {
-    return this.call(() => getForecastAggregateRedis(this.r, ROOMS_REDIS_PREFIX, roomId));
+    return this.call(() => getForecastAggregateRedis(this.r, this.p, roomId));
   }
 
   countForecastParticipants(roomId: string) {
-    return this.call(() => countForecastParticipantsRedis(this.r, ROOMS_REDIS_PREFIX, roomId));
+    return this.call(() => countForecastParticipantsRedis(this.r, this.p, roomId));
   }
 
   // ------------------------------------------------------------ arena (see redis-arena.ts)
 
   getMarketForecastSnapshot(marketId: string) {
-    return this.call(() => getMarketForecastSnapshotRedis(this.r, ROOMS_REDIS_PREFIX, marketId));
+    return this.call(() => getMarketForecastSnapshotRedis(this.r, this.p, marketId));
   }
 
   getFinalization(marketId: string) {
-    return this.call(() => getFinalizationRedis(this.r, ROOMS_REDIS_PREFIX, marketId));
+    return this.call(() => getFinalizationRedis(this.r, this.p, marketId));
   }
 
   commitFinalization(input: CommitFinalizationInput) {
-    return this.call(() => commitFinalizationRedis(this.r, ROOMS_REDIS_PREFIX, input));
+    return this.call(() => commitFinalizationRedis(this.r, this.p, input));
   }
 
   listForecasters({ tier, limit, offset }: { tier: "ranked" | "provisional"; limit: number; offset: number }) {
-    return this.call(() => listForecastersRedis(this.r, ROOMS_REDIS_PREFIX, tier, limit, offset));
+    return this.call(() => listForecastersRedis(this.r, this.p, tier, limit, offset));
   }
 
   getReputation(wallet: string) {
-    return this.call(() => getReputationRedis(this.r, ROOMS_REDIS_PREFIX, wallet));
+    return this.call(() => getReputationRedis(this.r, this.p, wallet));
   }
 
   getRank(wallet: string) {
-    return this.call(() => getRankRedis(this.r, ROOMS_REDIS_PREFIX, wallet));
+    return this.call(() => getRankRedis(this.r, this.p, wallet));
   }
 
   countPendingMarkets(wallets: string[]) {
-    return this.call(() => countPendingMarketsRedis(this.r, ROOMS_REDIS_PREFIX, wallets));
+    return this.call(() => countPendingMarketsRedis(this.r, this.p, wallets));
   }
 
   listGlobalScores(wallet: string, { limit, offset }: { limit: number; offset: number }) {
-    return this.call(() => listGlobalScoresRedis(this.r, ROOMS_REDIS_PREFIX, wallet, limit, offset));
+    return this.call(() => listGlobalScoresRedis(this.r, this.p, wallet, limit, offset));
   }
 
   listRoomScores(roomId: string, { limit, offset }: { limit: number; offset: number }) {
-    return this.call(() => listRoomScoresRedis(this.r, ROOMS_REDIS_PREFIX, roomId, limit, offset));
+    return this.call(() => listRoomScoresRedis(this.r, this.p, roomId, limit, offset));
   }
 
   getRoomScore(roomId: string, wallet: string) {
-    return this.call(() => getRoomScoreRedis(this.r, ROOMS_REDIS_PREFIX, roomId, wallet));
+    return this.call(() => getRoomScoreRedis(this.r, this.p, roomId, wallet));
   }
 
   getGlobalScore(wallet: string, marketId: string) {
-    return this.call(() => getGlobalScoreRedis(this.r, ROOMS_REDIS_PREFIX, wallet, marketId));
+    return this.call(() => getGlobalScoreRedis(this.r, this.p, wallet, marketId));
   }
 
   listWalletRooms(wallet: string, { limit }: { limit: number }) {
-    return this.call(() => listWalletRoomsRedis(this.r, ROOMS_REDIS_PREFIX, wallet, limit));
+    return this.call(() => listWalletRoomsRedis(this.r, this.p, wallet, limit));
   }
 
   listUnfinalizedMarkets({ limit }: { limit: number }) {
-    return this.call(() => listUnfinalizedMarketsRedis(this.r, ROOMS_REDIS_PREFIX, limit));
+    return this.call(() => listUnfinalizedMarketsRedis(this.r, this.p, limit));
   }
 
   noteParticipation(p: { wallet: string; roomId: string; marketId: string; at: number }) {
-    return this.call(() => noteParticipationRedis(this.r, ROOMS_REDIS_PREFIX, p));
+    return this.call(() => noteParticipationRedis(this.r, this.p, p));
   }
 
   // ------------------------------------------------------------ Creator Growth Studio (see redis-studio.ts)
   getCreatorStats(wallet: string, opts: { rooms: RoomRecord[]; sinceMs: number; maxFirst: number }) {
-    return this.call(() => getCreatorStatsRedis(this.r, ROOMS_REDIS_PREFIX, wallet, opts));
+    return this.call(() => getCreatorStatsRedis(this.r, this.p, wallet, opts));
   }
   noteCreatorActivity(a: CreatorActivity) {
-    return this.call(() => noteCreatorActivityRedis(this.r, ROOMS_REDIS_PREFIX, a));
+    return this.call(() => noteCreatorActivityRedis(this.r, this.p, a));
   }
   countRoomChallenges(roomId: string) {
-    return this.call(() => countRoomChallengesRedis(this.r, ROOMS_REDIS_PREFIX, roomId));
+    return this.call(() => countRoomChallengesRedis(this.r, this.p, roomId));
   }
   recordStudioEvent(cmd: RecordEventCommand) {
-    return this.call(() => recordStudioEventRedis(this.r, ROOMS_REDIS_PREFIX, cmd));
+    return this.call(() => recordStudioEventRedis(this.r, this.p, cmd));
   }
   listStudioCounters(wallet: string, { days }: { days: string[] }) {
-    return this.call(() => listStudioCountersRedis(this.r, ROOMS_REDIS_PREFIX, wallet, days));
+    return this.call(() => listStudioCountersRedis(this.r, this.p, wallet, days));
   }
 
   // ------------------------------------------------------------ AI debates (see redis-debate.ts)
 
   saveDebate(bundle: DebateBundle, opts: { idempotencyKey: string; keepLast: number; idemTtlMs: number }) {
-    return this.call(() => saveDebateRedis(this.r, ROOMS_REDIS_PREFIX, K.room(bundle.debate.roomId), bundle, opts));
+    return this.call(() => saveDebateRedis(this.r, this.p, this.k.room(bundle.debate.roomId), bundle, opts));
   }
   findDebateByIdempotencyKey(roomId: string, key: string) {
-    return this.call(() => findDebateByIdempotencyKeyRedis(this.r, ROOMS_REDIS_PREFIX, roomId, key));
+    return this.call(() => findDebateByIdempotencyKeyRedis(this.r, this.p, roomId, key));
   }
   getDebate(roomId: string, debateId: string) {
-    return this.call(() => getDebateRedis(this.r, ROOMS_REDIS_PREFIX, roomId, debateId));
+    return this.call(() => getDebateRedis(this.r, this.p, roomId, debateId));
   }
   getLatestDebate(roomId: string) {
-    return this.call(() => getLatestDebateRedis(this.r, ROOMS_REDIS_PREFIX, roomId));
+    return this.call(() => getLatestDebateRedis(this.r, this.p, roomId));
   }
   listDebates(roomId: string, { limit }: { limit: number }) {
-    return this.call(() => listDebatesRedis(this.r, ROOMS_REDIS_PREFIX, roomId, limit));
+    return this.call(() => listDebatesRedis(this.r, this.p, roomId, limit));
   }
   acquireDebateLock(roomId: string, token: string, ttlMs: number) {
-    return this.call(() => acquireDebateLockRedis(this.r, ROOMS_REDIS_PREFIX, roomId, token, ttlMs));
+    return this.call(() => acquireDebateLockRedis(this.r, this.p, roomId, token, ttlMs));
   }
   releaseDebateLock(roomId: string, token: string) {
-    return this.call(() => releaseDebateLockRedis(this.r, ROOMS_REDIS_PREFIX, roomId, token));
+    return this.call(() => releaseDebateLockRedis(this.r, this.p, roomId, token));
   }
   isDebateLocked(roomId: string) {
-    return this.call(() => isDebateLockedRedis(this.r, ROOMS_REDIS_PREFIX, roomId));
+    return this.call(() => isDebateLockedRedis(this.r, this.p, roomId));
   }
   addChallenge(
     roomId: string,
     challenge: DebateChallenge,
     opts: { idempotencyKey: string; fingerprint: string; maxPerClaim: number; maxPerDebate: number; idemTtlMs: number },
   ) {
-    return this.call(() => addChallengeRedis(this.r, ROOMS_REDIS_PREFIX, roomId, challenge, opts));
+    return this.call(() => addChallengeRedis(this.r, this.p, roomId, challenge, opts));
   }
   findChallengeByIdempotencyKey(roomId: string, wallet: string, key: string) {
-    return this.call(() => findChallengeByIdempotencyKeyRedis(this.r, ROOMS_REDIS_PREFIX, roomId, wallet, key));
+    return this.call(() => findChallengeByIdempotencyKeyRedis(this.r, this.p, roomId, wallet, key));
   }
   listChallenges(roomId: string, debateId: string, { limit }: { limit: number }) {
-    return this.call(() => listChallengesRedis(this.r, ROOMS_REDIS_PREFIX, roomId, debateId, limit));
+    return this.call(() => listChallengesRedis(this.r, this.p, roomId, debateId, limit));
   }
 }

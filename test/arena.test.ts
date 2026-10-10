@@ -48,6 +48,7 @@ import type { RoomRepository } from "@/lib/rooms/store/types";
 import type { RoomRecord } from "@/lib/rooms/domain";
 import { eventAccountBytes } from "./helpers/event-account";
 import { FakeRedis } from "./helpers/fake-redis";
+import { isolatedRedisBackends } from "./helpers/isolated-redis";
 
 // ---------------------------------------------------------------- fixtures
 
@@ -90,6 +91,7 @@ const adapters: [string, () => Adapter][] = [
       return { repo: new RedisRoomRepository(fake), fake };
     },
   ],
+  ...isolatedRedisBackends().map((b): (typeof adapters)[number] => [b.name, () => ({ repo: b.open().repo })]),
 ];
 
 let seq = 0;

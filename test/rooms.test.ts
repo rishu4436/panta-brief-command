@@ -52,6 +52,7 @@ import {
 import { SqliteRoomRepository } from "@/lib/rooms/store/sqlite";
 import { RedisRoomRepository } from "@/lib/rooms/store/redis";
 import { FakeRedis } from "./helpers/fake-redis";
+import { isolatedRedisBackends } from "./helpers/isolated-redis";
 import {
   __setRoomRepositoryForTests,
   createRoomRepository,
@@ -185,6 +186,7 @@ const adapters: [string, () => { repo: RoomRepository; reopen: () => RoomReposit
       return { repo: new RedisRoomRepository(fake), reopen: () => new RedisRoomRepository(fake), fake };
     },
   ],
+  ...isolatedRedisBackends().map((b): (typeof adapters)[number] => [b.name, () => b.open()]),
 ];
 
 describe.each(adapters)("room repository contract: %s", (_name, make) => {

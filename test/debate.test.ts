@@ -47,6 +47,7 @@ import { ADD_CHALLENGE_SCRIPT, SAVE_DEBATE_SCRIPT } from "@/lib/rooms/store/redi
 import { SqliteRoomRepository } from "@/lib/rooms/store/sqlite";
 import { IdempotencyConflictError, RoomNotFoundError, type RoomRepository } from "@/lib/rooms/store/types";
 import { FakeRedis } from "./helpers/fake-redis";
+import { isolatedRedisBackends } from "./helpers/isolated-redis";
 
 // ---------------------------------------------------------------- fixtures
 
@@ -381,6 +382,7 @@ const factories: RepoFactory[] = [
       return { repo: new RedisRoomRepository(r), reopen: () => new RedisRoomRepository(r) };
     },
   },
+  ...isolatedRedisBackends().map((b) => ({ name: b.name, make: () => b.open() })),
 ];
 
 const challengeRec = (b: DebateBundle, wallet: string, n: number, claimIdx = 0): DebateChallenge => ({

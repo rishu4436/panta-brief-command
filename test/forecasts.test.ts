@@ -36,6 +36,7 @@ import { SUBMIT_SCRIPT, scriptBucketMatchesDomain } from "@/lib/rooms/store/redi
 import { __setRoomRepositoryForTests, createRoomRepository } from "@/lib/rooms/store";
 import { IdempotencyConflictError, RoomNotFoundError, type RoomRepository } from "@/lib/rooms/store/types";
 import { FakeRedis } from "./helpers/fake-redis";
+import { isolatedRedisBackends } from "./helpers/isolated-redis";
 
 // ---------------------------------------------------------------- helpers
 
@@ -97,6 +98,7 @@ const adapters: [string, () => { repo: RoomRepository; reopen: () => RoomReposit
       return { repo: new RedisRoomRepository(fake), reopen: () => new RedisRoomRepository(fake), fake };
     },
   ],
+  ...isolatedRedisBackends().map((b): (typeof adapters)[number] => [b.name, () => b.open()]),
 ];
 
 // ---------------------------------------------------------------- domain

@@ -50,6 +50,7 @@ function statusBadges(m: EmbedModel): string {
   const lc = m.market.lifecycle;
   const tone = lc === "open" ? "b-open" : lc === "resolved" && m.resolution?.kind === "verified" ? "b-ok" : "";
   let html = `<span class="badge ${tone}">${e(m.market.lifecycleLabel)}</span>`;
+  if (!m.resolution) html += `<span class="badge ${m.forecasting === "open" ? "b-open" : m.forecasting === "unknown" ? "b-warn" : ""}">${e(m.forecastingText)}</span>`;
   if (m.resolution?.kind === "verified") html += `<span class="badge b-ok">Verified: ${m.resolution.outcome === "yes" ? "YES" : "NO"}</span>`;
   else if (m.resolution?.kind === "blocked") html += `<span class="badge b-warn">Resolution sources disagree</span>`;
   else if (m.resolution?.kind === "awaiting_verification") html += `<span class="badge b-warn">Awaiting verification</span>`;
@@ -88,7 +89,7 @@ export function renderEmbed(m: EmbedModel, o: EmbedOptions): string {
     ? `<p class="label">${label}</p><p class="big">${e(formatBpsPercent(c.meanBps!, 1))}<small>mean of ${forecasters}</small></p>` +
       bar(c.meanBps!) +
       (!compact && o.dist ? distribution(c.buckets, c.participants) : "")
-    : `<p class="label">${label}</p><p class="big">—</p><p class="sub">${m.forecastingOpen ? "No forecasts yet. Be the first." : "No community forecasts were made."}</p>`;
+    : `<p class="label">${label}</p><p class="big">—</p><p class="sub">${m.forecastingOpen ? "No forecasts yet. Be the first." : m.forecasting === "unknown" ? "No forecasts yet." : "No community forecasts were made."}</p>`;
   const cta = m.forecastingOpen ? "Add your forecast on Brief Command" : "Open the room on Brief Command";
   const body =
     `<main class="card" aria-labelledby="h">` +

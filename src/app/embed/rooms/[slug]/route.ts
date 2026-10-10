@@ -9,6 +9,8 @@ import { clientIp } from "@/lib/rate-limit";
 import { slugProblem } from "@/lib/rooms/domain";
 import { roomRepository } from "@/lib/rooms/store";
 import { limitShared } from "@/lib/shared-store";
+import { forecastDeps } from "@/lib/forecasts/deps";
+import type { ForecastWindow } from "@/lib/forecasts/window";
 import { recordEmbedRequest, runAfterResponse, skipReason } from "@/lib/studio/events";
 
 export const dynamic = "force-dynamic";
@@ -28,6 +30,29 @@ function devSources(req: NextRequest): SnapshotSources | undefined {
     readDetail: async () => ({ status: "failed", detail: null }),
     catalogRow: () => null,
   };
+}
+
+/**
+ * Time budget for the shared forecast window in the widget. It runs in
+ * parallel with the snapshot read and is usually served from the 15 s read
+ * cache; a slower or failed check renders "Forecasting paused", never open.
+ */
+const EMBED_WINDOW_WAIT_MS = 1_200;
+
+async function embedWindow(marketId: string, nowMs: number): Promise<ForecastWindow | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      forecastDeps().readWindow(marketId, nowMs),
+      new Promise<null>((r) => {
+        timer = setTimeout(() => r(null), EMBED_WINDOW_WAIT_MS);
+      }),
+    ]);
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function unavailable(o: EmbedOptions, home: string) {
@@ -64,12 +89,14 @@ export async function GET(req: NextRequest, ctx: Ctx): Promise<Response> {
     const room = await repo.getRoomBySlug(slug);
     if (!room || room.status !== "active") return embedNotFound(o, origin);
     const dev = devSources(req);
-    const [aggregate, finalization, snapshot] = await Promise.all([
+    const now = Date.now();
+    const [aggregate, finalization, snapshot, window] = await Promise.all([
       repo.getForecastAggregate(room.roomId),
       repo.getFinalization(room.marketId),
       dev ? getUncachedMarketSnapshot(room.marketId, dev) : getMarketSnapshot(room.marketId),
+      dev ? Promise.resolve(null) : embedWindow(room.marketId, now),
     ]);
-    const model = buildEmbedModel({ room, origin, aggregate, finalization, snapshot, nowMs: Date.now() });
+    const model = buildEmbedModel({ room, origin, aggregate, finalization, snapshot, nowMs: Date.now(), window });
     // Creator Studio: approximate embed request count, after the response (no script in the widget,
     // CSP unchanged). Bots, prefetches and DNT/GPC are skipped before any storage call.
     // Same-origin loads are the creator's own previews (Studio / embed generator): not counted.

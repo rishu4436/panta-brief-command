@@ -13,6 +13,8 @@ import { LIFECYCLE_LABEL, marketLifecycle, type Lifecycle } from "@/lib/panta/ca
 import type { Market } from "@/lib/panta/domain";
 import { deskPriceDisplay, formatUsdcPerShare, marketLabel } from "@/lib/format";
 import type { FinalizationRecord } from "@/lib/arena/types";
+import type { ForecastWindow } from "@/lib/forecasts/window";
+import { ELIGIBILITY_TEXT, forecastEligibility, type ForecastEligibility } from "@/lib/forecasts/window-public";
 
 export type SnapshotLike = {
   status: "fresh" | "stale" | "catalog" | "unavailable";
@@ -45,8 +47,25 @@ export type EmbedModel = {
   community: { participants: number; meanBps: number | null; buckets: number[] };
   market: { status: SnapshotLike["status"]; freshness: string; lifecycle: Lifecycle | null; lifecycleLabel: string; price: EmbedPrice };
   resolution: EmbedResolution;
+  /** Same eligibility as the room panel and Studio (server window); the snapshot can only restrict it. */
+  forecasting: ForecastEligibility;
+  forecastingText: string;
   forecastingOpen: boolean;
 };
+
+const SNAPSHOT_CLOSED: ReadonlySet<Lifecycle> = new Set(["trading", "ended", "resolved", "cancelled"]);
+
+/**
+ * Embed eligibility: the room panel's decision over the shared server window
+ * (forecastEligibility). The cached snapshot may only restrict it (a closed
+ * phase there closes the widget); it can never open forecasting. No window
+ * (not established within the time budget, or failed) → paused.
+ */
+export function embedEligibility(window: ForecastWindow | null | undefined, snapshotLifecycle: Lifecycle | null, resolved: boolean): ForecastEligibility {
+  if (resolved || (snapshotLifecycle && SNAPSHOT_CLOSED.has(snapshotLifecycle))) return "closed";
+  if (!window) return "unknown";
+  return forecastEligibility({ open: window.open, reason: window.open ? null : window.reason });
+}
 
 const pct = (p: number) => {
   const v = Math.round(p * 1000) / 10;
@@ -71,6 +90,8 @@ export function buildEmbedModel(input: {
   finalization: FinalizationRecord | null;
   snapshot: SnapshotLike;
   nowMs: number;
+  /** Shared server forecast window (forecastDeps().readWindow); null/absent → paused. */
+  window?: ForecastWindow | null;
 }): EmbedModel {
   const { room, origin, aggregate, finalization, snapshot, nowMs } = input;
   const c = consensusFrom(aggregate);
@@ -97,6 +118,7 @@ export function buildEmbedModel(input: {
     else if (d.mode === "secondary") price = { mode: "secondary", yes: formatUsdcPerShare(d.yes), no: formatUsdcPerShare(d.no) };
   }
 
+  const forecasting = embedEligibility(input.window, lifecycle, Boolean(resolution));
   const slug = encodeURIComponent(room.slug);
   return {
     slug: room.slug,
@@ -114,6 +136,8 @@ export function buildEmbedModel(input: {
       price,
     },
     resolution,
-    forecastingOpen: lifecycle === "open" && !resolution,
+    forecasting,
+    forecastingText: ELIGIBILITY_TEXT[forecasting],
+    forecastingOpen: forecasting === "open",
   };
 }

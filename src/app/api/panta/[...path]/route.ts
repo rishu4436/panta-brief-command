@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
+  allowedInReadOnly,
   isValidAttributionRef,
   matchProxyRoute,
   type ProxyMethod,
@@ -8,6 +9,7 @@ import { PANTA_UPSTREAM, serverApiKey } from "@/lib/panta/server";
 import { sanitizeCreateResponse, validateCreateRequest } from "@/lib/panta/create-requests";
 import { clientIp } from "@/lib/rate-limit";
 import { limitShared, storeHeaderValue, type LimitResult } from "@/lib/shared-store";
+import { isReadOnlyDeployment, PREVIEW_READ_ONLY, PREVIEW_READ_ONLY_DETAIL } from "@/lib/deploy-env";
 
 /**
  * Allowlisted server proxy: browser → /api/panta/<route> → Panta live API.
@@ -65,6 +67,12 @@ async function forward(req: NextRequest, ctx: Ctx, method: ProxyMethod) {
     return deny(405, "METHOD_NOT_ALLOWED", undefined, {
       Allow: route.methods.join(", "),
     });
+  }
+
+  // --- Read-only (preview / non-production) deployments: GET reads only, decided
+  // server-side before the rate limit, the key or any upstream call.
+  if (isReadOnlyDeployment() && !allowedInReadOnly(route, method)) {
+    return deny(403, PREVIEW_READ_ONLY, PREVIEW_READ_ONLY_DETAIL, { "Cache-Control": "no-store" });
   }
 
   // --- Per-IP limit (shared store when configured), before any upstream call.

@@ -143,6 +143,24 @@ export const PROXY_ROUTES: readonly ProxyRoute[] = [
   },
 ];
 
+/**
+ * Routes a read-only (preview) deployment still forwards: GET reads only.
+ * Every POST route (primary quote/build/submit/verify, trade report, claim
+ * builds, market creation) is refused with 403 PREVIEW_READ_ONLY.
+ */
+export const READ_ONLY_PROXY_ROUTE_IDS: ReadonlySet<string> = new Set([
+  "markets.list",
+  "markets.detail",
+  "markets.trades",
+  "categories",
+  "positions",
+  "account.trades",
+]);
+
+export function allowedInReadOnly(route: ProxyRoute, method: ProxyMethod): boolean {
+  return method === "GET" && READ_ONLY_PROXY_ROUTE_IDS.has(route.id) && route.methods.every((m) => m === "GET");
+}
+
 export function matchProxyRoute(path: string): ProxyRoute | null {
   for (const r of PROXY_ROUTES) {
     if (r.pattern.test(path)) return r;

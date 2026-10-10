@@ -75,6 +75,12 @@ export function checkSimulateParams(params: unknown): string | null {
   return null;
 }
 
+/**
+ * Methods refused on read-only (preview / non-production) deployments: anything
+ * that lands a transaction, plus simulation (only used right before signing).
+ */
+export const RPC_WRITE_METHODS: ReadonlySet<string> = new Set(["sendTransaction", "sendRawTransaction", "simulateTransaction", "requestAirdrop"]);
+
 export const RPC_MAX_BATCH = 10;
 export const RPC_MAX_BODY_BYTES = 32 * 1024;
 export const RPC_UPSTREAM_TIMEOUT_MS = 10_000;
@@ -105,7 +111,7 @@ export type RpcCall = { jsonrpc: "2.0"; id: Id; method: string; params?: unknown
 
 export type ParsedBody =
   | { ok: true; calls: RpcCall[]; batch: boolean }
-  | { ok: false; status: number; code: number; message: string; id: Id };
+  | { ok: false; status: number; code: number; message: string; id: Id; readOnly?: true };
 
 function validCall(v: unknown): v is RpcCall {
   if (!v || typeof v !== "object" || Array.isArray(v)) return false;
@@ -116,7 +122,7 @@ function validCall(v: unknown): v is RpcCall {
 }
 
 /** Shape + method allowlist + batch cap. Errors are JSON-RPC style. */
-export function parseRpcBody(raw: unknown): ParsedBody {
+export function parseRpcBody(raw: unknown, opts: { readOnly?: boolean } = {}): ParsedBody {
   const batch = Array.isArray(raw);
   const list = batch ? (raw as unknown[]) : [raw];
   const rawId = !batch && raw && typeof raw === "object" ? (raw as { id?: unknown }).id : null;
@@ -127,6 +133,9 @@ export function parseRpcBody(raw: unknown): ParsedBody {
   }
   for (const c of list) {
     if (!validCall(c)) return { ok: false, status: 400, code: -32600, message: "Invalid request", id: firstId };
+    if (opts.readOnly && RPC_WRITE_METHODS.has(c.method)) {
+      return { ok: false, status: 403, code: -32601, message: `PREVIEW_READ_ONLY: ${c.method} is disabled on this deployment`, id: c.id ?? null, readOnly: true };
+    }
     if (!RPC_METHODS.has(c.method)) {
       return { ok: false, status: 403, code: -32601, message: `Method not allowed: ${c.method.replace(/[^A-Za-z0-9_]/g, "").slice(0, 40)}`, id: c.id ?? null };
     }

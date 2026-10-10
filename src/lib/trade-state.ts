@@ -612,6 +612,7 @@ const EXPECTED_PANTA_CODES = new Set([
   "AMOUNT_TOO_SMALL",
   "MARKET_NOT_IN_PRIMARY",
   "MARKET_NOT_FOUND",
+  "PREVIEW_READ_ONLY",
 ]);
 
 export function failureConsoleLevel(kind: TradeStateId, err: unknown): "none" | "error" {

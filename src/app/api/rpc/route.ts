@@ -10,6 +10,7 @@ import {
   rpcUpstream,
 } from "@/lib/rpc-relay";
 import { limitShared, storeHeaderValue } from "@/lib/shared-store";
+import { isReadOnlyDeployment, PREVIEW_READ_ONLY } from "@/lib/deploy-env";
 
 /**
  * POST /api/rpc — Solana JSON-RPC relay (see src/lib/rpc-relay.ts).
@@ -53,8 +54,11 @@ export async function POST(req: NextRequest) {
   } catch {
     return reply(rpcError(null, -32700, "Parse error"), 400, rlh);
   }
-  const parsed = parseRpcBody(raw);
-  if (!parsed.ok) return reply(rpcError(parsed.id, parsed.code, parsed.message), parsed.status, rlh);
+  const parsed = parseRpcBody(raw, { readOnly: isReadOnlyDeployment() });
+  if (!parsed.ok) {
+    const body = parsed.readOnly ? { ...rpcError(parsed.id, parsed.code, parsed.message), code: PREVIEW_READ_ONLY } : rpcError(parsed.id, parsed.code, parsed.message);
+    return reply(body, parsed.status, rlh);
+  }
 
   const upstream = rpcUpstream();
   if ("error" in upstream) {

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist_Mono, Inter } from "next/font/google";
 import { Providers } from "@/components/Providers";
 import { AppShell } from "@/components/AppShell";
+import { isReadOnlyDeployment } from "@/lib/deploy-env";
 import "./globals.css";
 
 const inter = Inter({
@@ -46,6 +47,11 @@ export default function RootLayout({
   return (
     <html lang="en" className={`${inter.variable} ${geistMono.variable}`}>
       <body className="font-sans antialiased">
+        {isReadOnlyDeployment() && (
+          <div role="status" data-testid="preview-read-only" className="bg-amber-500/15 px-4 py-1.5 text-center text-xs text-amber-200">
+            Preview is read-only: trading, claims and market creation are disabled.
+          </div>
+        )}
         <Providers>
           <AppShell>{children}</AppShell>
         </Providers>

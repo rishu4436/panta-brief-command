@@ -43,12 +43,15 @@ export function debateKeys(prefix: string, roomId: string) {
  * KEYS: 1 idx, 2 debate, 3 idem, 4 room record
  * ARGV: 1 debateId, 2 createdAt, 3 bundle JSON, 4 idem TTL ms, 5 keepLast, 6 base
  * Returns {"IDEM", debateId} | {"EXISTS", debateId} | {"NOROOM", ""} | {"OK", debateId}
+ * NOROOM also when the room isn't active (archived while the debate was generating).
  */
 export const SAVE_DEBATE_SCRIPT = `
 local prior = redis.call('GET', KEYS[3])
 if prior then return {'IDEM', prior} end
 if redis.call('EXISTS', KEYS[2]) == 1 then return {'EXISTS', ARGV[1]} end
-if redis.call('EXISTS', KEYS[4]) == 0 then return {'NOROOM', ''} end
+local room = redis.call('GET', KEYS[4])
+if not room then return {'NOROOM', ''} end
+if not string.find(room, '"status":"active"', 1, true) then return {'NOROOM', ''} end
 redis.call('SET', KEYS[2], ARGV[3])
 redis.call('ZADD', KEYS[1], ARGV[2], ARGV[1])
 redis.call('SET', KEYS[3], ARGV[1], 'PX', ARGV[4])
@@ -65,14 +68,19 @@ return {'OK', ARGV[1]}
 `;
 
 /**
- * KEYS: 1 debate, 2 challenge list, 3 counts, 4 chidem
+ * KEYS: 1 debate, 2 challenge list, 3 counts, 4 chidem, 5 room record (optional)
  * ARGV: 1 claimId, 2 fingerprint, 3 challenge JSON, 4 maxPerClaim, 5 maxPerDebate, 6 idem TTL ms
- * Returns {"IDEM", "<fp>|<json>"} | {"NODEBATE", ""} | {"CLAIM_LIMIT", ""} | {"DEBATE_LIMIT", ""} | {"OK", ""}
+ * Returns {"IDEM", "<fp>|<json>"} | {"NODEBATE", ""} | {"NOROOM", ""} | {"CLAIM_LIMIT", ""} | {"DEBATE_LIMIT", ""} | {"OK", ""}
+ * NOROOM when the room was archived (or removed) while the challenge was being answered.
  */
 export const ADD_CHALLENGE_SCRIPT = `
 if redis.call('EXISTS', KEYS[1]) == 0 then return {'NODEBATE', ''} end
 local prior = redis.call('GET', KEYS[4])
 if prior then return {'IDEM', prior} end
+if KEYS[5] then
+  local room = redis.call('GET', KEYS[5])
+  if (not room) or (not string.find(room, '"status":"active"', 1, true)) then return {'NOROOM', ''} end
+end
 local perClaim = tonumber(redis.call('HGET', KEYS[3], ARGV[1]) or '0')
 if perClaim >= tonumber(ARGV[4]) then return {'CLAIM_LIMIT', ''} end
 local total = tonumber(redis.call('HGET', KEYS[3], '_total') or '0')
@@ -202,7 +210,7 @@ export async function addChallengeRedis(
   if (!DebateChallengeSchema.safeParse(ch).success) throw new RoomStoreUnavailableError("failure", "refusing to store an invalid challenge");
   const k = debateKeys(prefix, roomId);
   const [tag, val] = reply(
-    await r.eval(ADD_CHALLENGE_SCRIPT, [k.debate(ch.debateId), k.challenges(ch.debateId), k.counts(ch.debateId), k.chIdem(ch.wallet, opts.idempotencyKey)], [
+    await r.eval(ADD_CHALLENGE_SCRIPT, [k.debate(ch.debateId), k.challenges(ch.debateId), k.counts(ch.debateId), k.chIdem(ch.wallet, opts.idempotencyKey), `${prefix}room:${roomId}`], [
       ch.claimId,
       opts.fingerprint,
       JSON.stringify(ch),
@@ -218,6 +226,7 @@ export async function addChallengeRedis(
     return { status: "replayed", challenge: prior.challenge };
   }
   if (tag === "NODEBATE") throw new DebateNotFoundError();
+  if (tag === "NOROOM") throw new RoomNotFoundError();
   if (tag === "CLAIM_LIMIT") throw new ChallengeLimitError("claim");
   if (tag === "DEBATE_LIMIT") throw new ChallengeLimitError("debate");
   throw new RoomStoreUnavailableError("failure", `unexpected challenge reply ${tag}`);

@@ -104,7 +104,8 @@ export function saveDebateSql(db: Database, q: Q, bundle: DebateBundle, opts: { 
   const prior = q.one(db, "SELECT debate_id FROM debate_idempotency WHERE room_id = ? AND idem_key = ? AND created_at > ?", [d.roomId, opts.idempotencyKey, now - opts.idemTtlMs]);
   if (prior) return [{ status: "replayed", debateId: String(prior.debate_id) }, false];
   if (q.one(db, "SELECT 1 AS x FROM debates WHERE debate_id = ?", [d.debateId])) return [{ status: "replayed", debateId: d.debateId }, false];
-  if (!q.one(db, "SELECT 1 AS x FROM rooms WHERE room_id = ?", [d.roomId])) throw new RoomNotFoundError();
+  // Archived while the debate was generating: not saved (same answer as a missing room).
+  if (!q.one(db, "SELECT 1 AS x FROM rooms WHERE room_id = ? AND status = 'active'", [d.roomId])) throw new RoomNotFoundError();
   q.tx(db, () => {
     db.run("DELETE FROM debate_idempotency WHERE created_at <= ?", [now - opts.idemTtlMs]);
     db.run(
@@ -180,6 +181,8 @@ export function addChallengeSql(
     return [{ status: "replayed", challenge: parseChallenge(row.body) }, false];
   }
   if (!q.one(db, "SELECT 1 AS x FROM debates WHERE debate_id = ? AND room_id = ?", [ch.debateId, roomId])) throw new DebateNotFoundError();
+  // Archived while the challenge was being answered: not saved (same answer as a missing room).
+  if (!q.one(db, "SELECT 1 AS x FROM rooms WHERE room_id = ? AND status = 'active'", [roomId])) throw new RoomNotFoundError();
   const perClaim = Number(q.one(db, "SELECT COUNT(*) AS n FROM debate_challenges WHERE debate_id = ? AND claim_id = ?", [ch.debateId, ch.claimId])?.n ?? 0);
   if (perClaim >= opts.maxPerClaim) throw new ChallengeLimitError("claim");
   const perDebate = Number(q.one(db, "SELECT COUNT(*) AS n FROM debate_challenges WHERE debate_id = ?", [ch.debateId])?.n ?? 0);

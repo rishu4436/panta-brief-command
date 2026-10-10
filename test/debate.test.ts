@@ -45,7 +45,7 @@ import { __setRoomRepositoryForTests } from "@/lib/rooms/store";
 import { RedisRoomRepository } from "@/lib/rooms/store/redis";
 import { ADD_CHALLENGE_SCRIPT, SAVE_DEBATE_SCRIPT } from "@/lib/rooms/store/redis-debate";
 import { SqliteRoomRepository } from "@/lib/rooms/store/sqlite";
-import { IdempotencyConflictError, type RoomRepository } from "@/lib/rooms/store/types";
+import { IdempotencyConflictError, RoomNotFoundError, type RoomRepository } from "@/lib/rooms/store/types";
 import { FakeRedis } from "./helpers/fake-redis";
 
 // ---------------------------------------------------------------- fixtures
@@ -483,6 +483,23 @@ describe.each(factories)("16. storage parity: $name", ({ make }) => {
     const { repo } = make();
     const ghost = { roomId: "room_eeeeeeeeeeeeeeeeeeeeeeee" } as RoomRecord;
     await expect(repo.saveDebate(bundleFor(ghost, 1), { idempotencyKey: key(), keepLast: 5, idemTtlMs: 86_400_000 })).rejects.toThrow();
+  });
+  it("regression: a room archived while a debate or challenge was in flight gets neither stored; history stays", async () => {
+    const { repo } = make();
+    const room = await seedRoom(repo);
+    const w = newWallet();
+    const b = bundleFor(room, 1);
+    await repo.saveDebate(b, { idempotencyKey: key(), keepLast: 5, idemTtlMs: 86_400_000 });
+    await repo.addChallenge(room.roomId, challengeRec(b, w, 1), opts(key()));
+    await repo.updateRoom(room.roomId, room.creatorWallet, { status: "archived" }, NOW);
+    await expect(repo.saveDebate(bundleFor(room, 2), { idempotencyKey: key(), keepLast: 5, idemTtlMs: 86_400_000 })).rejects.toBeInstanceOf(RoomNotFoundError);
+    await expect(repo.addChallenge(room.roomId, challengeRec(b, w, 2), opts(key()))).rejects.toBeInstanceOf(RoomNotFoundError);
+    expect((await repo.listDebates(room.roomId, { limit: 5 })).map((d) => d.debateId)).toEqual([b.debate.debateId]);
+    expect(await repo.listChallenges(room.roomId, b.debate.debateId, { limit: 60 })).toHaveLength(1);
+    // Unarchived: writes are accepted again.
+    await repo.updateRoom(room.roomId, room.creatorWallet, { status: "active" }, NOW + 1);
+    expect((await repo.addChallenge(room.roomId, challengeRec(b, w, 3), opts(key()))).status).toBe("created");
+    expect((await repo.saveDebate(bundleFor(room, 3), { idempotencyKey: key(), keepLast: 5, idemTtlMs: 86_400_000 })).status).toBe("created");
   });
 });
 

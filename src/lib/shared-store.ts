@@ -84,13 +84,24 @@ if t < 0 then redis.call('PEXPIRE', KEYS[1], ARGV[1]); t = tonumber(ARGV[1]) end
 return {c, t}
 `;
 
-const PREFIX = "pbc:";
+const DEFAULT_PREFIX = "pbc:";
 
 let warnedUnconfigured = false;
 
-export function upstashFromEnv(env: Record<string, string | undefined> = process.env): SharedStore | null {
+/** Live-verification namespaces only (same shape as the room store's): `pbc:phase8test:<random>:`. */
+const ISOLATED_STORE_PREFIX_RE = /^pbc:phase8test:[a-z0-9]{8,32}:$/;
+
+/**
+ * `opts.isolatedPrefix` is for live verification against a real instance only:
+ * every key then starts with it instead of the production `pbc:`.
+ */
+export function upstashFromEnv(env: Record<string, string | undefined> = process.env, opts: { isolatedPrefix?: string } = {}): SharedStore | null {
   const { url, token } = envCreds(env);
   if (!url || !token) return null;
+  if (opts.isolatedPrefix !== undefined && !ISOLATED_STORE_PREFIX_RE.test(opts.isolatedPrefix)) {
+    throw new Error("isolatedPrefix must match pbc:phase8test:<random>:");
+  }
+  const PREFIX = opts.isolatedPrefix ?? DEFAULT_PREFIX;
   const redis = new Redis({
     url,
     token,

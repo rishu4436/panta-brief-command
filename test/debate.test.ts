@@ -454,8 +454,9 @@ describe.each(factories)("16. storage parity: $name", ({ make }) => {
     expect(await repo.isDebateLocked(room.roomId)).toBe(true);
     await repo.releaseDebateLock(room.roomId, "tok-a");
     expect(await repo.isDebateLocked(room.roomId)).toBe(false);
-    expect(await repo.acquireDebateLock(room.roomId, "tok-c", 1)).toBe(true);
-    await new Promise((r) => setTimeout(r, 15));
+    // 100 ms TTL, 300 ms wait: real Redis (Upstash) rounds sub-~50 ms PX up, so a 1 ms lock isn't meaningful live.
+    expect(await repo.acquireDebateLock(room.roomId, "tok-c", 100)).toBe(true);
+    await new Promise((r) => setTimeout(r, 300));
     expect(await repo.acquireDebateLock(room.roomId, "tok-d", 60_000)).toBe(true); // expired lock is taken over
   });
 

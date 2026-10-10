@@ -92,6 +92,11 @@ function fakeIsolated(): IsolatedBackend {
 
 function readLiveCreds(): { url: string; token: string } | null {
   if (process.env.PHASE8_LIVE_UPSTASH !== "1") return null;
+  // The app's own env lookups (shared store, room store) must never see the live
+  // instance: they would use production key prefixes. Run with those vars unset.
+  if (["UPSTASH_REDIS_REST_URL", "UPSTASH_REDIS_REST_TOKEN", "KV_REST_API_URL", "KV_REST_API_TOKEN"].some((k) => (process.env[k] || "").trim())) {
+    throw new Error("live mode refuses to run with UPSTASH_*/KV_REST_API_* in the process env; pass them via PHASE8_UPSTASH_ENV_FILE only");
+  }
   const file = process.env.PHASE8_UPSTASH_ENV_FILE;
   if (!file) throw new Error("PHASE8_LIVE_UPSTASH=1 needs PHASE8_UPSTASH_ENV_FILE");
   if ((statSync(file).mode & 0o077) !== 0) throw new Error("PHASE8_UPSTASH_ENV_FILE must be chmod 600");
@@ -119,6 +124,16 @@ function liveIsolated(): IsolatedBackend | null {
   if (!liveCleanupRegistered) {
     liveCleanupRegistered = true;
     afterAll(async () => {
+      let underPrefix = 0;
+      for (const p of prefixes) {
+        let cursor = "0";
+        do {
+          const [next, keys] = (await raw.scan(cursor, { match: `${p}*`, count: 500 })) as [string | number, string[]];
+          underPrefix += keys.length;
+          cursor = String(next);
+        } while (cursor !== "0");
+      }
+      console.log(`[isolated-redis] live: ${prefixes.size} prefixes, ${written.size} keys written, ${underPrefix} keys under test prefixes before cleanup`);
       for (const k of written) await raw.del(k);
       for (const p of prefixes) {
         if (!ISOLATED_PREFIX_RE.test(p)) continue;
@@ -129,7 +144,17 @@ function liveIsolated(): IsolatedBackend | null {
           cursor = String(next);
         } while (cursor !== "0");
       }
-    }, 120_000);
+      let left = 0;
+      for (const p of prefixes) {
+        let cursor = "0";
+        do {
+          const [next, keys] = (await raw.scan(cursor, { match: `${p}*`, count: 500 })) as [string | number, string[]];
+          left += keys.length;
+          cursor = String(next);
+        } while (cursor !== "0");
+      }
+      console.log(`[isolated-redis] live: ${left} keys under test prefixes after cleanup`);
+    }, 300_000);
   }
   return {
     name: "redis (LIVE Upstash, isolated prefix)",

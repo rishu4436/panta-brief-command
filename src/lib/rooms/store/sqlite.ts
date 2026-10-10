@@ -54,6 +54,22 @@ import {
   submitForecastSql,
 } from "./sqlite-forecasts";
 import {
+  DEBATE_MIGRATION_SQL,
+  acquireDebateLockSql,
+  addChallengeSql,
+  findChallengeByIdempotencyKeySql,
+  findDebateByIdempotencyKeySql,
+  getDebateSql,
+  getLatestDebateSql,
+  isDebateLockedSql,
+  listChallengesSql,
+  listDebatesSql,
+  releaseDebateLockSql,
+  saveDebateSql,
+} from "./sqlite-debate";
+import { ChallengeLimitError, DebateNotFoundError } from "@/lib/debate/types";
+import { DEBATE_IDEM_TTL_MS, type DebateBundle, type DebateChallenge } from "@/lib/debate/domain";
+import {
   ForecastRevisionConflictError,
   IdempotencyConflictError,
   RoomForbiddenError,
@@ -109,6 +125,7 @@ export const MIGRATIONS: readonly { version: number; sql: string }[] = [
   },
   { version: 2, sql: FORECAST_MIGRATION_SQL },
   { version: 3, sql: ARENA_MIGRATION_SQL },
+  { version: 4, sql: DEBATE_MIGRATION_SQL },
 ];
 
 const LOCK_WAIT_MS = 5_000;
@@ -285,7 +302,9 @@ export class SqliteRoomRepository implements RoomRepository {
       e instanceof RoomForbiddenError ||
       e instanceof RoomStoreUnavailableError ||
       e instanceof ForecastRevisionConflictError ||
-      e instanceof FinalizationIntegrityError
+      e instanceof FinalizationIntegrityError ||
+      e instanceof ChallengeLimitError ||
+      e instanceof DebateNotFoundError
     ) {
       throw e;
     }
@@ -560,4 +579,43 @@ export class SqliteRoomRepository implements RoomRepository {
 
   /** Derived by join in SQLite; nothing to index. */
   async noteParticipation(): Promise<void> {}
+
+  // ---- AI Debate Arena (sqlite-debate.ts) ----
+  saveDebate(bundle: DebateBundle, opts: { idempotencyKey: string; keepLast: number; idemTtlMs: number }) {
+    return this.write((db) => saveDebateSql(db, this.q, bundle, opts));
+  }
+  findDebateByIdempotencyKey(roomId: string, key: string) {
+    return this.read((db) => findDebateByIdempotencyKeySql(db, this.q, roomId, key, DEBATE_IDEM_TTL_MS));
+  }
+  getDebate(roomId: string, debateId: string) {
+    return this.read((db) => getDebateSql(db, this.q, roomId, debateId));
+  }
+  getLatestDebate(roomId: string) {
+    return this.read((db) => getLatestDebateSql(db, this.q, roomId));
+  }
+  listDebates(roomId: string, { limit }: { limit: number }) {
+    return this.read((db) => listDebatesSql(db, this.q, roomId, limit));
+  }
+  acquireDebateLock(roomId: string, token: string, ttlMs: number) {
+    return this.write((db) => acquireDebateLockSql(db, this.q, roomId, token, ttlMs));
+  }
+  releaseDebateLock(roomId: string, token: string) {
+    return this.write((db) => releaseDebateLockSql(db, this.q, roomId, token));
+  }
+  isDebateLocked(roomId: string) {
+    return this.read((db) => isDebateLockedSql(db, this.q, roomId));
+  }
+  addChallenge(
+    roomId: string,
+    challenge: DebateChallenge,
+    opts: { idempotencyKey: string; fingerprint: string; maxPerClaim: number; maxPerDebate: number; idemTtlMs: number },
+  ) {
+    return this.write((db) => addChallengeSql(db, this.q, roomId, challenge, opts));
+  }
+  findChallengeByIdempotencyKey(roomId: string, wallet: string, key: string) {
+    return this.read((db) => findChallengeByIdempotencyKeySql(db, this.q, roomId, wallet, key, DEBATE_IDEM_TTL_MS));
+  }
+  listChallenges(roomId: string, debateId: string, { limit }: { limit: number }) {
+    return this.read((db) => listChallengesSql(db, this.q, roomId, debateId, limit));
+  }
 }

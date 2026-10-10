@@ -20,6 +20,21 @@ import "server-only";
  */
 
 import { Redis } from "@upstash/redis";
+import { ChallengeLimitError, DebateNotFoundError } from "@/lib/debate/types";
+import { type DebateBundle, type DebateChallenge } from "@/lib/debate/domain";
+import {
+  acquireDebateLockRedis,
+  addChallengeRedis,
+  findChallengeByIdempotencyKeyRedis,
+  findDebateByIdempotencyKeyRedis,
+  getDebateRedis,
+  getLatestDebateRedis,
+  isDebateLockedRedis,
+  listChallengesRedis,
+  listDebatesRedis,
+  releaseDebateLockRedis,
+  saveDebateRedis,
+} from "./redis-debate";
 import type { RoomRecord } from "../domain";
 import type { SubmitForecastCommand } from "@/lib/forecasts/types";
 import { FinalizationIntegrityError, type CommitFinalizationInput } from "@/lib/arena/types";
@@ -186,7 +201,9 @@ export class RedisRoomRepository implements RoomRepository {
         e instanceof RoomStoreUnavailableError ||
         e instanceof CreateInProgressError ||
         e instanceof ForecastRevisionConflictError ||
-        e instanceof FinalizationIntegrityError
+        e instanceof FinalizationIntegrityError ||
+        e instanceof ChallengeLimitError ||
+        e instanceof DebateNotFoundError
       ) {
         throw e;
       }
@@ -400,5 +417,45 @@ export class RedisRoomRepository implements RoomRepository {
 
   noteParticipation(p: { wallet: string; roomId: string; marketId: string; at: number }) {
     return this.call(() => noteParticipationRedis(this.r, ROOMS_REDIS_PREFIX, p));
+  }
+
+  // ------------------------------------------------------------ AI debates (see redis-debate.ts)
+
+  saveDebate(bundle: DebateBundle, opts: { idempotencyKey: string; keepLast: number; idemTtlMs: number }) {
+    return this.call(() => saveDebateRedis(this.r, ROOMS_REDIS_PREFIX, K.room(bundle.debate.roomId), bundle, opts));
+  }
+  findDebateByIdempotencyKey(roomId: string, key: string) {
+    return this.call(() => findDebateByIdempotencyKeyRedis(this.r, ROOMS_REDIS_PREFIX, roomId, key));
+  }
+  getDebate(roomId: string, debateId: string) {
+    return this.call(() => getDebateRedis(this.r, ROOMS_REDIS_PREFIX, roomId, debateId));
+  }
+  getLatestDebate(roomId: string) {
+    return this.call(() => getLatestDebateRedis(this.r, ROOMS_REDIS_PREFIX, roomId));
+  }
+  listDebates(roomId: string, { limit }: { limit: number }) {
+    return this.call(() => listDebatesRedis(this.r, ROOMS_REDIS_PREFIX, roomId, limit));
+  }
+  acquireDebateLock(roomId: string, token: string, ttlMs: number) {
+    return this.call(() => acquireDebateLockRedis(this.r, ROOMS_REDIS_PREFIX, roomId, token, ttlMs));
+  }
+  releaseDebateLock(roomId: string, token: string) {
+    return this.call(() => releaseDebateLockRedis(this.r, ROOMS_REDIS_PREFIX, roomId, token));
+  }
+  isDebateLocked(roomId: string) {
+    return this.call(() => isDebateLockedRedis(this.r, ROOMS_REDIS_PREFIX, roomId));
+  }
+  addChallenge(
+    roomId: string,
+    challenge: DebateChallenge,
+    opts: { idempotencyKey: string; fingerprint: string; maxPerClaim: number; maxPerDebate: number; idemTtlMs: number },
+  ) {
+    return this.call(() => addChallengeRedis(this.r, ROOMS_REDIS_PREFIX, roomId, challenge, opts));
+  }
+  findChallengeByIdempotencyKey(roomId: string, wallet: string, key: string) {
+    return this.call(() => findChallengeByIdempotencyKeyRedis(this.r, ROOMS_REDIS_PREFIX, roomId, wallet, key));
+  }
+  listChallenges(roomId: string, debateId: string, { limit }: { limit: number }) {
+    return this.call(() => listChallengesRedis(this.r, ROOMS_REDIS_PREFIX, roomId, debateId, limit));
   }
 }

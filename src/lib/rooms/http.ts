@@ -36,6 +36,17 @@ export const ROOM_LIMITS = {
   arenaRead: 120,
   arenaFinalize: 10,
   arenaAuth: 20,
+  debateRead: 60,
+  debateGenerate: 6,
+  debateChallenge: 10,
+} as const;
+
+/** AI Debate Arena: model-spending requests, on top of the per-minute IP buckets above. */
+export const DEBATE_RATE = {
+  generateWallet: { limit: 3, windowMs: 3600_000 },
+  generateIp: { limit: 6, windowMs: 3600_000 },
+  challengeWallet: { limit: 5, windowMs: 600_000 },
+  challengeIp: { limit: 10, windowMs: 600_000 },
 } as const;
 
 /** Per verified wallet, per minute (on top of the per-IP forecast limit). */

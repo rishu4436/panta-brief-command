@@ -6,6 +6,7 @@ import { useRoomSession } from "@/lib/rooms/client";
 import type { Room } from "@/lib/rooms/domain";
 import { Panel } from "../Panel";
 import { StatusBadge } from "../ui/StatusBadge";
+import { DebateArena } from "./DebateArena";
 import { EmbedGenerator } from "./EmbedGenerator";
 import { ForecastPanel } from "./ForecastPanel";
 import { RoomLeaderboard } from "./RoomLeaderboard";
@@ -17,7 +18,7 @@ import { ShareRoomButton } from "./ShareRoomButton";
  * with no numbers, avatars or sample rows: nothing here is operational yet.
  */
 const UPCOMING: { title: string; body: string }[] = [
-  { title: "Discussion & research", body: "Threads for evidence, sources and arguments. Not open yet." },
+  { title: "Discussion threads", body: "Open community threads beyond claim challenges. Not open yet." },
   { title: "Participant activity", body: "Who joined and what they did in this room. Not open yet." },
 ];
 
@@ -92,6 +93,8 @@ export function RoomDetail({ room, canonicalUrl }: { room: Room; canonicalUrl: s
           </Panel>
         </div>
       </div>
+
+      <DebateArena room={room} sessionWallet={session.data?.wallet ?? null} canonicalUrl={canonicalUrl} />
     </div>
   );
 }

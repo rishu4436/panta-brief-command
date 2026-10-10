@@ -177,6 +177,32 @@ export class FakeRedis implements RedisLike {
       }
       case "LLEN":
         return this.l.get(a[0])?.length ?? 0;
+      case "EXISTS":
+        return a.filter((k) => this.live(k) !== null || this.z.has(k) || this.h.has(k) || this.l.has(k) || this.s.has(k)).length;
+      case "DEL": {
+        let n = 0;
+        for (const k of a) {
+          const had = this.live(k) !== null || this.z.has(k) || this.h.has(k) || this.l.has(k) || this.s.has(k);
+          this.kv.delete(k);
+          this.z.delete(k);
+          this.h.delete(k);
+          this.l.delete(k);
+          this.s.delete(k);
+          if (had) n += 1;
+        }
+        return n;
+      }
+      case "ZCARD":
+        return this.z.get(a[0])?.size ?? 0;
+      case "ZRANGE": {
+        const all = this.zsorted(a[0]);
+        const n = all.length;
+        const start = Number(a[1]);
+        const stop = Number(a[2]);
+        const st = start < 0 ? Math.max(0, n + start) : start;
+        const e = stop < 0 ? n + stop : Math.min(stop, n - 1);
+        return e < st ? [] : all.slice(st, e + 1);
+      }
       default:
         throw new Error(`FakeRedis: command not supported in scripts: ${name}`);
     }

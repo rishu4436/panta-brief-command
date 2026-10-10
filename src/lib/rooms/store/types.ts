@@ -9,11 +9,13 @@
  *  - idempotent create keyed by (creatorWallet, idempotencyKey);
  *  - single-use auth challenges (consume is atomic: delete-and-return);
  *  - updates only by the room's creator.
- * Forecasts (lib/forecasts/types.ts) live in the same backend so they share
- * its durability and fail-closed selection.
+ * Forecasts (lib/forecasts/types.ts), arena records and AI debates
+ * (lib/debate/types.ts) live in the same backend so they share its
+ * durability and fail-closed selection.
  */
 
 import type { ArenaRepository } from "@/lib/arena/types";
+import type { DebateRepository } from "@/lib/debate/types";
 import type { ForecastRepository } from "@/lib/forecasts/types";
 import type { RoomRecord, RoomStatus, RoomVisibility } from "../domain";
 
@@ -38,7 +40,7 @@ export type CreateRoomResult = { status: "created" | "replayed"; room: RoomRecor
 
 export type ListOptions = { limit: number };
 
-export interface RoomRepository extends ForecastRepository, ArenaRepository {
+export interface RoomRepository extends ForecastRepository, ArenaRepository, DebateRepository {
   readonly kind: RoomStoreKind;
   /** Durable across restarts and shared across server instances. */
   readonly durable: boolean;

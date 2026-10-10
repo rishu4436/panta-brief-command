@@ -66,6 +66,8 @@ CREATE TABLE auth_challenges (nonce TEXT PRIMARY KEY, wallet TEXT NOT NULL,
   expires_at INTEGER NOT NULL);
 ```
 
+Later migrations: v2 forecasts, v3 arena, v4 AI debates (`store/sqlite-debate.ts`).
+
 Migrations live in `MIGRATIONS` (`store/sqlite.ts`), are append-only and are
 applied automatically on open (`schema_migrations` table). Writes run in a
 transaction under an in-process queue + `<db>.lock` file, then replace the file
@@ -108,6 +110,9 @@ per IP with the shared limiter, and bodies are capped (1 KB auth, 4 KB rooms).
 | `GET /api/rooms/:slug/forecasts[?limit&offset]` | public | community forecast, histogram, current forecasts (≤ 50 per page), forecast window |
 | `POST /api/rooms/:slug/forecasts` | session | submit / revise own forecast |
 | `GET /api/rooms/:slug/forecasts/me` | session (else `wallet: null`) | own current forecast + revision history |
+| `GET /api/rooms/:slug/debate[?debate=]` | public | AI debate (read-only, never generates), see docs/DEBATE_ARENA.md |
+| `POST /api/rooms/:slug/debate` | session | generate or reuse the room's debate |
+| `POST /api/rooms/:slug/debate/challenges` | session | challenge a claim |
 
 ## Community forecasting (Phase 2)
 
@@ -193,4 +198,5 @@ over an in-memory keyspace; it has not been run against live Upstash.
 - `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` (durable rooms on Vercel)
 - `ROOMS_SESSION_SECRET` (≥ 32 random chars)
 - `ROOMS_ADMIN_TOKEN` (≥ 32 random chars; enables arena finalization, see docs/ARENA.md. Optional: without it nothing is ever scored)
+- `OPENAI_API_KEY` (optional: enables the AI Debate Arena, same key as the AI Brief; without it the arena says "AI unavailable")
 - `APP_ORIGIN` (canonical https origin for embed snippets, share links and room metadata, see docs/EMBEDS.md. Optional: falls back to https://briefcommand.vercel.app; set it for any other domain)

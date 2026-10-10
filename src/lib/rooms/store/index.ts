@@ -77,6 +77,17 @@ class UnavailableRoomRepository implements RoomRepository {
   getGlobalScore = async (): Promise<never> => this.fail();
   listUnfinalizedMarkets = async (): Promise<never> => this.fail();
   noteParticipation = async (): Promise<never> => this.fail();
+  saveDebate = async (): Promise<never> => this.fail();
+  findDebateByIdempotencyKey = async (): Promise<never> => this.fail();
+  getDebate = async (): Promise<never> => this.fail();
+  getLatestDebate = async (): Promise<never> => this.fail();
+  listDebates = async (): Promise<never> => this.fail();
+  acquireDebateLock = async (): Promise<never> => this.fail();
+  releaseDebateLock = async (): Promise<never> => this.fail();
+  isDebateLocked = async (): Promise<never> => this.fail();
+  addChallenge = async (): Promise<never> => this.fail();
+  findChallengeByIdempotencyKey = async (): Promise<never> => this.fail();
+  listChallenges = async (): Promise<never> => this.fail();
 }
 
 export function createRoomRepository(cfg: RoomStoreConfig): RoomRepository {

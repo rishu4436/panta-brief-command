@@ -18,6 +18,7 @@ export class FakeRedis implements RedisLike {
   z = new Map<string, Map<string, number>>();
   h = new Map<string, Map<string, string>>();
   l = new Map<string, string[]>();
+  s = new Map<string, Set<string>>();
   failMulti = false;
   failEval = false;
   evalCalls = 0;
@@ -63,6 +64,23 @@ export class FakeRedis implements RedisLike {
       .sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? 1 : -1))
       .map(([member]) => member)
       .slice(start, stop + 1);
+  }
+  /** Ascending by score; equal scores in member byte order (Redis semantics). */
+  private zsorted(k: string): string[] {
+    const m = this.z.get(k);
+    if (!m) return [];
+    return [...m.entries()].sort((a, b) => a[1] - b[1] || (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0)).map(([member]) => member);
+  }
+  async zrange(k: string, start: number, stop: number) {
+    const all = this.zsorted(k);
+    const n = all.length;
+    const s = start < 0 ? Math.max(0, n + start) : start;
+    const e = stop < 0 ? n + stop : Math.min(stop, n - 1);
+    return e < s ? [] : all.slice(s, e + 1);
+  }
+  async zrank(k: string, member: string) {
+    const i = this.zsorted(k).indexOf(member);
+    return i < 0 ? null : i;
   }
   async zcard(k: string) {
     return this.z.get(k)?.size ?? 0;
@@ -124,13 +142,33 @@ export class FakeRedis implements RedisLike {
         return v;
       }
       case "ZADD": {
-        if (!/^-?\d+(\.\d+)?$/.test(a[1])) throw new Error(`ERR score is not a float: ${a[1]}`);
+        const nx = a[1]?.toUpperCase() === "NX";
+        const [score, member] = nx ? [a[2], a[3]] : [a[1], a[2]];
+        if (!/^-?\d+(\.\d+)?$/.test(score)) throw new Error(`ERR score is not a float: ${score}`);
         const m = this.z.get(a[0]) ?? new Map<string, number>();
-        const added = m.has(a[2]) ? 0 : 1;
-        m.set(a[2], Number(a[1]));
+        const added = m.has(member) ? 0 : 1;
+        if (!(nx && !added)) m.set(member, Number(score));
         this.z.set(a[0], m);
         return added;
       }
+      case "ZREM": {
+        const m = this.z.get(a[0]);
+        const had = m?.delete(a[1]) ? 1 : 0;
+        return had;
+      }
+      case "HEXISTS":
+        return this.h.get(a[0])?.has(a[1]) ? 1 : 0;
+      case "SADD": {
+        const set = this.s.get(a[0]) ?? new Set<string>();
+        const added = set.has(a[1]) ? 0 : 1;
+        set.add(a[1]);
+        this.s.set(a[0], set);
+        return added;
+      }
+      case "SREM":
+        return this.s.get(a[0])?.delete(a[1]) ? 1 : 0;
+      case "SCARD":
+        return this.s.get(a[0])?.size ?? 0;
       case "RPUSH": {
         const list = this.l.get(a[0]) ?? [];
         list.push(...a.slice(1));

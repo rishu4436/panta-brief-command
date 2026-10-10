@@ -7,6 +7,7 @@ import type { Room } from "@/lib/rooms/domain";
 import { Panel } from "../Panel";
 import { StatusBadge } from "../ui/StatusBadge";
 import { ForecastPanel } from "./ForecastPanel";
+import { RoomLeaderboard } from "./RoomLeaderboard";
 import { RoomMarketPanel } from "./RoomMarketPanel";
 import { ShareRoomButton } from "./ShareRoomButton";
 
@@ -15,7 +16,6 @@ import { ShareRoomButton } from "./ShareRoomButton";
  * with no numbers, avatars or sample rows: nothing here is operational yet.
  */
 const UPCOMING: { title: string; body: string }[] = [
-  { title: "Prediction leaderboard", body: "Forecast accuracy will be ranked once forecasts exist and the market resolves. Not open yet." },
   { title: "Discussion & research", body: "Threads for evidence, sources and arguments. Not open yet." },
   { title: "Participant activity", body: "Who joined and what they did in this room. Not open yet." },
 ];
@@ -71,6 +71,8 @@ export function RoomDetail({ room, canonicalUrl }: { room: Room; canonicalUrl: s
 
         <div className="space-y-4">
           <RoomMarketPanel marketId={room.marketId} />
+
+          <RoomLeaderboard slug={room.slug} />
 
           <Panel title="Coming to rooms" subtitle="Not operational yet">
             <ul className="space-y-3">

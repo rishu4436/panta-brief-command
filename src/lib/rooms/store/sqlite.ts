@@ -27,6 +27,23 @@ import { randomBytes } from "node:crypto";
 import type { Database, SqlJsStatic, SqlValue } from "sql.js";
 import type { RoomRecord } from "../domain";
 import type { SubmitForecastCommand } from "@/lib/forecasts/types";
+import { FinalizationIntegrityError, type CommitFinalizationInput } from "@/lib/arena/types";
+import {
+  ARENA_MIGRATION_SQL,
+  commitFinalizationSql,
+  countPendingMarketsSql,
+  getFinalizationSql,
+  getMarketForecastSnapshotSql,
+  getRankSql,
+  getRoomScoreSql,
+  getGlobalScoreSql,
+  getReputationSql,
+  listForecastersSql,
+  listGlobalScoresSql,
+  listRoomScoresSql,
+  listUnfinalizedMarketsSql,
+  listWalletRoomsSql,
+} from "./sqlite-arena";
 import {
   FORECAST_MIGRATION_SQL,
   countForecastParticipantsSql,
@@ -91,6 +108,7 @@ export const MIGRATIONS: readonly { version: number; sql: string }[] = [
     `,
   },
   { version: 2, sql: FORECAST_MIGRATION_SQL },
+  { version: 3, sql: ARENA_MIGRATION_SQL },
 ];
 
 const LOCK_WAIT_MS = 5_000;
@@ -266,7 +284,8 @@ export class SqliteRoomRepository implements RoomRepository {
       e instanceof RoomNotFoundError ||
       e instanceof RoomForbiddenError ||
       e instanceof RoomStoreUnavailableError ||
-      e instanceof ForecastRevisionConflictError
+      e instanceof ForecastRevisionConflictError ||
+      e instanceof FinalizationIntegrityError
     ) {
       throw e;
     }
@@ -483,4 +502,62 @@ export class SqliteRoomRepository implements RoomRepository {
   countForecastParticipants(roomId: string) {
     return this.read((db) => countForecastParticipantsSql(db, this.q, roomId));
   }
+
+  // ------------------------------------------------------------ arena (see sqlite-arena.ts)
+
+  getMarketForecastSnapshot(marketId: string) {
+    return this.read((db) => getMarketForecastSnapshotSql(db, this.q, marketId));
+  }
+
+  getFinalization(marketId: string) {
+    return this.read((db) => getFinalizationSql(db, this.q, marketId));
+  }
+
+  /** One exclusive write: the existence check and every insert share the lock + transaction. */
+  commitFinalization(input: CommitFinalizationInput) {
+    return this.write((db) => commitFinalizationSql(db, this.q, input));
+  }
+
+  listForecasters({ tier, limit, offset }: { tier: "ranked" | "provisional"; limit: number; offset: number }) {
+    return this.read((db) => listForecastersSql(db, this.q, tier, limit, offset));
+  }
+
+  getReputation(wallet: string) {
+    return this.read((db) => getReputationSql(db, this.q, wallet));
+  }
+
+  getRank(wallet: string) {
+    return this.read((db) => getRankSql(db, this.q, wallet));
+  }
+
+  countPendingMarkets(wallets: string[]) {
+    return this.read((db) => countPendingMarketsSql(db, this.q, wallets));
+  }
+
+  listGlobalScores(wallet: string, { limit, offset }: { limit: number; offset: number }) {
+    return this.read((db) => listGlobalScoresSql(db, this.q, wallet, limit, offset));
+  }
+
+  listRoomScores(roomId: string, { limit, offset }: { limit: number; offset: number }) {
+    return this.read((db) => listRoomScoresSql(db, this.q, roomId, limit, offset));
+  }
+
+  getRoomScore(roomId: string, wallet: string) {
+    return this.read((db) => getRoomScoreSql(db, this.q, roomId, wallet));
+  }
+
+  getGlobalScore(wallet: string, marketId: string) {
+    return this.read((db) => getGlobalScoreSql(db, this.q, wallet, marketId));
+  }
+
+  listWalletRooms(wallet: string, { limit }: { limit: number }) {
+    return this.read((db) => listWalletRoomsSql(db, this.q, wallet, limit));
+  }
+
+  listUnfinalizedMarkets({ limit }: { limit: number }) {
+    return this.read((db) => listUnfinalizedMarketsSql(db, this.q, limit));
+  }
+
+  /** Derived by join in SQLite; nothing to index. */
+  async noteParticipation(): Promise<void> {}
 }

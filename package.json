@@ -7,7 +7,8 @@
     "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint",
-    "test": "vitest run"
+    "test": "vitest run",
+    "arena:finalize": "node scripts/arena-finalize.mjs"
   },
   "dependencies": {
     "@solana/wallet-adapter-base": "^0.9.28",

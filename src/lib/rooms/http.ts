@@ -9,6 +9,7 @@ import { limitShared } from "@/lib/shared-store";
 import { readSession, sessionSecret, SESSION_COOKIE, RoomAuthError, type RoomSession } from "./auth";
 import { MarketRejectedError } from "./service";
 import { ForecastRoomMismatchError, ForecastingClosedError } from "@/lib/forecasts/service";
+import { FinalizationIntegrityError } from "@/lib/arena/types";
 import {
   CreateInProgressError,
   ForecastRevisionConflictError,
@@ -32,6 +33,9 @@ export const ROOM_LIMITS = {
   slugCheck: 40,
   read: 120,
   forecast: 20,
+  arenaRead: 120,
+  arenaFinalize: 10,
+  arenaAuth: 20,
 } as const;
 
 /** Per verified wallet, per minute (on top of the per-IP forecast limit). */
@@ -116,6 +120,10 @@ export function errorResponse(e: unknown): NextResponse {
     );
   }
   if (e instanceof ForecastRoomMismatchError) return reject(400, "ROOM_MISMATCH", "This forecast names a different room. Reload the page.");
+  if (e instanceof FinalizationIntegrityError) {
+    console.error("[arena] finalization integrity check failed", e.message);
+    return reject(500, "ARENA_INTEGRITY_CHECK_FAILED", "Finalization was refused by an integrity check. Nothing was written.");
+  }
   if (e instanceof RoomForbiddenError) return reject(403, "NOT_ROOM_CREATOR", "Only the wallet that created this room can change it.");
   if (e instanceof RoomStoreUnavailableError) {
     return e.reason === "unconfigured"

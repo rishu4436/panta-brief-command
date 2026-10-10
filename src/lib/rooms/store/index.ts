@@ -63,6 +63,20 @@ class UnavailableRoomRepository implements RoomRepository {
   listCurrentForecasts = async (): Promise<never> => this.fail();
   getForecastAggregate = async (): Promise<never> => this.fail();
   countForecastParticipants = async (): Promise<never> => this.fail();
+  getMarketForecastSnapshot = async (): Promise<never> => this.fail();
+  getFinalization = async (): Promise<never> => this.fail();
+  commitFinalization = async (): Promise<never> => this.fail();
+  listForecasters = async (): Promise<never> => this.fail();
+  getReputation = async (): Promise<never> => this.fail();
+  getRank = async (): Promise<never> => this.fail();
+  countPendingMarkets = async (): Promise<never> => this.fail();
+  listGlobalScores = async (): Promise<never> => this.fail();
+  listRoomScores = async (): Promise<never> => this.fail();
+  listWalletRooms = async (): Promise<never> => this.fail();
+  getRoomScore = async (): Promise<never> => this.fail();
+  getGlobalScore = async (): Promise<never> => this.fail();
+  listUnfinalizedMarkets = async (): Promise<never> => this.fail();
+  noteParticipation = async (): Promise<never> => this.fail();
 }
 
 export function createRoomRepository(cfg: RoomStoreConfig): RoomRepository {

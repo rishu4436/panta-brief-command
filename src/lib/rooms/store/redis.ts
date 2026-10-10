@@ -22,6 +22,24 @@ import "server-only";
 import { Redis } from "@upstash/redis";
 import type { RoomRecord } from "../domain";
 import type { SubmitForecastCommand } from "@/lib/forecasts/types";
+import { FinalizationIntegrityError, type CommitFinalizationInput } from "@/lib/arena/types";
+import {
+  commitFinalizationRedis,
+  countPendingMarketsRedis,
+  getFinalizationRedis,
+  getMarketForecastSnapshotRedis,
+  getRankRedis,
+  getRoomScoreRedis,
+  getGlobalScoreRedis,
+  getReputationRedis,
+  listForecastersRedis,
+  listGlobalScoresRedis,
+  listRoomScoresRedis,
+  listUnfinalizedMarketsRedis,
+  listWalletRoomsRedis,
+  noteParticipationRedis,
+  type RedisArenaOps,
+} from "./redis-arena";
 import {
   countForecastParticipantsRedis,
   getCurrentForecastRedis,
@@ -55,7 +73,7 @@ export type RedisWrite =
   | { op: "zadd"; key: string; score: number; member: string };
 
 /** The handful of commands the adapter needs (Upstash in prod, a fake in tests). */
-export interface RedisLike extends RedisForecastOps {
+export interface RedisLike extends RedisForecastOps, RedisArenaOps {
   get(key: string): Promise<string | null>;
   mget(keys: string[]): Promise<(string | null)[]>;
   /** SET key value NX [PX ms]; true when this call created the key. */
@@ -113,6 +131,11 @@ export function upstashRedisLike(url: string, token: string): RedisLike {
     hgetall: async (k) => pairs(await redis.hgetall(k)),
     lrange: async (k, start, stop) => ((await redis.lrange(k, start, stop)) as unknown[]).map(String),
     zcard: async (k) => Number(await redis.zcard(k)) || 0,
+    zrange: async (k, start, stop) => ((await redis.zrange(k, start, stop)) as unknown[]).map(String),
+    zrank: async (k, m) => {
+      const v = await redis.zrank(k, m);
+      return v === null || v === undefined ? null : Number(v);
+    },
     eval: async (script, keys, args) => redis.eval(script, keys, args),
     multi: async (writes) => {
       const tx = redis.multi();
@@ -162,7 +185,8 @@ export class RedisRoomRepository implements RoomRepository {
         e instanceof RoomForbiddenError ||
         e instanceof RoomStoreUnavailableError ||
         e instanceof CreateInProgressError ||
-        e instanceof ForecastRevisionConflictError
+        e instanceof ForecastRevisionConflictError ||
+        e instanceof FinalizationIntegrityError
       ) {
         throw e;
       }
@@ -318,5 +342,63 @@ export class RedisRoomRepository implements RoomRepository {
 
   countForecastParticipants(roomId: string) {
     return this.call(() => countForecastParticipantsRedis(this.r, ROOMS_REDIS_PREFIX, roomId));
+  }
+
+  // ------------------------------------------------------------ arena (see redis-arena.ts)
+
+  getMarketForecastSnapshot(marketId: string) {
+    return this.call(() => getMarketForecastSnapshotRedis(this.r, ROOMS_REDIS_PREFIX, marketId));
+  }
+
+  getFinalization(marketId: string) {
+    return this.call(() => getFinalizationRedis(this.r, ROOMS_REDIS_PREFIX, marketId));
+  }
+
+  commitFinalization(input: CommitFinalizationInput) {
+    return this.call(() => commitFinalizationRedis(this.r, ROOMS_REDIS_PREFIX, input));
+  }
+
+  listForecasters({ tier, limit, offset }: { tier: "ranked" | "provisional"; limit: number; offset: number }) {
+    return this.call(() => listForecastersRedis(this.r, ROOMS_REDIS_PREFIX, tier, limit, offset));
+  }
+
+  getReputation(wallet: string) {
+    return this.call(() => getReputationRedis(this.r, ROOMS_REDIS_PREFIX, wallet));
+  }
+
+  getRank(wallet: string) {
+    return this.call(() => getRankRedis(this.r, ROOMS_REDIS_PREFIX, wallet));
+  }
+
+  countPendingMarkets(wallets: string[]) {
+    return this.call(() => countPendingMarketsRedis(this.r, ROOMS_REDIS_PREFIX, wallets));
+  }
+
+  listGlobalScores(wallet: string, { limit, offset }: { limit: number; offset: number }) {
+    return this.call(() => listGlobalScoresRedis(this.r, ROOMS_REDIS_PREFIX, wallet, limit, offset));
+  }
+
+  listRoomScores(roomId: string, { limit, offset }: { limit: number; offset: number }) {
+    return this.call(() => listRoomScoresRedis(this.r, ROOMS_REDIS_PREFIX, roomId, limit, offset));
+  }
+
+  getRoomScore(roomId: string, wallet: string) {
+    return this.call(() => getRoomScoreRedis(this.r, ROOMS_REDIS_PREFIX, roomId, wallet));
+  }
+
+  getGlobalScore(wallet: string, marketId: string) {
+    return this.call(() => getGlobalScoreRedis(this.r, ROOMS_REDIS_PREFIX, wallet, marketId));
+  }
+
+  listWalletRooms(wallet: string, { limit }: { limit: number }) {
+    return this.call(() => listWalletRoomsRedis(this.r, ROOMS_REDIS_PREFIX, wallet, limit));
+  }
+
+  listUnfinalizedMarkets({ limit }: { limit: number }) {
+    return this.call(() => listUnfinalizedMarketsRedis(this.r, ROOMS_REDIS_PREFIX, limit));
+  }
+
+  noteParticipation(p: { wallet: string; roomId: string; marketId: string; at: number }) {
+    return this.call(() => noteParticipationRedis(this.r, ROOMS_REDIS_PREFIX, p));
   }
 }

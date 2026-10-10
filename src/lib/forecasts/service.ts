@@ -68,6 +68,9 @@ export async function submitForecast(
   const now = deps.now();
   const window = await deps.checkWindow(room.marketId, now);
   if (!window.open) throw new ForecastingClosedError(window);
+  // Arena indexes (Redis) are written BEFORE the forecast, so a stored forecast is
+  // always reachable by finalization; if indexing fails, nothing is saved.
+  await deps.repo.noteParticipation({ wallet, roomId: room.roomId, marketId: room.marketId, at: now });
   const res = await deps.repo.submitForecast(
     {
       roomId: room.roomId,

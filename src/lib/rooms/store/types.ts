@@ -13,6 +13,7 @@
  * its durability and fail-closed selection.
  */
 
+import type { ArenaRepository } from "@/lib/arena/types";
 import type { ForecastRepository } from "@/lib/forecasts/types";
 import type { RoomRecord, RoomStatus, RoomVisibility } from "../domain";
 
@@ -37,7 +38,7 @@ export type CreateRoomResult = { status: "created" | "replayed"; room: RoomRecor
 
 export type ListOptions = { limit: number };
 
-export interface RoomRepository extends ForecastRepository {
+export interface RoomRepository extends ForecastRepository, ArenaRepository {
   readonly kind: RoomStoreKind;
   /** Durable across restarts and shared across server instances. */
   readonly durable: boolean;

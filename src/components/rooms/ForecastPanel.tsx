@@ -11,6 +11,8 @@
  */
 
 import { useWallet } from "@solana/wallet-adapter-react";
+import Link from "next/link";
+import { forecasterPath } from "@/lib/arena/public";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { formatFriendlyIst, marketLabel, shortAddr } from "@/lib/format";
 import { useMarket } from "@/lib/data/hooks";
@@ -656,9 +658,9 @@ function PublicList({
           {data.forecasts.map((f) => (
             <li key={f.wallet} className="py-2.5">
               <div className="flex items-center gap-3">
-                <span className="font-addr text-[12px] text-ink-2" title={f.wallet}>
+                <Link href={forecasterPath(f.wallet)} className="font-addr text-[12px] text-ink-2 hover:text-cyan-300" title={f.wallet}>
                   {shortAddr(f.wallet, 4)}
-                </span>
+                </Link>
                 {f.wallet === sessionWallet ? <StatusBadge tone="live" size="xs">You</StatusBadge> : null}
                 <div className="hidden h-1.5 flex-1 overflow-hidden rounded-full bg-line sm:block" aria-hidden="true">
                   <div className="h-full bg-emerald-400/70" style={{ width: `${f.probabilityBps / 100}%` }} />

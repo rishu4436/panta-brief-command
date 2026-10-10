@@ -4,7 +4,7 @@ import "server-only";
 
 import { roomRepository } from "@/lib/rooms/store";
 import type { ForecastServiceDeps, ForecastWindowCheck } from "./service";
-import { cachedForecastWindow, fetchForecastWindow } from "./window-server";
+import { cachedForecastWindow, checkForecastWindowForWrite } from "./window-server";
 
 let windowOverride: ForecastWindowCheck | undefined;
 let clockOverride: (() => number) | undefined;
@@ -12,7 +12,7 @@ let clockOverride: (() => number) | undefined;
 export function forecastDeps(): ForecastServiceDeps & { readWindow: ForecastWindowCheck } {
   return {
     repo: roomRepository(),
-    checkWindow: windowOverride ?? fetchForecastWindow,
+    checkWindow: windowOverride ?? checkForecastWindowForWrite,
     readWindow: windowOverride ?? cachedForecastWindow,
     now: clockOverride ?? Date.now,
   };

@@ -73,7 +73,17 @@ async function readOnce(marketId: string, timeoutMs: number): Promise<ChainEvent
 
 const inflight = new Map<string, Promise<ChainEventRead>>();
 
-/** Fresh Event account read; concurrent calls for one market share a request. Never throws. */
+/**
+ * Event account read that never joins another caller's request: every call
+ * issues its own RPC request (used to authorise forecast writes, so the
+ * deciding read always starts after the write arrived). Never throws.
+ */
+export function readEventAccountFresh(marketId: string, timeoutMs = CHAIN_READ_TIMEOUT_MS): Promise<ChainEventRead> {
+  if (!BASE58_32.test(marketId)) return Promise.resolve({ status: "not_found", slot: null, fetchedAt: Date.now() });
+  return readOnce(marketId, timeoutMs);
+}
+
+/** Fresh Event account read for page views; concurrent calls for one market share a request. Never throws. */
 export function readEventAccount(marketId: string, timeoutMs = CHAIN_READ_TIMEOUT_MS): Promise<ChainEventRead> {
   if (!BASE58_32.test(marketId)) return Promise.resolve({ status: "not_found", slot: null, fetchedAt: Date.now() });
   const hit = inflight.get(marketId);

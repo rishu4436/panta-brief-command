@@ -135,17 +135,20 @@ Each write re-checks server-side with the server clock (`window-server.ts`):
 
 - **Authorising read: the market's on-chain `Event` account**, fetched fresh
   for every check (`getAccountInfo`, commitment `confirmed`, 3 s timeout; the
-  account must be owned by the Panta program). Concurrent checks for one
-  market share one in-flight request; the result is never cached for writes.
+  account must be owned by the Panta program). Every write issues its own
+  request (`readEventAccountFresh`), so the deciding read always starts after
+  the write arrived; only page-view reads share an in-flight request. The
+  result is never cached.
 - **Panta detail** may only add restrictions. One in-flight request per
   market; full records are reused for up to 120 s; with a fresh chain read the
   check waits at most 750 ms for it. A cached record can't re-open anything:
   the most advanced phase from any source wins.
 - **Catalog row**: used only if the catalog is already built (no cold-build
   wait).
-- **Chain unreadable**: the Phase 2 policy applies. A detail fetched for this
-  check is required (bounded at 8 s; reused records don't count) and a thin
-  record needs the catalog row; otherwise closed.
+- **Chain unreadable**: a FULL detail fetched for this check is required
+  (bounded at 8 s; reused records don't count). A thin record (partial or
+  priceless) is closed (`unavailable`) even if the catalog row says open,
+  because the catalog is a cache and caches never authorise.
 - The cutoff is compared with the server clock read after the source awaits.
 
 Secondary, ended, resolved, cancelled, unknown, `is_active = false` →

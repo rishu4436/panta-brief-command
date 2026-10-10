@@ -9,16 +9,19 @@ import "server-only";
  * catalog build takes longer than the old 8 s wait):
  *
  *  - AUTHORISING read = the market's on-chain Event account, fetched fresh
- *    for every check (≈20–60 ms, 3 s timeout, concurrent checks share one
- *    in-flight request). It is never cached for writes.
+ *    for every check (≈20–60 ms, 3 s timeout). Writes (writeWindowSources)
+ *    issue their OWN request every time, never joining one that started
+ *    before the write arrived; page-view reads may share an in-flight one.
+ *    It is never cached.
  *  - Panta detail is shared: one in-flight request per market, successful
  *    full records reused for DETAIL_REUSE_MS. With a fresh chain read the
  *    check waits at most DETAIL_BUDGET_MS for it; detail can only add
  *    restrictions (most advanced phase wins).
  *  - Catalog row: used only if already built (never waits for a cold build).
- *  - If the chain read fails, the old policy applies: a detail fetched for
- *    this check is required (bounded by DETAIL_FALLBACK_MS) and a thin record
- *    needs the catalog row; otherwise "unavailable" (fail closed).
+ *  - If the chain read fails, a FULL detail fetched for this check is
+ *    required (bounded by DETAIL_FALLBACK_MS). A thin record (partial or
+ *    priceless) is "unavailable" even with a catalog row, because the
+ *    catalog is a cache (up to its TTL old) and must never authorise.
  *
  * Reads (page views) may reuse a computed window for READ_CACHE_MS, re-checked
  * against the server clock so a cached "open" never outlives the cutoff;
@@ -26,9 +29,9 @@ import "server-only";
  */
 
 import { peekCatalog } from "@/lib/panta/catalog-server";
-import { readEventAccount, type ChainEventRead } from "@/lib/panta/chain-event-server";
+import { readEventAccount, readEventAccountFresh, type ChainEventRead } from "@/lib/panta/chain-event-server";
 import type { Market } from "@/lib/panta/domain";
-import { fetchMarketWithRetry, isPartialMarket } from "@/lib/panta/markets";
+import { fetchMarketWithRetry, isPartialMarket, isPricelessDetail } from "@/lib/panta/markets";
 import { pantaServerGet, UpstreamError } from "@/lib/panta/server";
 import { evaluateForecastWindow, type ForecastWindow } from "./window";
 
@@ -46,6 +49,8 @@ export type WindowSources = {
   /** Detail reused from an earlier successful read (≤ DETAIL_REUSE_MS), if any. */
   recentDetail: (marketId: string, nowMs: number) => DetailRead | null;
   catalogRow: (marketId: string) => Market | null;
+  /** Detail fetched for THIS check (chain-failure fallback). Defaults to readDetail. */
+  readDetailFresh?: (marketId: string) => Promise<DetailRead>;
 };
 
 // ------------------------------------------------------------------ shared detail reads
@@ -94,12 +99,27 @@ function catalogRow(marketId: string): Market | null {
   }
 }
 
+/** Page views: may share in-flight reads. */
 export const liveWindowSources: WindowSources = {
   readChain: (id) => readEventAccount(id),
   readDetail: readDetailShared,
   recentDetail,
   catalogRow,
 };
+
+/** Forecast writes: the authorising reads are always issued for this check. */
+export const writeWindowSources: WindowSources = {
+  ...liveWindowSources,
+  readChain: (id) => readEventAccountFresh(id),
+  readDetailFresh: async (id) => {
+    const r = await fetchDetailOnce(id);
+    if (r.status === "ok" && r.detail && !r.detail.partial && !isPartialMarket(r.detail)) detailRecent.set(id, r);
+    return r;
+  },
+};
+
+/** The write-path check (forecast submissions). */
+export const checkForecastWindowForWrite = (marketId: string, nowMs: number) => fetchForecastWindow(marketId, nowMs, writeWindowSources);
 
 const withBudget = <T,>(p: Promise<T>, ms: number): Promise<T | null> =>
   Promise.race([p, new Promise<null>((r) => setTimeout(() => r(null), ms))]);
@@ -127,7 +147,16 @@ export async function fetchForecastWindow(
     });
   }
   // Chain unreadable: a detail fetched for THIS check is required (reused records don't authorise).
-  const fresh = recent ? await withBudget(src.readDetail(marketId), DETAIL_FALLBACK_MS) : await withBudget(detailP, DETAIL_FALLBACK_MS);
+  const fresh = src.readDetailFresh
+    ? await withBudget(src.readDetailFresh(marketId), DETAIL_FALLBACK_MS)
+    : recent
+      ? await withBudget(src.readDetail(marketId), DETAIL_FALLBACK_MS)
+      : await withBudget(detailP, DETAIL_FALLBACK_MS);
+  const d = fresh?.detail ?? null;
+  // A thin fresh record can't confirm the phase, and the catalog row is a cache: fail closed.
+  if (fresh?.status === "ok" && d && (d.partial || isPartialMarket(d) || isPricelessDetail(d))) {
+    return evaluateForecastWindow({ row: null, detail: d, detailStatus: "ok", chain: { status: "failed" }, nowMs: Math.max(decisionNow, now()) });
+  }
   return evaluateForecastWindow({
     row,
     detail: fresh?.detail ?? null,

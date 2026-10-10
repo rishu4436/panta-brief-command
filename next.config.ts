@@ -27,6 +27,8 @@ import { securityHeaders } from "./src/lib/security-headers";
  */
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  // Don't advertise the framework/version in every response.
+  poweredByHeader: false,
   // Prediction Rooms' local SQLite adapter (sql.js, WebAssembly) loads its
   // .wasm from node_modules at runtime; keep it out of the server bundle.
   serverExternalPackages: ["sql.js"],

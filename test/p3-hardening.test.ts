@@ -180,7 +180,11 @@ describe("CSP + anti-framing", () => {
     const cfg = (await import("../next.config")).default;
     const rules = await cfg.headers!();
     expect(rules[0].source).toBe("/((?!embed/).*)"); // /embed/** handlers send the embed policy (test/embed.test.ts #18/#19)
-    expect(rules[0].headers.map((x: { key: string }) => x.key)).toEqual(["Content-Security-Policy", "X-Frame-Options"]);
+    expect(rules[0].headers.map((x: { key: string }) => x.key)).toEqual(["Content-Security-Policy", "X-Frame-Options", "X-Content-Type-Options", "Referrer-Policy", "Permissions-Policy"]);
+    expect(h.find((x) => x.key === "X-Content-Type-Options")?.value).toBe("nosniff");
+    expect(h.find((x) => x.key === "Referrer-Policy")?.value).toBe("strict-origin-when-cross-origin");
+    expect(h.find((x) => x.key === "Permissions-Policy")?.value).toMatch(/camera=\(\).*microphone=\(\).*geolocation=\(\)/);
+    expect(cfg.poweredByHeader).toBe(false);
   });
   it("vendored wallet-adapter CSS = upstream minus the Google Fonts @import", () => {
     const upstream = readFileSync("node_modules/@solana/wallet-adapter-react-ui/styles.css", "utf8");

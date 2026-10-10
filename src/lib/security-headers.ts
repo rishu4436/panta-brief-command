@@ -63,6 +63,13 @@ export function securityHeaders(env: Record<string, string | undefined> = proces
   return [
     { key: "Content-Security-Policy", value: buildCsp({ dev: env.NODE_ENV === "development" }) },
     { key: "X-Frame-Options", value: "DENY" },
+    // No MIME sniffing (API JSON / uploads can't be reinterpreted as script or HTML).
+    { key: "X-Content-Type-Options", value: "nosniff" },
+    // Room / market URLs carry no secrets, but don't leak paths + query to other origins.
+    { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+    // Powerful features the app never uses. Wallet extensions inject via content
+    // scripts and the clipboard (copy buttons) is not restricted here.
+    { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=(), payment=(), usb=()" },
   ];
 }
 

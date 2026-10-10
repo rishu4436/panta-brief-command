@@ -8,6 +8,7 @@ import {
   POSITIONS_VS_ACTIVITY_NOTE,
   type PortfolioIntel as PortfolioIntelData,
 } from "@/lib/panta/position-intel";
+import { exposureNote, exposureView, type PortfolioReadState } from "@/lib/panta/exposure-view";
 
 function Stat({ label, value, sub }: { label: string; value: string; sub?: string }) {
   return (
@@ -46,51 +47,53 @@ function Bar({ yes, no }: { yes: number; no: number }) {
   );
 }
 
-export function PortfolioIntelHeader({ intel }: { intel: PortfolioIntelData }) {
-  const markSub = intel.marksPending
-    ? MARKS_LOADING_NOTE
-    : intel.hasPartialMarks
-      ? `${intel.unavailableMarkCount} mark${intel.unavailableMarkCount === 1 ? "" : "s"} unavailable`
-      : intel.noValidMarks && intel.positionCount > 0
-        ? "No valid marks"
-        : undefined;
+export function PortfolioIntelHeader({ intel, read }: { intel: PortfolioIntelData; read: PortfolioReadState }) {
+  const view = exposureView(read, intel);
+  const unread = view === "loading" || view === "read-failed";
+  const markSub = unread
+    ? exposureNote(view)
+    : intel.marksPending
+      ? MARKS_LOADING_NOTE
+      : intel.hasPartialMarks
+        ? `${intel.unavailableMarkCount} mark${intel.unavailableMarkCount === 1 ? "" : "s"} unavailable`
+        : intel.noValidMarks && intel.positionCount > 0
+          ? "No valid marks"
+          : undefined;
 
-  const markValue = intel.marksPending
+  // Counts are only shown after a successful read: a failed read is not "0 positions".
+  const count = (n: number) => (unread ? "—" : String(n));
+  const markValue = view === "loading" || intel.marksPending
     ? "…"
-    : intel.noValidMarks
+    : view === "read-failed" || (intel.noValidMarks && view !== "empty")
       ? "—"
-      : formatMarkUsdc(intel.totalValidMarked);
+      : formatMarkUsdc(view === "empty" ? 0 : intel.totalValidMarked);
 
   return (
     <section aria-label="Portfolio overview" className="space-y-3">
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-        <Stat label="Positions" value={String(intel.positionCount)} />
+        <Stat label="Positions" value={count(intel.positionCount)} />
         <Stat label="Marked value" value={markValue} sub={markSub} />
-        <Stat label="Claimable" value={String(intel.claimableCount)} />
+        <Stat label="Claimable" value={count(intel.claimableCount)} />
         <Stat
           label="Active"
-          value={String(intel.activeCount)}
-          sub={`${intel.secondaryCount} secondary · ${intel.resolvedCount} resolved`}
+          value={count(intel.activeCount)}
+          sub={unread ? undefined : `${intel.secondaryCount} secondary · ${intel.resolvedCount} resolved`}
         />
       </div>
 
       <div className="grid gap-2 sm:grid-cols-2">
         <div className="rounded-xl border border-line bg-inset/60 px-3 py-2.5">
           <p className="type-col text-[10px] tracking-[0.08em] text-ink-3">Exposure</p>
-          {intel.marksPending ? (
-            <p className="mt-2 text-[12px] text-ink-3">{MARKS_LOADING_NOTE}</p>
-          ) : intel.noValidMarks ? (
-            <p className="mt-2 text-[12px] text-ink-3">{LARGEST_UNAVAILABLE_NOTE}</p>
-          ) : (
+          {view === "valued" || view === "zero" ? (
             <Bar yes={intel.yesExposure} no={intel.noExposure} />
+          ) : (
+            <p className="mt-2 text-[12px] text-ink-3">{exposureNote(view)}</p>
           )}
         </div>
         <div className="rounded-xl border border-line bg-inset/60 px-3 py-2.5">
           <p className="type-col text-[10px] tracking-[0.08em] text-ink-3">Largest position</p>
-          {intel.marksPending ? (
-            <p className="mt-2 text-[12px] text-ink-3">{MARKS_LOADING_NOTE}</p>
-          ) : !intel.noValidMarks && intel.totalValidMarked === 0 ? (
-            <p className="mt-2 text-[12px] text-ink-3">No open exposure · every valid mark is {formatMarkUsdc(0)}</p>
+          {view !== "valued" ? (
+            <p className="mt-2 text-[12px] text-ink-3">{exposureNote(view)}</p>
           ) : intel.largest ? (
             <div className="mt-1.5">
               <p className="truncate text-[13px] font-medium text-ink" title={intel.largest.title}>

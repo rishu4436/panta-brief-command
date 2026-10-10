@@ -24,6 +24,7 @@ import {
   portfolioIntel,
 } from "@/lib/panta/position-intel";
 import { PortfolioIntelHeader } from "@/components/book/PortfolioIntel";
+import { portfolioReadState } from "@/lib/panta/exposure-view";
 import { buildClaim, isAttributableClaim } from "@/lib/panta/claims";
 import type { ClaimKind } from "@/lib/panta/domain";
 import { assertFeePayer } from "@/lib/panta/instructions";
@@ -311,7 +312,7 @@ export function BookPanel({
               </div>
             }
           >
-            <PortfolioIntelHeader intel={intel} />
+            <PortfolioIntelHeader intel={intel} read={portfolioReadState({ hasData: positionsQ.data !== undefined, isError: Boolean(positionsQ.error) })} />
           </Panel>
         ) : null}
         <Panel

@@ -27,6 +27,9 @@ import { securityHeaders } from "./src/lib/security-headers";
  */
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  // Prediction Rooms' local SQLite adapter (sql.js, WebAssembly) loads its
+  // .wasm from node_modules at runtime; keep it out of the server bundle.
+  serverExternalPackages: ["sql.js"],
   // CSP (frame-ancestors 'none') + X-Frame-Options DENY on every route;
   // the policy and its reasoning live in src/lib/security-headers.ts.
   async headers() {

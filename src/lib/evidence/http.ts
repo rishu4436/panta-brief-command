@@ -10,20 +10,21 @@ export function reject(status: number, code: string, detail?: string, headers?: 
   return NextResponse.json({ error: code, code, ...(detail ? { detail } : {}) }, { status, headers });
 }
 
-/** Size cap, per-IP limit (the IP is used only for the counter key, never stored), JSON parse. */
+/** Size cap (default 2 KB), per-IP limit (the IP is used only for the counter key, never stored), JSON parse. */
 export async function readLimitedJson(
   req: NextRequest,
   bucket: string,
   limit: number,
+  maxBytes: number = MAX_BODY_BYTES,
 ): Promise<{ ok: true; body: unknown } | { ok: false; res: NextResponse }> {
   const declared = Number(req.headers.get("content-length") || "0");
-  if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) return { ok: false, res: reject(413, "PAYLOAD_TOO_LARGE") };
+  if (Number.isFinite(declared) && declared > maxBytes) return { ok: false, res: reject(413, "PAYLOAD_TOO_LARGE") };
   const rl = await limitShared(`${bucket}:${clientIp(req.headers)}`, limit, 60_000);
   if (!rl.ok) {
     return { ok: false, res: reject(429, "RATE_LIMITED", undefined, { "Retry-After": String(rl.retryAfterSec) }) };
   }
   const text = await req.text();
-  if (new TextEncoder().encode(text).byteLength > MAX_BODY_BYTES) return { ok: false, res: reject(413, "PAYLOAD_TOO_LARGE") };
+  if (new TextEncoder().encode(text).byteLength > maxBytes) return { ok: false, res: reject(413, "PAYLOAD_TOO_LARGE") };
   try {
     return { ok: true, body: JSON.parse(text) };
   } catch {

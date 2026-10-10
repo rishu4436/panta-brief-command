@@ -52,6 +52,18 @@ function envCreds(env: Record<string, string | undefined>) {
   };
 }
 
+/**
+ * Upstash REST credentials from the same env vars the shared store reads, or
+ * null. Lets other durable features (Prediction Rooms) use the configured
+ * Redis without re-implementing the env lookup. Server-only; never logged.
+ */
+export function sharedStoreCredentials(
+  env: Record<string, string | undefined> = process.env,
+): { url: string; token: string } | null {
+  const { url, token } = envCreds(env);
+  return url && token ? { url, token } : null;
+}
+
 /** Minimal surface the app needs; the Upstash client is adapted to it. */
 export interface SharedStore {
   readonly kind: "redis";

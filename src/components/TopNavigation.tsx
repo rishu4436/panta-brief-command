@@ -52,6 +52,7 @@ function useNavItems(): { marketing: boolean; items: NavItem[] } {
       { href: "/execute", label: "Trade", active: pathname.startsWith("/execute") },
       { href: "/book?tab=positions", label: "Positions", active: pathname.startsWith("/book") && tab !== "activity" && tab !== "claims" },
       { href: "/book?tab=activity", label: "Activity", active: pathname.startsWith("/book") && tab === "activity" },
+      { href: "/rooms", label: "Rooms", active: pathname === "/rooms" || pathname.startsWith("/rooms/") },
       // /desk also has "+ Create Market", so the bar link can drop out below xl (it stays visible while active).
       { href: "/create", label: "Create", active: pathname.startsWith("/create"), wide: true },
     ],

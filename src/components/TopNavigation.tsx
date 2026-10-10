@@ -2,63 +2,20 @@
 
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useId, useRef, useState } from "react";
 import { useRecents } from "@/hooks/useLocalIds";
+import { buildNavItems, desktopEntries, isMarketingPath, type NavItem } from "@/lib/navigation";
 import { BrandMark } from "./BrandMark";
 import { WalletButton } from "./WalletButton";
-import { IconArrowRight, IconClose, IconMenu } from "./ui/Icons";
-import { marketHref } from "@/lib/panta/lifecycle";
+import { IconArrowRight, IconChevronDown, IconClose, IconMenu } from "./ui/Icons";
 
-/** `wide`: desktop bar shows it only at xl+ (still in the mobile menu); keeps the 1024–1279px bar uncrowded. */
-type NavItem = { href: string; label: string; active: boolean; wide?: boolean };
-
-export function isMarketingPath(pathname: string) {
-  return pathname === "/" || pathname === "/about";
-}
+export { isMarketingPath };
 
 function useNavItems(): { marketing: boolean; items: NavItem[] } {
   const pathname = usePathname();
   const sp = useSearchParams();
-  const marketing = isMarketingPath(pathname);
   const { ids: recentIds } = useRecents();
-  if (marketing) {
-    return {
-      marketing,
-      items: [
-        { href: "/", label: "Home", active: pathname === "/" },
-        { href: "/execute", label: "Trade", active: false },
-        { href: "/desk", label: "Markets", active: false },
-        { href: "/about", label: "About", active: pathname === "/about" },
-      ],
-    };
-  }
-  const onMarket = pathname.startsWith("/markets/");
-  const tab = sp.get("tab");
-  return {
-    marketing,
-    items: [
-      { href: "/desk", label: "Markets", active: pathname === "/desk" || onMarket },
-      // The brief lives beside the selected market in the workspace: jump to it on a market
-      // page, else to the most recently opened market's brief, else to the desk to pick one.
-      {
-        href: onMarket
-          ? `${pathname}#brief`
-          : recentIds[0]
-            ? `${marketHref(recentIds[0])}#brief`
-            : "/desk",
-        label: "Briefs",
-        active: false,
-      },
-      { href: "/execute", label: "Trade", active: pathname.startsWith("/execute") },
-      { href: "/book?tab=positions", label: "Positions", active: pathname.startsWith("/book") && tab !== "activity" && tab !== "claims" },
-      { href: "/book?tab=activity", label: "Activity", active: pathname.startsWith("/book") && tab === "activity" },
-      { href: "/rooms", label: "Rooms", active: pathname === "/rooms" || pathname.startsWith("/rooms/") },
-      { href: "/arena", label: "Arena", active: pathname === "/arena" || pathname.startsWith("/forecasters/"), wide: true },
-      { href: "/studio", label: "Studio", active: pathname === "/studio" || pathname.startsWith("/studio/"), wide: true },
-      // /desk also has "+ Create Market", so the bar link can drop out below xl (it stays visible while active).
-      { href: "/create", label: "Create", active: pathname.startsWith("/create"), wide: true },
-    ],
-  };
+  return buildNavItems({ pathname, tab: sp.get("tab"), recentMarketId: recentIds[0] ?? null });
 }
 
 function Brand() {
@@ -70,29 +27,144 @@ function Brand() {
   );
 }
 
+const barItemClass = (active: boolean) =>
+  `type-nav relative flex h-16 items-center whitespace-nowrap px-2.5 transition-colors xl:px-3 ${active ? "text-ink" : "text-ink-2 hover:text-ink"}`;
+
+function ActiveBar({ active }: { active: boolean }) {
+  return <span aria-hidden="true" className={`absolute inset-x-3 bottom-0 h-0.5 rounded-full transition-opacity ${active ? "bg-cyan-400 opacity-100" : "opacity-0"}`} />;
+}
+
+/**
+ * Disclosure menu in the desktop bar: a button (aria-expanded/aria-controls)
+ * revealing a list of links. Opens on click, Enter/Space or ArrowDown; Escape
+ * closes and returns focus to the button; clicking outside, tabbing away or
+ * navigating closes it. The panel is right-aligned so it never extends past the
+ * bar's right edge (the bar clips horizontally; see DesktopLinks).
+ */
+function NavMenu({ label, items, active, className = "" }: { label: string; items: NavItem[]; active: boolean; className?: string }) {
+  const [open, setOpen] = useState(false);
+  const pathname = usePathname();
+  const [lastPath, setLastPath] = useState(pathname);
+  const rootRef = useRef<HTMLLIElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const panelId = useId();
+  if (pathname !== lastPath) {
+    setLastPath(pathname);
+    setOpen(false);
+  }
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointer = (e: PointerEvent) => {
+      if (!rootRef.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setOpen(false);
+        buttonRef.current?.focus();
+      }
+    };
+    document.addEventListener("pointerdown", onPointer);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onPointer);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  const focusLink = (index: number) => {
+    const links = rootRef.current?.querySelectorAll<HTMLElement>(`[data-nav-menu-link]`);
+    if (!links?.length) return;
+    links[(index + links.length) % links.length]?.focus();
+  };
+
+  return (
+    <li
+      ref={rootRef}
+      className={`relative ${className}`}
+      onBlur={(e) => {
+        if (open && !rootRef.current?.contains(e.relatedTarget as Node | null)) setOpen(false);
+      }}
+    >
+      <button
+        ref={buttonRef}
+        type="button"
+        aria-expanded={open}
+        aria-controls={panelId}
+        onClick={() => setOpen((v) => !v)}
+        onKeyDown={(e) => {
+          if (e.key === "ArrowDown") {
+            e.preventDefault();
+            setOpen(true);
+            requestAnimationFrame(() => focusLink(0));
+          }
+        }}
+        className={`${barItemClass(active)} gap-1`}
+      >
+        {label}
+        {active ? <span className="sr-only"> (current section)</span> : null}
+        <IconChevronDown className={`h-3.5 w-3.5 transition-transform ${open ? "rotate-180" : ""}`} />
+        <ActiveBar active={active} />
+      </button>
+      <ul
+        id={panelId}
+        hidden={!open}
+        onKeyDown={(e) => {
+          const links = Array.from(rootRef.current?.querySelectorAll<HTMLElement>(`[data-nav-menu-link]`) ?? []);
+          const i = links.indexOf(document.activeElement as HTMLElement);
+          if (e.key === "ArrowDown") {
+            e.preventDefault();
+            focusLink(i + 1);
+          } else if (e.key === "ArrowUp") {
+            e.preventDefault();
+            focusLink(i - 1);
+          }
+        }}
+        className="absolute right-0 top-full z-50 mt-1 min-w-[180px] rounded-xl border border-line bg-surface p-1.5 shadow-2xl"
+      >
+        {items.map((item) => (
+          <li key={item.label}>
+            <Link
+              href={item.href}
+              data-nav-menu-link=""
+              aria-current={item.active ? "page" : undefined}
+              onClick={() => setOpen(false)}
+              className={`flex min-h-10 items-center justify-between gap-3 rounded-lg px-3 text-[14px] font-medium ${
+                item.active ? "bg-elevated text-ink" : "text-ink-2 hover:bg-elevated hover:text-ink"
+              }`}
+            >
+              {item.label}
+              {item.active ? <span className="h-1.5 w-1.5 rounded-full bg-cyan-400" aria-hidden="true" /> : null}
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </li>
+  );
+}
+
+/**
+ * Desktop bar. The <ul> clips horizontally (overflow-x: clip, overflow-y stays
+ * visible for the menus) and may shrink (min-w-0), so even if a future item
+ * doesn't fit it is cut off inside the bar instead of sliding under the
+ * search button or wallet chip.
+ */
 function DesktopLinks() {
   const { items } = useNavItems();
   return (
-    <ul className="flex items-center gap-0.5 xl:gap-1">
-      {items.map((item) => (
-        <li key={item.label} className={item.wide && !item.active ? "hidden xl:block" : undefined}>
-          <Link
-            href={item.href}
-            aria-current={item.active ? "page" : undefined}
-            className={`type-nav relative flex h-16 items-center whitespace-nowrap px-2.5 transition-colors xl:px-3 ${
-              item.active ? "text-ink" : "text-ink-2 hover:text-ink"
-            }`}
-          >
-            {item.label}
-            <span
-              aria-hidden="true"
-              className={`absolute inset-x-3 bottom-0 h-0.5 rounded-full transition-opacity ${
-                item.active ? "bg-cyan-400 opacity-100" : "opacity-0"
-              }`}
-            />
-          </Link>
-        </li>
-      ))}
+    <ul className="flex min-w-0 items-center gap-0.5 overflow-x-clip xl:gap-1" data-nav-bar="">
+      {desktopEntries(items).map((entry) =>
+        entry.kind === "menu" ? (
+          <NavMenu key={entry.group} label={entry.label} items={entry.items} active={entry.active} className={entry.belowXl ? "xl:hidden" : ""} />
+        ) : (
+          <li key={entry.item.label} className={entry.xlOnly ? "hidden xl:block" : undefined}>
+            <Link href={entry.item.href} aria-current={entry.item.active ? "page" : undefined} className={barItemClass(entry.item.active)}>
+              {entry.item.label}
+              <ActiveBar active={entry.item.active} />
+            </Link>
+          </li>
+        ),
+      )}
     </ul>
   );
 }
@@ -189,7 +261,7 @@ export function TopNavigation() {
         <div className={`flex min-w-0 items-center ${marketing ? "gap-8" : "gap-4 xl:gap-8"}`}>
           <Brand />
           {!marketing && (
-            <nav aria-label="Desk" className="hidden lg:block">
+            <nav aria-label="Desk" className="hidden min-w-0 lg:block">
               <Suspense fallback={null}>
                 <DesktopLinks />
               </Suspense>

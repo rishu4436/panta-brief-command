@@ -182,7 +182,7 @@ function RoomRowCard({ r }: { r: StudioRoomRow }) {
             <a href={r.roomPath} className="btn btn-ghost btn-sm">
               Open room
             </a>
-            <button type="button" className="btn btn-ghost btn-sm" onClick={() => copy("link", `${window.location.origin}${r.roomPath}`)}>
+            <button type="button" className="btn btn-ghost btn-sm" onClick={() => void copy("link", `${window.location.origin}${r.roomPath}`)}>
               {label("link", "Copy share link")}
             </button>
             <Link href={`${manage}#embed`} className="btn btn-ghost btn-sm">

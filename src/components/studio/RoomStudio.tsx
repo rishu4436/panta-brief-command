@@ -233,7 +233,7 @@ function Analytics({ a }: { a: StudioRoomAnalytics }) {
   );
 }
 
-function LinkRow({ k, name, url, note, copy, label }: { k: string; name: string; url: string; note?: string; copy: (k: string, t: string) => void; label: (k: string, idle: string) => string }) {
+function LinkRow({ k, name, url, note, copy, label }: { k: string; name: string; url: string; note?: string; copy: (k: string, t: string) => Promise<void>; label: (k: string, idle: string) => string }) {
   return (
     <li className="rounded-lg border border-line bg-inset/40 p-2.5">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -242,7 +242,7 @@ function LinkRow({ k, name, url, note, copy, label }: { k: string; name: string;
           <a href={url} target="_blank" rel="noopener noreferrer" className="btn btn-ghost btn-sm">
             Open
           </a>
-          <button type="button" className="btn btn-ghost btn-sm" onClick={() => copy(k, url)}>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => void copy(k, url)}>
             {label(k, "Copy")}
           </button>
         </span>
@@ -256,7 +256,7 @@ function LinkRow({ k, name, url, note, copy, label }: { k: string; name: string;
 }
 
 function Toolkit({ a, wallet }: { a: StudioRoomAnalytics; wallet: string }) {
-  const { copy, label } = useCopy();
+  const { copy, label, result } = useCopy();
   const [cid, setCid] = useState("");
   const cidOk = CAMPAIGN_ID_RE.test(cid);
   const link = cidOk ? campaignUrl(a.links.roomUrl, cid) : null;
@@ -290,12 +290,24 @@ function Toolkit({ a, wallet }: { a: StudioRoomAnalytics; wallet: string }) {
               1–32 lowercase letters, digits or hyphens. Visits that open the room with this link are counted under the campaign (views only, never forecasts or wallets).
             </p>
             {link ? (
-              <div className="mt-2 flex flex-wrap items-center gap-2">
-                <code className="min-w-0 flex-1 truncate rounded bg-black/30 px-2 py-1 font-addr text-[11px] text-ink-2">{link}</code>
-                <button type="button" className="btn btn-ghost btn-sm" onClick={() => copy("camp", link)}>
-                  {label("camp", "Copy")}
-                </button>
-              </div>
+              <>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <code className="min-w-0 flex-1 select-all truncate rounded bg-black/30 px-2 py-1 font-addr text-[11px] text-ink-2" title={link}>
+                    {link}
+                  </code>
+                  {/* Keyed by the link itself, so editing the campaign id resets the feedback. */}
+                  <button type="button" className="btn btn-ghost btn-sm" onClick={() => void copy(`camp:${link}`, link)}>
+                    {label(`camp:${link}`, "Copy")}
+                  </button>
+                </div>
+                <p role="status" aria-live="polite" className={`mt-1 min-h-[1rem] text-[11px] ${result(`camp:${link}`) === false ? "text-rose-200" : "text-emerald-200"}`}>
+                  {result(`camp:${link}`) === true
+                    ? "Campaign link copied to your clipboard."
+                    : result(`camp:${link}`) === false
+                      ? "Couldn't copy automatically. Select the link above and copy it (Ctrl+C / ⌘C)."
+                      : ""}
+                </p>
+              </>
             ) : cid ? (
               <p role="alert" className="mt-1 text-[11px] text-rose-200">
                 Use only a–z, 0–9 and hyphens.

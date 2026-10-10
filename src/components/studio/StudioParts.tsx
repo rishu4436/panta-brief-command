@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { NOT_TRACKED, type Insight } from "@/lib/studio/domain";
 import { StatusBadge, type StatusTone } from "../ui/StatusBadge";
 
@@ -45,19 +45,60 @@ export function InsightsList({ insights }: { insights: Insight[] }) {
   );
 }
 
-export function useCopy() {
-  const [copied, setCopied] = useState<string | null>(null);
-  const copy = async (key: string, text: string) => {
-    try {
+/**
+ * Copy text: the async Clipboard API first, then the legacy selection copy
+ * (works where the Clipboard API is missing, e.g. a non-secure http origin).
+ * Resolves false instead of throwing.
+ */
+export async function writeClipboard(text: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard?.writeText) {
       await navigator.clipboard.writeText(text);
-      setCopied(key);
-    } catch {
-      setCopied(`${key}:failed`);
+      return true;
     }
-    setTimeout(() => setCopied(null), 2000);
+  } catch {
+    /* fall through to the legacy path */
+  }
+  try {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.setAttribute("readonly", "");
+    ta.style.position = "fixed";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand("copy");
+    ta.remove();
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Shared copy feedback for every Studio copy button: the clicked button reads
+ * "Copied" (or "Copy failed") for a moment. One timer per hook, reset on every
+ * copy, so an earlier copy's timeout can't clear a newer button's feedback.
+ */
+export function useCopy() {
+  const [state, setState] = useState<{ key: string; ok: boolean } | null>(null);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (timer.current) clearTimeout(timer.current);
+    },
+    [],
+  );
+  const copy = async (key: string, text: string) => {
+    const ok = await writeClipboard(text);
+    if (timer.current) clearTimeout(timer.current);
+    setState({ key, ok });
+    timer.current = setTimeout(() => setState(null), ok ? 2000 : 5000);
   };
-  const label = (key: string, idle: string) => (copied === key ? "Copied" : copied === `${key}:failed` ? "Copy failed" : idle);
-  return { copy, label };
+  const label = (key: string, idle: string) => (state?.key === key ? (state.ok ? "Copied" : "Copy failed") : idle);
+  /** true = copied, false = failed, null = no recent copy for this key. */
+  const result = (key: string): boolean | null => (state?.key === key ? state.ok : null);
+  return { copy, label, result };
 }
 
 export const formatPct = (bps: number | null) => (bps === null ? "—" : `${(bps / 100).toFixed(1)}%`);

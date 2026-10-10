@@ -23,6 +23,7 @@ export type ClaimReadinessStatus =
   | "claimed"
   | "not_yet"
   | "resolution_pending"
+  | "lost"
   | "unavailable";
 
 export type ClaimReadiness = { status: ClaimReadinessStatus; label: string };
@@ -192,14 +193,21 @@ export function claimReadiness(position: Pick<Position, "claimable" | "claimed" 
 
 /** Refine claim readiness when we know the event has ended but is not resolved. */
 export function claimReadinessWithResolution(
-  position: Pick<Position, "claimable" | "claimed" | "phase">,
+  position: Pick<Position, "claimable" | "claimed" | "phase"> & { side?: Position["side"] },
   lifecycle: IntelLifecycle,
   resolution: ResolutionIntel,
+  outcome: "yes" | "no" | null = null,
 ): ClaimReadiness {
+  // Panta's own flags always win.
   if (position.claimed) return { status: "claimed", label: "Claimed" };
   if (position.claimable) return { status: "claimable", label: "Claimable" };
   if (lifecycle === "cancelled") return { status: "unavailable", label: "Unavailable" };
   if (resolution.kind === "awaiting") return { status: "resolution_pending", label: "Resolution pending" };
+  // Resolved with a known winner and this position is on the other side: it will
+  // never become claimable, so don't say "Not yet claimable".
+  if (lifecycle === "resolved" && outcome && (position.side === "yes" || position.side === "no") && position.side !== outcome) {
+    return { status: "lost", label: "Lost · nothing to claim" };
+  }
   if (lifecycle === "resolved") return { status: "not_yet", label: "Not yet claimable" };
   if (lifecycle === "primary" || lifecycle === "secondary") {
     return { status: "not_yet", label: "Not yet claimable" };
@@ -224,7 +232,7 @@ export function enrichPosition(
   const mark = bookMark(position, px);
   const lifecycle = positionLifecycle(position, market, nowMs);
   const resolution = resolutionIntel(market, lifecycle, nowMs);
-  const claim = claimReadinessWithResolution(position, lifecycle, resolution);
+  const claim = claimReadinessWithResolution(position, lifecycle, resolution, market?.outcome ?? null);
   const title = (market?.title || position.title || "").trim() || position.marketId;
   return {
     position,

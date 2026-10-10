@@ -453,7 +453,9 @@ export function BookPanel({
                                   ? claimBadge("Claimed", "success")
                                   : r.claim.status === "resolution_pending"
                                     ? claimBadge("Resolution pending", "pending")
-                                    : r.claim.status === "unavailable"
+                                    : r.claim.status === "lost"
+                                      ? claimBadge("Lost · nothing to claim", "neutral")
+                                      : r.claim.status === "unavailable"
                                       ? claimBadge("Unavailable", "neutral")
                                       : claimBadge("Not yet claimable", "neutral")}
                             </td>

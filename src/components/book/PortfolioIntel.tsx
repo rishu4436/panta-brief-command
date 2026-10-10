@@ -21,7 +21,17 @@ function Stat({ label, value, sub }: { label: string; value: string; sub?: strin
 
 function Bar({ yes, no }: { yes: number; no: number }) {
   const total = yes + no;
-  const yPct = total > 0 ? (yes / total) * 100 : 50;
+  // All valid marks are $0 (e.g. only losing resolved positions): no split to show.
+  // A 50/50 bar here would invent an exposure that doesn't exist.
+  if (!(total > 0)) {
+    return (
+      <div className="mt-2">
+        <div className="h-2 rounded-full bg-elevated" aria-hidden="true" />
+        <p className="mt-1.5 text-[11px] text-ink-3">No open exposure · every valid mark is {formatMarkUsdc(0)}</p>
+      </div>
+    );
+  }
+  const yPct = (yes / total) * 100;
   return (
     <div className="mt-2">
       <div className="flex h-2 overflow-hidden rounded-full bg-elevated">
@@ -79,6 +89,8 @@ export function PortfolioIntelHeader({ intel }: { intel: PortfolioIntelData }) {
           <p className="type-col text-[10px] tracking-[0.08em] text-ink-3">Largest position</p>
           {intel.marksPending ? (
             <p className="mt-2 text-[12px] text-ink-3">{MARKS_LOADING_NOTE}</p>
+          ) : !intel.noValidMarks && intel.totalValidMarked === 0 ? (
+            <p className="mt-2 text-[12px] text-ink-3">No open exposure · every valid mark is {formatMarkUsdc(0)}</p>
           ) : intel.largest ? (
             <div className="mt-1.5">
               <p className="truncate text-[13px] font-medium text-ink" title={intel.largest.title}>

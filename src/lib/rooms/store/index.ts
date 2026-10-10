@@ -88,6 +88,12 @@ class UnavailableRoomRepository implements RoomRepository {
   addChallenge = async (): Promise<never> => this.fail();
   findChallengeByIdempotencyKey = async (): Promise<never> => this.fail();
   listChallenges = async (): Promise<never> => this.fail();
+  listCreatorRoomsAll = async (): Promise<never> => this.fail();
+  getCreatorStats = async (): Promise<never> => this.fail();
+  noteCreatorActivity = async (): Promise<never> => this.fail();
+  countRoomChallenges = async (): Promise<never> => this.fail();
+  recordStudioEvent = async (): Promise<never> => this.fail();
+  listStudioCounters = async (): Promise<never> => this.fail();
 }
 
 export function createRoomRepository(cfg: RoomStoreConfig): RoomRepository {

@@ -36,6 +36,14 @@ import {
   saveDebateRedis,
 } from "./redis-debate";
 import type { RoomRecord } from "../domain";
+import type { CreatorActivity, RecordEventCommand } from "@/lib/studio/types";
+import {
+  countRoomChallengesRedis,
+  getCreatorStatsRedis,
+  listStudioCountersRedis,
+  noteCreatorActivityRedis,
+  recordStudioEventRedis,
+} from "./redis-studio";
 import type { SubmitForecastCommand } from "@/lib/forecasts/types";
 import { FinalizationIntegrityError, type CommitFinalizationInput } from "@/lib/arena/types";
 import {
@@ -75,6 +83,7 @@ import {
   type AuthChallengeRecord,
   type CreateRoomResult,
   type NewRoom,
+  type RoomPatch,
   type RoomRepository,
 } from "./types";
 
@@ -171,6 +180,21 @@ const K = {
   creatorIndex: (wallet: string) => `${ROOMS_REDIS_PREFIX}creator:${wallet}`,
   challenge: (nonce: string) => `${ROOMS_REDIS_PREFIX}challenge:${nonce}`,
 };
+
+/** Compare-and-set on one room key: KEYS room; ARGV expected JSON, new JSON. 1 = written, 0 = changed underneath. */
+const ROOM_CAS_SCRIPT = `
+if redis.call('GET', KEYS[1]) ~= ARGV[1] then return 0 end
+redis.call('SET', KEYS[1], ARGV[2])
+return 1
+`;
+
+/** Public-directory index sync: KEYS public ZSET; ARGV "add"|"rem", score, roomId. */
+const PUBLIC_INDEX_SCRIPT = `
+if ARGV[1] == 'add' then redis.call('ZADD', KEYS[1], ARGV[2], ARGV[3]) else redis.call('ZREM', KEYS[1], ARGV[3]) end
+return 1
+`;
+
+const ROOM_CAS_ATTEMPTS = 4;
 
 function parseRoom(raw: string | null): RoomRecord | null {
   if (!raw) return null;
@@ -294,19 +318,41 @@ export class RedisRoomRepository implements RoomRepository {
     return this.call(async () => (await this.r.get(K.slug(slug))) !== null);
   }
 
-  updateRoom(roomId: string, actorWallet: string, patch: { title?: string; description?: string }, now: number) {
+  /**
+   * Compare-and-set on the room record (retried if another edit lands in
+   * between), then the public index is synced. The record is authoritative:
+   * directory reads re-check visibility + status, so a failed index sync can
+   * only hide a public room until its next save, never leak an unlisted or
+   * archived one.
+   */
+  updateRoom(roomId: string, actorWallet: string, patch: RoomPatch, now: number) {
     return this.call(async () => {
-      const cur = parseRoom(await this.r.get(K.room(roomId)));
-      if (!cur) throw new RoomNotFoundError();
-      if (cur.creatorWallet !== actorWallet) throw new RoomForbiddenError();
-      const next: RoomRecord = {
-        ...cur,
-        title: patch.title ?? cur.title,
-        description: patch.description ?? cur.description,
-        updatedAt: Math.max(now, cur.updatedAt),
-      };
-      await this.r.set(K.room(roomId), JSON.stringify(next));
-      return next;
+      for (let attempt = 0; attempt < ROOM_CAS_ATTEMPTS; attempt++) {
+        const raw = await this.r.get(K.room(roomId));
+        const cur = parseRoom(raw);
+        if (!cur || !raw) throw new RoomNotFoundError();
+        if (cur.creatorWallet !== actorWallet) throw new RoomForbiddenError();
+        const next: RoomRecord = {
+          ...cur,
+          title: patch.title ?? cur.title,
+          description: patch.description ?? cur.description,
+          visibility: patch.visibility ?? cur.visibility,
+          status: patch.status ?? cur.status,
+          updatedAt: Math.max(now, cur.updatedAt),
+        };
+        if (Number(await this.r.eval(ROOM_CAS_SCRIPT, [K.room(roomId)], [raw, JSON.stringify(next)])) !== 1) continue;
+        const listed = next.visibility === "public" && next.status === "active";
+        await this.r.eval(PUBLIC_INDEX_SCRIPT, [K.publicIndex()], [listed ? "add" : "rem", String(next.createdAt), roomId]);
+        return next;
+      }
+      throw new RoomStoreUnavailableError("failure", "room changed concurrently; try again");
+    });
+  }
+
+  listCreatorRoomsAll(wallet: string, { limit }: { limit: number }) {
+    return this.call(async () => {
+      const ids = await this.r.zrevrange(K.creatorIndex(wallet), 0, limit - 1);
+      return (await this.loadMany(ids)).filter((r) => r.creatorWallet === wallet);
     });
   }
 
@@ -417,6 +463,23 @@ export class RedisRoomRepository implements RoomRepository {
 
   noteParticipation(p: { wallet: string; roomId: string; marketId: string; at: number }) {
     return this.call(() => noteParticipationRedis(this.r, ROOMS_REDIS_PREFIX, p));
+  }
+
+  // ------------------------------------------------------------ Creator Growth Studio (see redis-studio.ts)
+  getCreatorStats(wallet: string, opts: { rooms: RoomRecord[]; sinceMs: number; maxFirst: number }) {
+    return this.call(() => getCreatorStatsRedis(this.r, ROOMS_REDIS_PREFIX, wallet, opts));
+  }
+  noteCreatorActivity(a: CreatorActivity) {
+    return this.call(() => noteCreatorActivityRedis(this.r, ROOMS_REDIS_PREFIX, a));
+  }
+  countRoomChallenges(roomId: string) {
+    return this.call(() => countRoomChallengesRedis(this.r, ROOMS_REDIS_PREFIX, roomId));
+  }
+  recordStudioEvent(cmd: RecordEventCommand) {
+    return this.call(() => recordStudioEventRedis(this.r, ROOMS_REDIS_PREFIX, cmd));
+  }
+  listStudioCounters(wallet: string, { days }: { days: string[] }) {
+    return this.call(() => listStudioCountersRedis(this.r, ROOMS_REDIS_PREFIX, wallet, days));
   }
 
   // ------------------------------------------------------------ AI debates (see redis-debate.ts)

@@ -17,6 +17,7 @@
 import type { ArenaRepository } from "@/lib/arena/types";
 import type { DebateRepository } from "@/lib/debate/types";
 import type { ForecastRepository } from "@/lib/forecasts/types";
+import type { StudioRepository } from "@/lib/studio/types";
 import type { RoomRecord, RoomStatus, RoomVisibility } from "../domain";
 
 export { ForecastRevisionConflictError } from "@/lib/forecasts/types";
@@ -40,7 +41,10 @@ export type CreateRoomResult = { status: "created" | "replayed"; room: RoomRecor
 
 export type ListOptions = { limit: number };
 
-export interface RoomRepository extends ForecastRepository, ArenaRepository, DebateRepository {
+/** Creator-editable room fields. marketId, slug and creator are immutable. */
+export type RoomPatch = { title?: string; description?: string; visibility?: RoomVisibility; status?: RoomStatus };
+
+export interface RoomRepository extends ForecastRepository, ArenaRepository, DebateRepository, StudioRepository {
   readonly kind: RoomStoreKind;
   /** Durable across restarts and shared across server instances. */
   readonly durable: boolean;
@@ -58,13 +62,12 @@ export interface RoomRepository extends ForecastRepository, ArenaRepository, Deb
   /** A creator's rooms, newest first; unlisted only when asked (owner view). */
   listRoomsByCreator(wallet: string, opts: ListOptions & { includeUnlisted: boolean }): Promise<RoomRecord[]>;
   isSlugTaken(slug: string): Promise<boolean>;
-  /** Throws RoomNotFoundError / RoomForbiddenError. */
-  updateRoom(
-    roomId: string,
-    actorWallet: string,
-    patch: { title?: string; description?: string },
-    now: number,
-  ): Promise<RoomRecord>;
+  /**
+   * Creator-only edit of title/description/visibility/status (archive and
+   * unarchive). Throws RoomNotFoundError / RoomForbiddenError. Adapters keep
+   * their public-directory index consistent with visibility + status.
+   */
+  updateRoom(roomId: string, actorWallet: string, patch: RoomPatch, now: number): Promise<RoomRecord>;
 
   saveChallenge(c: AuthChallengeRecord): Promise<void>;
   /** Atomically remove and return the challenge (null if unknown or already used). */

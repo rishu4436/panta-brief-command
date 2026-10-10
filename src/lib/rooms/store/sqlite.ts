@@ -68,6 +68,14 @@ import {
   saveDebateSql,
 } from "./sqlite-debate";
 import { ChallengeLimitError, DebateNotFoundError } from "@/lib/debate/types";
+import type { CreatorActivity, RecordEventCommand } from "@/lib/studio/types";
+import {
+  countRoomChallengesSql,
+  getCreatorStatsSql,
+  listStudioCountersSql,
+  recordStudioEventSql,
+  STUDIO_MIGRATION_SQL,
+} from "./sqlite-studio";
 import { DEBATE_IDEM_TTL_MS, type DebateBundle, type DebateChallenge } from "@/lib/debate/domain";
 import {
   ForecastRevisionConflictError,
@@ -79,6 +87,7 @@ import {
   type AuthChallengeRecord,
   type CreateRoomResult,
   type NewRoom,
+  type RoomPatch,
   type RoomRepository,
 } from "./types";
 
@@ -126,6 +135,7 @@ export const MIGRATIONS: readonly { version: number; sql: string }[] = [
   { version: 2, sql: FORECAST_MIGRATION_SQL },
   { version: 3, sql: ARENA_MIGRATION_SQL },
   { version: 4, sql: DEBATE_MIGRATION_SQL },
+  { version: 5, sql: STUDIO_MIGRATION_SQL },
 ];
 
 const LOCK_WAIT_MS = 5_000;
@@ -447,7 +457,7 @@ export class SqliteRoomRepository implements RoomRepository {
     return this.read((db) => one(db, "SELECT 1 AS x FROM rooms WHERE slug = ?", [slug]) !== null);
   }
 
-  updateRoom(roomId: string, actorWallet: string, patch: { title?: string; description?: string }, now: number) {
+  updateRoom(roomId: string, actorWallet: string, patch: RoomPatch, now: number) {
     return this.write((db) => {
       const r = one(db, `SELECT ${ROOM_COLUMNS} FROM rooms WHERE room_id = ?`, [roomId]);
       if (!r) throw new RoomNotFoundError();
@@ -457,19 +467,24 @@ export class SqliteRoomRepository implements RoomRepository {
         ...cur,
         title: patch.title ?? cur.title,
         description: patch.description ?? cur.description,
+        visibility: patch.visibility ?? cur.visibility,
+        status: patch.status ?? cur.status,
         updatedAt: Math.max(now, cur.updatedAt),
       };
       this.tx(db, () => {
-        db.run("UPDATE rooms SET title = ?, description = ?, updated_at = ? WHERE room_id = ? AND creator_wallet = ?", [
-          next.title,
-          next.description,
-          next.updatedAt,
-          roomId,
-          actorWallet,
-        ]);
+        db.run(
+          "UPDATE rooms SET title = ?, description = ?, visibility = ?, status = ?, updated_at = ? WHERE room_id = ? AND creator_wallet = ?",
+          [next.title, next.description, next.visibility, next.status, next.updatedAt, roomId, actorWallet],
+        );
       });
       return [next, true];
     });
+  }
+
+  listCreatorRoomsAll(wallet: string, { limit }: { limit: number }) {
+    return this.read((db) =>
+      all(db, `SELECT ${ROOM_COLUMNS} FROM rooms WHERE creator_wallet = ? ORDER BY created_at DESC, room_id DESC LIMIT ?`, [wallet, limit]).map(toRecord),
+    );
   }
 
   saveChallenge(c: AuthChallengeRecord) {
@@ -579,6 +594,24 @@ export class SqliteRoomRepository implements RoomRepository {
 
   /** Derived by join in SQLite; nothing to index. */
   async noteParticipation(): Promise<void> {}
+
+  // ---- Creator Growth Studio (sqlite-studio.ts) ----
+  getCreatorStats(wallet: string, opts: { rooms: RoomRecord[]; sinceMs: number; maxFirst: number }) {
+    return this.read((db) => getCreatorStatsSql(db, this.q, wallet, opts.sinceMs, opts.maxFirst));
+  }
+  /** Derived by join in SQLite; nothing to maintain. */
+  async noteCreatorActivity(a: CreatorActivity): Promise<void> {
+    void a;
+  }
+  countRoomChallenges(roomId: string) {
+    return this.read((db) => countRoomChallengesSql(db, this.q, roomId));
+  }
+  recordStudioEvent(cmd: RecordEventCommand) {
+    return this.write((db) => recordStudioEventSql(db, this.q, cmd));
+  }
+  listStudioCounters(wallet: string, { days }: { days: string[] }) {
+    return this.read((db) => listStudioCountersSql(db, this.q, wallet, days));
+  }
 
   // ---- AI Debate Arena (sqlite-debate.ts) ----
   saveDebate(bundle: DebateBundle, opts: { idempotencyKey: string; keepLast: number; idemTtlMs: number }) {

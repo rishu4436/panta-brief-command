@@ -83,6 +83,15 @@ export async function submitForecast(
     },
     { key: input.idempotencyKey, fingerprint: forecastRequestHash(input) },
   );
+  // Creator Studio indexes (Redis; SQLite derives by join). After the write, best effort:
+  // a failure here never turns a saved forecast into an error (documented undercount).
+  if (res.status !== "replayed") {
+    try {
+      await deps.repo.noteCreatorActivity({ creatorWallet: room.creatorWallet, roomId: room.roomId, wallet, kind: res.status, firstAt: res.forecast.createdAt });
+    } catch {
+      console.warn("[studio] creator index update failed");
+    }
+  }
   // The committed community aggregate (read after the write, so it includes it),
   // returned with the result so the client can show it without a refetch.
   // A failed read here must not turn a saved forecast into an error: null → client refetches.

@@ -206,12 +206,19 @@ export const CreateRoomInput = z.strictObject({
 });
 export type CreateRoomInput = z.infer<typeof CreateRoomInput>;
 
+/**
+ * Creator edit (PATCH /api/rooms/:slug). Strict: marketId, slug, creator and
+ * anything else are rejected (immutable in V1; see docs/CREATOR_STUDIO.md).
+ * status "archived" archives, "active" unarchives.
+ */
 export const UpdateRoomInput = z
   .strictObject({
     title: Title.optional(),
     description: Description.optional(),
+    visibility: z.enum(ROOM_VISIBILITIES).optional(),
+    status: z.enum(ROOM_STATUSES).optional(),
   })
-  .refine((v) => v.title !== undefined || v.description !== undefined, "Nothing to update.");
+  .refine((v) => v.title !== undefined || v.description !== undefined || v.visibility !== undefined || v.status !== undefined, "Nothing to update.");
 export type UpdateRoomInput = z.infer<typeof UpdateRoomInput>;
 
 /** The fields that define "the same create request" for idempotency. */

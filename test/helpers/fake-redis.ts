@@ -19,10 +19,23 @@ export class FakeRedis implements RedisLike {
   h = new Map<string, Map<string, string>>();
   l = new Map<string, string[]>();
   s = new Map<string, Set<string>>();
+  /** PEXPIRE deadlines for hash / set / zset / list keys (strings keep theirs in kv). */
+  exp = new Map<string, number>();
   failMulti = false;
   failEval = false;
   evalCalls = 0;
 
+  /** Drop a non-string key whose PEXPIRE deadline passed (lazy, like Redis). */
+  private purge(k: string) {
+    const t = this.exp.get(k);
+    if (t !== undefined && t <= Date.now()) {
+      this.exp.delete(k);
+      this.z.delete(k);
+      this.h.delete(k);
+      this.l.delete(k);
+      this.s.delete(k);
+    }
+  }
   private live(k: string) {
     const e = this.kv.get(k);
     if (!e) return null;
@@ -92,6 +105,7 @@ export class FakeRedis implements RedisLike {
     return fields.map((f) => this.h.get(k)?.get(f) ?? null);
   }
   async hgetall(k: string) {
+    this.purge(k);
     return Object.fromEntries(this.h.get(k) ?? []);
   }
   async lrange(k: string, start: number, stop: number) {
@@ -116,11 +130,13 @@ export class FakeRedis implements RedisLike {
   /** Synchronous command dispatcher used by redis.call inside scripts. */
   command(args: string[]): Reply {
     const [name, ...a] = args;
+    if (a[0] !== undefined) this.purge(a[0]);
     switch (name.toUpperCase()) {
       case "GET":
         return this.live(a[0]);
       case "SET": {
         const px = a.findIndex((x) => x.toUpperCase() === "PX");
+        if (a.some((x, i) => i >= 2 && x.toUpperCase() === "NX") && this.live(a[0]) !== null) return null;
         this.kv.set(a[0], { v: a[1], exp: px >= 0 ? Date.now() + Number(a[px + 1]) : null });
         return "OK";
       }
@@ -156,6 +172,29 @@ export class FakeRedis implements RedisLike {
         const had = m?.delete(a[1]) ? 1 : 0;
         return had;
       }
+      case "HGETALL":
+        return [...(this.h.get(a[0]) ?? new Map<string, string>()).entries()].flat();
+      case "HLEN":
+        return this.h.get(a[0])?.size ?? 0;
+      case "ZSCORE": {
+        const v = this.z.get(a[0])?.get(a[1]);
+        return v === undefined ? null : String(v);
+      }
+      case "ZRANGEBYSCORE": {
+        const lo = a[1] === "-inf" ? -Infinity : Number(a[1]);
+        const hi = a[2] === "+inf" ? Infinity : Number(a[2]);
+        const withScores = a.some((x) => x.toUpperCase() === "WITHSCORES");
+        const li = a.findIndex((x) => x.toUpperCase() === "LIMIT");
+        const m = this.z.get(a[0]) ?? new Map<string, number>();
+        let members = this.zsorted(a[0]).filter((x) => m.get(x)! >= lo && m.get(x)! <= hi);
+        if (li >= 0) members = members.slice(Number(a[li + 1]), Number(a[li + 1]) + Number(a[li + 2]));
+        return withScores ? members.flatMap((x) => [x, String(m.get(x))]) : members;
+      }
+      case "PEXPIRE": {
+        const has = this.z.has(a[0]) || this.h.has(a[0]) || this.l.has(a[0]) || this.s.has(a[0]);
+        if (has) this.exp.set(a[0], Date.now() + Number(a[1]));
+        return has ? 1 : 0;
+      }
       case "HEXISTS":
         return this.h.get(a[0])?.has(a[1]) ? 1 : 0;
       case "SADD": {
@@ -188,6 +227,7 @@ export class FakeRedis implements RedisLike {
           this.h.delete(k);
           this.l.delete(k);
           this.s.delete(k);
+          this.exp.delete(k);
           if (had) n += 1;
         }
         return n;

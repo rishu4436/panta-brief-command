@@ -9,9 +9,14 @@
  *  - idempotent create keyed by (creatorWallet, idempotencyKey);
  *  - single-use auth challenges (consume is atomic: delete-and-return);
  *  - updates only by the room's creator.
+ * Forecasts (lib/forecasts/types.ts) live in the same backend so they share
+ * its durability and fail-closed selection.
  */
 
+import type { ForecastRepository } from "@/lib/forecasts/types";
 import type { RoomRecord, RoomStatus, RoomVisibility } from "../domain";
+
+export { ForecastRevisionConflictError } from "@/lib/forecasts/types";
 
 export type RoomStoreKind = "sqlite" | "redis" | "unavailable";
 
@@ -32,7 +37,7 @@ export type CreateRoomResult = { status: "created" | "replayed"; room: RoomRecor
 
 export type ListOptions = { limit: number };
 
-export interface RoomRepository {
+export interface RoomRepository extends ForecastRepository {
   readonly kind: RoomStoreKind;
   /** Durable across restarts and shared across server instances. */
   readonly durable: boolean;

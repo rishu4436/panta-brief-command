@@ -11,7 +11,8 @@ import "server-only";
  *  - writers are serialised by an in-process queue plus an exclusive lock file
  *    (`<db>.lock`, stale after LOCK_STALE_MS), so two processes on the same
  *    file cannot lose each other's writes;
- *  - uniqueness (slug, idempotency key, nonce) is enforced by SQLite UNIQUE /
+ *  - uniqueness (slug, idempotency key, nonce; one current forecast per
+ *    room+wallet; one history row per revision) is enforced by SQLite UNIQUE /
  *    PRIMARY KEY constraints, and every statement is parameterised.
  *
  * Not for Vercel: serverless instances have no shared durable disk, so
@@ -25,7 +26,18 @@ import path from "node:path";
 import { randomBytes } from "node:crypto";
 import type { Database, SqlJsStatic, SqlValue } from "sql.js";
 import type { RoomRecord } from "../domain";
+import type { SubmitForecastCommand } from "@/lib/forecasts/types";
 import {
+  FORECAST_MIGRATION_SQL,
+  countForecastParticipantsSql,
+  getCurrentForecastSql,
+  getForecastAggregateSql,
+  getForecastHistorySql,
+  listCurrentForecastsSql,
+  submitForecastSql,
+} from "./sqlite-forecasts";
+import {
+  ForecastRevisionConflictError,
   IdempotencyConflictError,
   RoomForbiddenError,
   RoomNotFoundError,
@@ -78,6 +90,7 @@ export const MIGRATIONS: readonly { version: number; sql: string }[] = [
       CREATE INDEX auth_challenges_expiry ON auth_challenges (expires_at);
     `,
   },
+  { version: 2, sql: FORECAST_MIGRATION_SQL },
 ];
 
 const LOCK_WAIT_MS = 5_000;
@@ -252,7 +265,8 @@ export class SqliteRoomRepository implements RoomRepository {
       e instanceof IdempotencyConflictError ||
       e instanceof RoomNotFoundError ||
       e instanceof RoomForbiddenError ||
-      e instanceof RoomStoreUnavailableError
+      e instanceof RoomStoreUnavailableError ||
+      e instanceof ForecastRevisionConflictError
     ) {
       throw e;
     }
@@ -440,5 +454,33 @@ export class SqliteRoomRepository implements RoomRepository {
       this.tx(db, () => db.run("DELETE FROM auth_challenges WHERE nonce = ?", [nonce]));
       return [toChallenge(r), true];
     });
+  }
+
+  // ------------------------------------------------------------ forecasts
+
+  private readonly q = { all, one, tx: <T>(db: Database, fn: () => T) => this.tx(db, fn) };
+
+  submitForecast(cmd: SubmitForecastCommand, idem: { key: string; fingerprint: string }) {
+    return this.write((db) => submitForecastSql(db, this.q, cmd, idem));
+  }
+
+  getCurrentForecast(roomId: string, wallet: string) {
+    return this.read((db) => getCurrentForecastSql(db, this.q, roomId, wallet));
+  }
+
+  getForecastHistory(roomId: string, wallet: string, { limit }: { limit: number }) {
+    return this.read((db) => getForecastHistorySql(db, this.q, roomId, wallet, limit));
+  }
+
+  listCurrentForecasts(roomId: string, { limit, offset }: { limit: number; offset: number }) {
+    return this.read((db) => listCurrentForecastsSql(db, this.q, roomId, limit, offset));
+  }
+
+  getForecastAggregate(roomId: string) {
+    return this.read((db) => getForecastAggregateSql(db, this.q, roomId));
+  }
+
+  countForecastParticipants(roomId: string) {
+    return this.read((db) => countForecastParticipantsSql(db, this.q, roomId));
   }
 }

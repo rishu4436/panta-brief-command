@@ -50,7 +50,8 @@ import {
   type MarketValidator,
 } from "@/lib/rooms/service";
 import { SqliteRoomRepository } from "@/lib/rooms/store/sqlite";
-import { RedisRoomRepository, type RedisLike, type RedisWrite } from "@/lib/rooms/store/redis";
+import { RedisRoomRepository } from "@/lib/rooms/store/redis";
+import { FakeRedis } from "./helpers/fake-redis";
 import {
   __setRoomRepositoryForTests,
   createRoomRepository,
@@ -90,63 +91,6 @@ afterAll(() => {
   for (const d of tmpDirs) rmSync(d, { recursive: true, force: true });
   tmpDirs = [];
 });
-
-/** In-memory RedisLike with real NX / GETDEL / PX semantics. */
-class FakeRedis implements RedisLike {
-  kv = new Map<string, { v: string; exp: number | null }>();
-  z = new Map<string, Map<string, number>>();
-  failMulti = false;
-  private live(k: string) {
-    const e = this.kv.get(k);
-    if (!e) return null;
-    if (e.exp !== null && e.exp <= Date.now()) {
-      this.kv.delete(k);
-      return null;
-    }
-    return e.v;
-  }
-  async get(k: string) {
-    return this.live(k);
-  }
-  async mget(keys: string[]) {
-    return keys.map((k) => this.live(k));
-  }
-  async setNx(k: string, v: string, px?: number) {
-    if (this.live(k) !== null) return false;
-    this.kv.set(k, { v, exp: px ? Date.now() + px : null });
-    return true;
-  }
-  async setPx(k: string, v: string, px: number) {
-    this.kv.set(k, { v, exp: Date.now() + px });
-  }
-  async set(k: string, v: string) {
-    this.kv.set(k, { v, exp: null });
-  }
-  async del(k: string) {
-    this.kv.delete(k);
-  }
-  async getdel(k: string) {
-    const v = this.live(k);
-    this.kv.delete(k);
-    return v;
-  }
-  async zrevrange(k: string, start: number, stop: number) {
-    const m = this.z.get(k);
-    if (!m) return [];
-    return [...m.entries()].sort((a, b) => b[1] - a[1]).map(([member]) => member).slice(start, stop + 1);
-  }
-  async multi(writes: RedisWrite[]) {
-    if (this.failMulti) throw new Error("boom");
-    for (const w of writes) {
-      if (w.op === "set") this.kv.set(w.key, { v: w.value, exp: null });
-      else {
-        const m = this.z.get(w.key) ?? new Map();
-        m.set(w.member, w.score);
-        this.z.set(w.key, m);
-      }
-    }
-  }
-}
 
 const idem = (n = 0) => ({ key: `idem-key-${String(n).padStart(8, "0")}`, fingerprint: `fp-${n}` });
 

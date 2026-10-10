@@ -37,6 +37,7 @@
     "@types/sql.js": "^1.4.11",
     "eslint": "^9",
     "eslint-config-next": "16.3.4",
+    "fengari": "^0.1.5",
     "tailwindcss": "^4",
     "typescript": "^5",
     "vitest": "^3.2.7"

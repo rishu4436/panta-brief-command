@@ -1,4 +1,4 @@
-# Prediction Rooms (Phase 1 foundation)
+# Prediction Rooms (Phase 1 foundation + Phase 2 community forecasting)
 
 A Prediction Room is a wallet-owned community destination built around exactly
 one canonical Panta market. Phase 1 ships the foundation only: create, browse,
@@ -105,6 +105,61 @@ per IP with the shared limiter, and bodies are capped (1 KB auth, 4 KB rooms).
 | `GET /api/rooms/slug-check?slug=` | public | advisory availability |
 | `POST /api/rooms/auth/challenge`, `/verify` | — | sign-in |
 | `GET / DELETE /api/rooms/auth/session` | — | who am I / sign out |
+| `GET /api/rooms/:slug/forecasts[?limit&offset]` | public | community forecast, histogram, current forecasts (≤ 50 per page), forecast window |
+| `POST /api/rooms/:slug/forecasts` | session | submit / revise own forecast |
+| `GET /api/rooms/:slug/forecasts/me` | session (else `wallet: null`) | own current forecast + revision history |
+
+## Community forecasting (Phase 2)
+
+Free YES-probability forecasts by verified wallets on the room's Panta
+market. No money, no transaction, no scoring yet.
+
+**Model** (`src/lib/forecasts/domain.ts`): `forecastId, roomId, wallet,
+probabilityBps (int 0..10000), reasoning (≤ 1000 chars, plain text),
+revision, createdAt, updatedAt` (server clock). One CURRENT forecast per
+(room, wallet); every accepted submission appends one immutable history entry.
+
+**Writes** (`POST`): wallet only from the HttpOnly SIWS session (a body that
+names `wallet`/`walletAddress`/… → 400); same-origin only; strict schema;
+per-IP (20/min) and per-wallet (12/min) limits; `idempotencyKey` (same key +
+same payload replays the first result); `expectedRevision` (0 = first
+forecast) guards against lost updates → 409 `FORECAST_REVISION_CONFLICT`
+with `currentRevision`. Room creators have no power over others' forecasts.
+
+**Forecast window / cutoff** (`src/lib/forecasts/window.ts`). Writes are
+accepted only while the market is open for primary participation and before
+the cutoff. Cutoff = Panta's `primaryPhaseEndTime` (end of the primary buy
+window, the timestamp the canonical lifecycle uses to close "Primary · open"),
+or the event `endTime` if earlier; the earliest value any source reports wins.
+Each write re-checks server-side with the server clock: a fresh Panta detail
+(required, no cache) plus the catalog row (on-chain lifecycle) when present.
+The most advanced phase any source reports wins, so a stale catalog row can't
+re-open a closed/resolved market. Secondary, ended, resolved, cancelled and
+unknown → 409 `FORECASTING_CLOSED`; Panta unreachable / partial record with no
+other source / no published cutoff → closed (503 `FORECAST_WINDOW_UNAVAILABLE`
+when Panta couldn't be reached). Reads are never gated; page reads may reuse a
+15 s window check, writes never do.
+
+**Community forecast**: unweighted mean of CURRENT forecasts, one per wallet,
+computed server-side from maintained aggregates (SQL `COUNT/SUM/GROUP BY` on
+the indexed current table; Redis counters updated in the submit script). No
+forecasts → no mean ("No community forecasts yet"). Histogram: 10 buckets of
+10 points (100 % in the last). Never labelled as a market price or probability
+from Panta.
+
+**SQLite (migration v2)**: `forecasts` (UNIQUE (room_id, wallet), CHECKs on
+range/length), `forecast_revisions` (PRIMARY KEY (room_id, wallet, revision);
+UPDATE/DELETE aborted by triggers), `forecast_idempotency`. Submit runs inside
+the repository's exclusive write (lock + transaction); the revision UPDATE is
+conditional on the expected revision.
+
+**Redis**: per room, under the `{roomId}` hash tag: `meta` (wallet →
+revision|bps), `cur` (wallet → JSON), `hist:<wallet>` (append-only list),
+`agg` (count, sum, b0..b9), `order` (ZSET by updatedAt), `idem:<wallet>:<key>`
+(24 h). One Lua script (`SUBMIT_SCRIPT`) re-checks idempotency and revision,
+then appends history, replaces current, adjusts counters and records the
+idempotency result atomically. Tests run that script in a Lua VM (fengari)
+over an in-memory keyspace; it has not been run against live Upstash.
 
 ## Required configuration for production
 

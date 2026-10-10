@@ -13,13 +13,26 @@ import "server-only";
  * The room body and its index entries are then written in one MULTI/EXEC.
  * If that write fails, the slug and idempotency claims are released.
  *
+ * Forecasts: one Lua script per submission (see redis-forecasts.ts).
+ *
  * Unlike rate limits, a failed call here never falls back to memory: the
  * caller gets RoomStoreUnavailableError and nothing is reported as saved.
  */
 
 import { Redis } from "@upstash/redis";
 import type { RoomRecord } from "../domain";
+import type { SubmitForecastCommand } from "@/lib/forecasts/types";
 import {
+  countForecastParticipantsRedis,
+  getCurrentForecastRedis,
+  getForecastAggregateRedis,
+  getForecastHistoryRedis,
+  listCurrentForecastsRedis,
+  submitForecastRedis,
+  type RedisForecastOps,
+} from "./redis-forecasts";
+import {
+  ForecastRevisionConflictError,
   CreateInProgressError,
   IdempotencyConflictError,
   RoomForbiddenError,
@@ -42,7 +55,7 @@ export type RedisWrite =
   | { op: "zadd"; key: string; score: number; member: string };
 
 /** The handful of commands the adapter needs (Upstash in prod, a fake in tests). */
-export interface RedisLike {
+export interface RedisLike extends RedisForecastOps {
   get(key: string): Promise<string | null>;
   mget(keys: string[]): Promise<(string | null)[]>;
   /** SET key value NX [PX ms]; true when this call created the key. */
@@ -66,6 +79,14 @@ export function upstashRedisLike(url: string, token: string): RedisLike {
     signal: () => AbortSignal.timeout(REDIS_TIMEOUT_MS),
   });
   const str = (v: unknown) => (v == null ? null : String(v));
+  // With automaticDeserialization off, HMGET/HGETALL come back as raw arrays;
+  // accept the object shape too so a client upgrade can't silently break reads.
+  const pairs = (v: unknown): Record<string, string> => {
+    const out: Record<string, string> = {};
+    if (Array.isArray(v)) for (let i = 0; i + 1 < v.length; i += 2) out[String(v[i])] = String(v[i + 1]);
+    else if (v && typeof v === "object") for (const [f, x] of Object.entries(v)) if (x != null) out[f] = String(x);
+    return out;
+  };
   return {
     get: async (k) => str(await redis.get(k)),
     mget: async (keys) => (keys.length ? ((await redis.mget(...keys)) as unknown[]).map(str) : []),
@@ -81,6 +102,18 @@ export function upstashRedisLike(url: string, token: string): RedisLike {
     },
     getdel: async (k) => str(await redis.getdel(k)),
     zrevrange: async (k, start, stop) => ((await redis.zrange(k, start, stop, { rev: true })) as unknown[]).map(String),
+    hget: async (k, f) => str(await redis.hget(k, f)),
+    hmget: async (k, fields) => {
+      if (!fields.length) return [];
+      const v = (await redis.hmget(k, ...fields)) as unknown;
+      if (Array.isArray(v)) return v.map(str);
+      const o = (v ?? {}) as Record<string, unknown>;
+      return fields.map((f) => str(o[f]));
+    },
+    hgetall: async (k) => pairs(await redis.hgetall(k)),
+    lrange: async (k, start, stop) => ((await redis.lrange(k, start, stop)) as unknown[]).map(String),
+    zcard: async (k) => Number(await redis.zcard(k)) || 0,
+    eval: async (script, keys, args) => redis.eval(script, keys, args),
     multi: async (writes) => {
       const tx = redis.multi();
       for (const w of writes) {
@@ -128,7 +161,8 @@ export class RedisRoomRepository implements RoomRepository {
         e instanceof RoomNotFoundError ||
         e instanceof RoomForbiddenError ||
         e instanceof RoomStoreUnavailableError ||
-        e instanceof CreateInProgressError
+        e instanceof CreateInProgressError ||
+        e instanceof ForecastRevisionConflictError
       ) {
         throw e;
       }
@@ -254,5 +288,35 @@ export class RedisRoomRepository implements RoomRepository {
         return null;
       }
     });
+  }
+
+  // ------------------------------------------------------------ forecasts (see redis-forecasts.ts)
+
+  submitForecast(cmd: SubmitForecastCommand, idem: { key: string; fingerprint: string }) {
+    return this.call(async () => {
+      const room = parseRoom(await this.r.get(K.room(cmd.roomId)));
+      if (!room || room.status !== "active") throw new RoomNotFoundError();
+      return submitForecastRedis(this.r, ROOMS_REDIS_PREFIX, cmd, idem);
+    });
+  }
+
+  getCurrentForecast(roomId: string, wallet: string) {
+    return this.call(() => getCurrentForecastRedis(this.r, ROOMS_REDIS_PREFIX, roomId, wallet));
+  }
+
+  getForecastHistory(roomId: string, wallet: string, { limit }: { limit: number }) {
+    return this.call(() => getForecastHistoryRedis(this.r, ROOMS_REDIS_PREFIX, roomId, wallet, limit));
+  }
+
+  listCurrentForecasts(roomId: string, { limit, offset }: { limit: number; offset: number }) {
+    return this.call(() => listCurrentForecastsRedis(this.r, ROOMS_REDIS_PREFIX, roomId, limit, offset));
+  }
+
+  getForecastAggregate(roomId: string) {
+    return this.call(() => getForecastAggregateRedis(this.r, ROOMS_REDIS_PREFIX, roomId));
+  }
+
+  countForecastParticipants(roomId: string) {
+    return this.call(() => countForecastParticipantsRedis(this.r, ROOMS_REDIS_PREFIX, roomId));
   }
 }

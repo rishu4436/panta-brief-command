@@ -6,6 +6,7 @@ import { useRoomSession } from "@/lib/rooms/client";
 import type { Room } from "@/lib/rooms/domain";
 import { Panel } from "../Panel";
 import { StatusBadge } from "../ui/StatusBadge";
+import { ForecastPanel } from "./ForecastPanel";
 import { RoomMarketPanel } from "./RoomMarketPanel";
 import { ShareRoomButton } from "./ShareRoomButton";
 
@@ -14,7 +15,6 @@ import { ShareRoomButton } from "./ShareRoomButton";
  * with no numbers, avatars or sample rows: nothing here is operational yet.
  */
 const UPCOMING: { title: string; body: string }[] = [
-  { title: "Community forecasts", body: "Members will post free probability forecasts on this market. Not open yet." },
   { title: "Prediction leaderboard", body: "Forecast accuracy will be ranked once forecasts exist and the market resolves. Not open yet." },
   { title: "Discussion & research", body: "Threads for evidence, sources and arguments. Not open yet." },
   { title: "Participant activity", body: "Who joined and what they did in this room. Not open yet." },
@@ -66,22 +66,26 @@ export function RoomDetail({ room, canonicalUrl }: { room: Room; canonicalUrl: s
         </dl>
       </header>
 
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)] lg:items-start">
-        <RoomMarketPanel marketId={room.marketId} />
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)] lg:items-start">
+        <ForecastPanel room={room} />
 
-        <Panel title="Coming to rooms" subtitle="Not operational yet">
-          <ul className="space-y-3">
-            {UPCOMING.map((u) => (
-              <li key={u.title} className="rounded-xl border border-dashed border-line bg-inset/40 p-3">
-                <div className="flex items-center justify-between gap-2">
-                  <h3 className="text-[13px] font-semibold text-ink-2">{u.title}</h3>
-                  <StatusBadge tone="neutral" size="xs">Coming soon</StatusBadge>
-                </div>
-                <p className="mt-1 text-[12px] leading-relaxed text-ink-3">{u.body}</p>
-              </li>
-            ))}
-          </ul>
-        </Panel>
+        <div className="space-y-4">
+          <RoomMarketPanel marketId={room.marketId} />
+
+          <Panel title="Coming to rooms" subtitle="Not operational yet">
+            <ul className="space-y-3">
+              {UPCOMING.map((u) => (
+                <li key={u.title} className="rounded-xl border border-dashed border-line bg-inset/40 p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <h3 className="text-[13px] font-semibold text-ink-2">{u.title}</h3>
+                    <StatusBadge tone="neutral" size="xs">Coming soon</StatusBadge>
+                  </div>
+                  <p className="mt-1 text-[12px] leading-relaxed text-ink-3">{u.body}</p>
+                </li>
+              ))}
+            </ul>
+          </Panel>
+        </div>
       </div>
     </div>
   );

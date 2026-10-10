@@ -15,13 +15,16 @@ export class RoomApiError extends Error {
     public status: number,
     public code: string,
     message: string,
+    /** Parsed error body (e.g. currentRevision on a forecast conflict). */
+    public body: unknown = null,
   ) {
     super(message);
     this.name = "RoomApiError";
   }
 }
 
-async function call<T>(url: string, init?: RequestInit): Promise<T> {
+/** Same-origin JSON call; non-2xx → RoomApiError with the server's code and safe message. */
+export async function call<T>(url: string, init?: RequestInit): Promise<T> {
   let res: Response;
   try {
     res = await fetch(url, {
@@ -44,7 +47,7 @@ async function call<T>(url: string, init?: RequestInit): Promise<T> {
     const msg =
       b.detail ||
       (res.status === 429 ? "Too many requests. Wait a minute and try again." : `Request failed (HTTP ${res.status}).`);
-    throw new RoomApiError(res.status, b.code || `HTTP_${res.status}`, msg);
+    throw new RoomApiError(res.status, b.code || `HTTP_${res.status}`, msg, body);
   }
   return body as T;
 }

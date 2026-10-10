@@ -8,8 +8,10 @@ import { clientIp } from "@/lib/rate-limit";
 import { limitShared } from "@/lib/shared-store";
 import { readSession, sessionSecret, SESSION_COOKIE, RoomAuthError, type RoomSession } from "./auth";
 import { MarketRejectedError } from "./service";
+import { ForecastRoomMismatchError, ForecastingClosedError } from "@/lib/forecasts/service";
 import {
   CreateInProgressError,
+  ForecastRevisionConflictError,
   IdempotencyConflictError,
   RoomForbiddenError,
   RoomNotFoundError,
@@ -29,7 +31,11 @@ export const ROOM_LIMITS = {
   update: 10,
   slugCheck: 40,
   read: 120,
+  forecast: 20,
 } as const;
+
+/** Per verified wallet, per minute (on top of the per-IP forecast limit). */
+export const FORECAST_WALLET_LIMIT = 12;
 
 export const NO_STORE = { "Cache-Control": "no-store" } as const;
 
@@ -89,10 +95,27 @@ export function errorResponse(e: unknown): NextResponse {
   }
   if (e instanceof SlugTakenError) return reject(409, "SLUG_TAKEN", "That room address is already taken. Choose another.");
   if (e instanceof IdempotencyConflictError) {
-    return reject(409, "IDEMPOTENCY_KEY_REUSED", "This request id was already used for a different room. Review and submit again.");
+    return reject(409, "IDEMPOTENCY_KEY_REUSED", "This request id was already used for a different request. Review and submit again.");
   }
   if (e instanceof CreateInProgressError) return reject(409, "CREATE_IN_PROGRESS", "This room is still being saved. Try again in a moment.");
   if (e instanceof RoomNotFoundError) return reject(404, "ROOM_NOT_FOUND", "No room at this address.");
+  if (e instanceof ForecastingClosedError) {
+    return e.window.reason === "unavailable"
+      ? reject(503, "FORECAST_WINDOW_UNAVAILABLE", e.window.message)
+      : reject(409, "FORECASTING_CLOSED", e.window.message);
+  }
+  if (e instanceof ForecastRevisionConflictError) {
+    return NextResponse.json(
+      {
+        error: "FORECAST_REVISION_CONFLICT",
+        code: "FORECAST_REVISION_CONFLICT",
+        detail: "Your forecast changed somewhere else (another tab or device). Reload it, then edit again.",
+        currentRevision: e.currentRevision,
+      },
+      { status: 409, headers: NO_STORE },
+    );
+  }
+  if (e instanceof ForecastRoomMismatchError) return reject(400, "ROOM_MISMATCH", "This forecast names a different room. Reload the page.");
   if (e instanceof RoomForbiddenError) return reject(403, "NOT_ROOM_CREATOR", "Only the wallet that created this room can change it.");
   if (e instanceof RoomStoreUnavailableError) {
     return e.reason === "unconfigured"

@@ -59,11 +59,12 @@ const trade = (over: Partial<Trade> & { i: number }): Trade => ({
 
 describe("secondary classification + gating", () => {
   it("classifies secondary / trading and gates primary buy UI", () => {
-    expect(isSecondaryMarket(mkt())).toBe(true);
-    expect(showsSecondaryIntelligence(mkt())).toBe(true);
-    expect(showsPrimaryBuyTicket(mkt())).toBe(false);
-    expect(showsPrimaryBuyTicket(mkt({ phase: "primary", status: "primary", endTime: NOW_SEC + 99999 }))).toBe(true);
-    expect(showsSecondaryIntelligence(mkt({ phase: "primary", status: "primary" }))).toBe(false);
+    // Pinned to the fixture clock (NOW_SEC): the fixtures' end times are relative to it, not the wall clock.
+    expect(isSecondaryMarket(mkt(), NOW_SEC)).toBe(true);
+    expect(showsSecondaryIntelligence(mkt(), NOW_SEC)).toBe(true);
+    expect(showsPrimaryBuyTicket(mkt(), NOW_SEC)).toBe(false);
+    expect(showsPrimaryBuyTicket(mkt({ phase: "primary", status: "primary", endTime: NOW_SEC + 99999 }), NOW_SEC)).toBe(true);
+    expect(showsSecondaryIntelligence(mkt({ phase: "primary", status: "primary" }), NOW_SEC)).toBe(false);
   });
 });
 

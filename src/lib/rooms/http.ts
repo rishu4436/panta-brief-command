@@ -39,6 +39,8 @@ export const ROOM_LIMITS = {
   debateRead: 60,
   debateGenerate: 6,
   debateChallenge: 10,
+  events: 60,
+  studioRead: 60,
 } as const;
 
 /** AI Debate Arena: model-spending requests, on top of the per-minute IP buckets above. */

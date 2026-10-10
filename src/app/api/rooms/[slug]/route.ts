@@ -29,7 +29,13 @@ export async function GET(req: NextRequest, ctx: Ctx) {
   }
 }
 
-/** PATCH /api/rooms/:slug {title?, description?} — creator only (verified session). */
+/**
+ * PATCH /api/rooms/:slug {title?, description?, visibility?, status?} — creator
+ * only (verified session wallet, never a wallet from the body). status
+ * "archived" archives, "active" unarchives. marketId and slug are immutable
+ * (the strict schema rejects them). To anyone but the creator an archived
+ * room doesn't exist (404, same as GET).
+ */
 export async function PATCH(req: NextRequest, ctx: Ctx) {
   const cross = sameOriginOrReject(req);
   if (cross) return cross;
@@ -44,7 +50,7 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
   const deps = roomDeps();
   try {
     const room = await getRoomBySlug(deps.repo, slug);
-    if (!room) return reject(404, "ROOM_NOT_FOUND", "No room at this address.");
+    if (!room || (room.status !== "active" && room.creatorWallet !== session.wallet)) return reject(404, "ROOM_NOT_FOUND", "No room at this address.");
     return ok({ room: await updateRoomDetails(deps, session.wallet, room.roomId, parsed.data) });
   } catch (e) {
     return errorResponse(e);

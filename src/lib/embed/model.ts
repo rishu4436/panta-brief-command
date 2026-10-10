@@ -38,6 +38,8 @@ export type EmbedModel = {
   slug: string;
   title: string;
   roomUrl: string;
+  /** Widget links: the canonical room URL + `?ref=embed` (counted as an embed click-through when the room page loads). */
+  ctaUrl: string;
   homeUrl: string;
   question: string | null;
   community: { participants: number; meanBps: number | null; buckets: number[] };
@@ -100,6 +102,7 @@ export function buildEmbedModel(input: {
     slug: room.slug,
     title: room.title,
     roomUrl: `${origin}/rooms/${slug}`,
+    ctaUrl: `${origin}/rooms/${slug}?ref=embed`,
     homeUrl: origin,
     question: m && (m.title || "").trim() ? marketLabel(m, { max: 160 }) : null,
     community: { participants: c.participants, meanBps: c.kind === "consensus" ? c.meanBps : null, buckets: c.buckets },

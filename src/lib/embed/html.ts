@@ -93,13 +93,13 @@ export function renderEmbed(m: EmbedModel, o: EmbedOptions): string {
   const body =
     `<main class="card" aria-labelledby="h">` +
     `<p class="eyebrow">Prediction Room</p>` +
-    `<h1 id="h"><a href="${e(m.roomUrl)}" ${EXT}>${e(m.title)}</a></h1>` +
+    `<h1 id="h"><a href="${e(m.ctaUrl)}" ${EXT}>${e(m.title)}</a></h1>` +
     (o.market && m.question && !compact ? `<p class="q"><b>Market:</b> ${e(m.question)}</p>` : "") +
     statusBadges(m) +
     `<section class="community" aria-label="Community forecast">${community}</section>` +
     (compact ? "" : resolutionLine(m)) +
     marketLine(m, o) +
-    `<footer><a class="cta" href="${e(m.roomUrl)}" ${EXT}>${e(cta)}<span class="sr"> (opens in a new tab)</span></a>` +
+    `<footer><a class="cta" href="${e(m.ctaUrl)}" ${EXT}>${e(cta)}<span class="sr"> (opens in a new tab)</span></a>` +
     `<p class="attr"><a href="${e(m.homeUrl)}" ${EXT}>Brief Command</a> · Powered by Panta</p></footer>` +
     (compact ? "" : `<p class="note">Community forecasts are opinions from wallet-verified users, not a Panta price or a guarantee of any outcome.</p>`) +
     `</main>`;

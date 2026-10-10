@@ -218,7 +218,8 @@ describe("embed route: visibility", () => {
     expect(html).toContain("mean of 1 forecaster");
     expect(html).toContain("Add your forecast on Brief Command");
     expect(html).toContain("Brief Command</a> · Powered by Panta");
-    expect(html).toContain(`href="${DEV_FALLBACK_ORIGIN}/rooms/${room.slug}" target="_blank" rel="noopener noreferrer"`);
+    // Widget links carry ?ref=embed (Creator Studio click-through attribution); the canonical link stays clean.
+    expect(html).toContain(`href="${DEV_FALLBACK_ORIGIN}/rooms/${room.slug}?ref=embed" target="_blank" rel="noopener noreferrer"`);
     expect(html).toContain(`<link rel="canonical" href="${DEV_FALLBACK_ORIGIN}/rooms/${room.slug}">`);
     expect(html).toContain('<meta name="robots" content="noindex,nofollow">');
     expect(html).not.toMatch(/<script|<form|<input|<[^>]*\son[a-z]+=/i);

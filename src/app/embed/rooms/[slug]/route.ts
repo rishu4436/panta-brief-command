@@ -9,6 +9,7 @@ import { clientIp } from "@/lib/rate-limit";
 import { slugProblem } from "@/lib/rooms/domain";
 import { roomRepository } from "@/lib/rooms/store";
 import { limitShared } from "@/lib/shared-store";
+import { recordEmbedRequest, runAfterResponse, skipReason } from "@/lib/studio/events";
 
 export const dynamic = "force-dynamic";
 
@@ -38,7 +39,9 @@ function unavailable(o: EmbedOptions, home: string) {
  * frameable widget for a room. Same visibility as /rooms/:slug (active rooms,
  * public or unlisted, are viewable by link); missing, archived and malformed
  * slugs get one identical 404. Never reads cookies or the session, never
- * fetches resolution evidence or finalizes anything.
+ * fetches resolution evidence or finalizes anything. The only write is the
+ * Creator Studio's approximate embed-request counter (after the response;
+ * see docs/CREATOR_STUDIO.md).
  */
 export async function GET(req: NextRequest, ctx: Ctx): Promise<Response> {
   const o = parseEmbedOptions(req.nextUrl.searchParams);
@@ -67,6 +70,10 @@ export async function GET(req: NextRequest, ctx: Ctx): Promise<Response> {
       dev ? getUncachedMarketSnapshot(room.marketId, dev) : getMarketSnapshot(room.marketId),
     ]);
     const model = buildEmbedModel({ room, origin, aggregate, finalization, snapshot, nowMs: Date.now() });
+    // Creator Studio: approximate embed request count, after the response (no script in the widget,
+    // CSP unchanged). Bots, prefetches and DNT/GPC are skipped before any storage call.
+    // Same-origin loads are the creator's own previews (Studio / embed generator): not counted.
+    if (!skipReason(req.headers) && req.headers.get("sec-fetch-site") !== "same-origin") runAfterResponse(() => recordEmbedRequest(repo, room, req.headers, Date.now()));
     return embedHtml(renderEmbed(model, o));
   } catch {
     return unavailable(o, origin);

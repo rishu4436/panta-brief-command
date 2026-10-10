@@ -25,6 +25,7 @@ import {
 } from "@/lib/panta/position-intel";
 import { PortfolioIntelHeader } from "@/components/book/PortfolioIntel";
 import { portfolioReadState } from "@/lib/panta/exposure-view";
+import { POSITIONS_UNVERIFIED_TEXT, PositionsUnverifiedError } from "@/lib/panta/positions";
 import { buildClaim, isAttributableClaim } from "@/lib/panta/claims";
 import type { ClaimKind } from "@/lib/panta/domain";
 import { assertFeePayer } from "@/lib/panta/instructions";
@@ -268,11 +269,14 @@ export function BookPanel({
     />
   );
 
+  // Unverified (malformed / incomplete) responses are errors, never an empty book.
+  // Rows still listed after a failed refresh are the last VERIFIED read, labelled as such.
+  const unverified = positionsQ.error instanceof PositionsUnverifiedError;
   const errorBox = error ? (
     <ErrorState
       className="m-4"
-      title="Couldn't load positions"
-      description={`${error}. Panta may be busy; try again in a moment.`}
+      title={unverified ? POSITIONS_UNVERIFIED_TEXT : "Couldn't load positions"}
+      description={`${unverified ? "Panta's positions response was incomplete or malformed, so nothing from it is shown" : error}.${positionsQ.data !== undefined ? " Showing your last verified positions (stale) below." : ""} Try again in a moment.`}
       onRetry={load}
     />
   ) : null;

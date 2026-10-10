@@ -8,7 +8,7 @@ import {
   POSITIONS_VS_ACTIVITY_NOTE,
   type PortfolioIntel as PortfolioIntelData,
 } from "@/lib/panta/position-intel";
-import { exposureNote, exposureView, type PortfolioReadState } from "@/lib/panta/exposure-view";
+import { exposureNote, exposureView, POSITIONS_STALE_NOTE, type PortfolioReadState } from "@/lib/panta/exposure-view";
 
 function Stat({ label, value, sub }: { label: string; value: string; sub?: string }) {
   return (
@@ -70,6 +70,11 @@ export function PortfolioIntelHeader({ intel, read }: { intel: PortfolioIntelDat
 
   return (
     <section aria-label="Portfolio overview" className="space-y-3">
+      {read === "stale" ? (
+        <p role="status" className="rounded-lg border border-amber-400/30 bg-amber-400/[0.06] px-3 py-2 text-[12px] text-amber-100/90">
+          {POSITIONS_STALE_NOTE}
+        </p>
+      ) : null}
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         <Stat label="Positions" value={count(intel.positionCount)} />
         <Stat label="Marked value" value={markValue} sub={markSub} />

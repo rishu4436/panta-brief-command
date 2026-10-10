@@ -227,7 +227,7 @@ describe("portfolio exposure states", () => {
     expect(exposureNote("read-failed")).toBe(POSITIONS_READ_FAILED_NOTE);
     expect(exposureView(portfolioReadState({ hasData: false, isError: false }), intel)).toBe("loading");
     // A failed REFETCH keeps the last good read (data present).
-    expect(portfolioReadState({ hasData: true, isError: true })).toBe("loaded");
+    expect(portfolioReadState({ hasData: true, isError: true })).toBe("stale"); // 7C: last verified data, labelled stale
   });
 });
 

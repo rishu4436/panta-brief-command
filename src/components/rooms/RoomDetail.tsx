@@ -11,6 +11,7 @@ import { EmbedGenerator } from "./EmbedGenerator";
 import { ForecastPanel } from "./ForecastPanel";
 import { RoomLeaderboard } from "./RoomLeaderboard";
 import { RoomMarketPanel } from "./RoomMarketPanel";
+import { RoomViewBeacon } from "./RoomViewBeacon";
 import { ShareRoomButton } from "./ShareRoomButton";
 
 /**
@@ -27,9 +28,17 @@ export function RoomDetail({ room, canonicalUrl }: { room: Room; canonicalUrl: s
   const isCreator = session.data?.wallet === room.creatorWallet;
   return (
     <div className="space-y-5 animate-fade-in">
-      <Link href="/rooms" className="type-back inline-flex min-h-8 items-center transition">
-        ← Rooms
-      </Link>
+      <RoomViewBeacon slug={room.slug} />
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <Link href="/rooms" className="type-back inline-flex min-h-8 items-center transition">
+          ← Rooms
+        </Link>
+        {isCreator ? (
+          <Link href={`/studio/rooms/${encodeURIComponent(room.slug)}`} className="btn btn-ghost btn-sm">
+            Manage in Creator Studio
+          </Link>
+        ) : null}
+      </div>
 
       <header className="card overflow-hidden">
         <div className="border-b border-line bg-gradient-to-br from-cyan-400/[0.06] via-transparent to-violet-500/[0.05] px-5 py-5 sm:px-6">

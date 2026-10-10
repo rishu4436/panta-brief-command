@@ -409,8 +409,11 @@ export async function fetchCatalog(): Promise<CatalogPayload> {
   for (const row of json.items) {
     const m = parseMarket(row);
     if (!m) continue;
-    const src = (row as { sources?: Market["sources"] }).sources;
-    items.push(src ? { ...m, sources: src } : m);
+    const extra = row as { sources?: Market["sources"]; outcome?: unknown };
+    // The server already derived `outcome` (Panta yesWins or the on-chain Event);
+    // the serialized row has no yesWins, so re-parsing alone would drop it.
+    const outcome = m.outcome ?? (m.resolved === true && (extra.outcome === "yes" || extra.outcome === "no") ? extra.outcome : undefined);
+    items.push({ ...m, ...(outcome ? { outcome } : {}), ...(extra.sources ? { sources: extra.sources } : {}) });
   }
   return { ...json, items };
 }

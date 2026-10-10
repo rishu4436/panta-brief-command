@@ -75,6 +75,9 @@ export function sanitizeMarket(raw: Market): Market {
     secondaryNoPrice: priceStr(raw.secondaryNoPrice),
     oracle: cleanStr(raw.oracle) ?? null,
     partial: raw.partial || undefined,
+    // Winner from Panta / the on-chain Event (enum only). Dropping it made the brief
+    // report "no market price" for a resolved market whose detail row was stale.
+    ...(raw.outcome === "yes" || raw.outcome === "no" ? { outcome: raw.outcome } : {}),
   };
 }
 

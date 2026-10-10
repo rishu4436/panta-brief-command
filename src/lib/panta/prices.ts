@@ -114,6 +114,8 @@ export type PriceFields = {
   primaryNoPrice?: string | number | null;
   secondaryYesPrice?: string | number | null;
   secondaryNoPrice?: string | number | null;
+  /** Winning side, only from Panta's resolved record or the on-chain Event (see toMarket / applyChainEvent). */
+  outcome?: "yes" | "no";
 };
 
 export type MarketProbability = {
@@ -185,6 +187,12 @@ export function marketProbability(m: PriceFields): MarketProbability {
     return { yes: null, no: null, source: "unavailable", reason: "not_applicable", raw };
   }
   if (spot.ok) return { yes: spot.yes, no: spot.no, source: resolved ? "settled" : "spot", reason: null, raw };
+  // Resolved with a known winner but no settlement prices in this record (Panta's
+  // detail endpoint sometimes returns a stale row): a binary market settles at
+  // 1 / 0 for the winning / losing side, which is what Panta's full record reports.
+  if (resolved && !spot.ok && spot.reason === "missing_prices" && (m.outcome === "yes" || m.outcome === "no")) {
+    return { yes: m.outcome === "yes" ? 1 : 0, no: m.outcome === "no" ? 1 : 0, source: "settled", reason: null, raw };
+  }
   // Primary curve = the live price only while the market is in the primary phase.
   if (spot.reason === "missing_prices" && !resolved && isPrimaryPhase(m)) {
     const curve = checkPricePair(m.primaryYesPrice, m.primaryNoPrice);

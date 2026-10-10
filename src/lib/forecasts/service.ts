@@ -63,7 +63,7 @@ export async function submitForecast(
   wallet: string,
   room: RoomRecord,
   input: SubmitForecastInput,
-): Promise<{ status: "created" | "revised" | "replayed"; forecast: PublicForecast }> {
+): Promise<{ status: "created" | "revised" | "replayed"; forecast: PublicForecast; consensus: Consensus | null }> {
   if (input.roomId !== room.roomId) throw new ForecastRoomMismatchError();
   const now = deps.now();
   const window = await deps.checkWindow(room.marketId, now);
@@ -80,7 +80,11 @@ export async function submitForecast(
     },
     { key: input.idempotencyKey, fingerprint: forecastRequestHash(input) },
   );
-  return { status: res.status, forecast: serializeForecast(res.forecast) };
+  // The committed community aggregate (read after the write, so it includes it),
+  // returned with the result so the client can show it without a refetch.
+  // A failed read here must not turn a saved forecast into an error: null → client refetches.
+  const consensus = await deps.repo.getForecastAggregate(room.roomId).then(consensusFrom, () => null);
+  return { status: res.status, forecast: serializeForecast(res.forecast), consensus };
 }
 
 export type RoomForecastSummary = {

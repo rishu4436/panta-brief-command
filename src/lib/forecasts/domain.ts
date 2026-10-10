@@ -160,7 +160,58 @@ export function formatBpsPercent(bps: number, decimals = 2): string {
 /** Percent text (e.g. "62.5") → bps, or null when not a valid 0..100 value with ≤2 decimals. */
 export function percentToBps(text: string): number | null {
   const t = text.trim().replace(/%$/, "").trim();
-  if (!/^\d{1,3}(?:\.\d{1,2})?$/.test(t)) return null;
+  if (!/^(?:\d{1,3}(?:\.\d{1,2})?|\.\d{1,2})$/.test(t)) return null;
   const bps = Math.round(Number(t) * 100);
   return bps >= BPS_MIN && bps <= BPS_MAX ? bps : null;
+}
+
+// ---------------------------------------------------------------------------
+// Forecast slider (UI helpers, pure so they can be tested)
+
+/** Keyboard arrows move the slider by 1 percentage point. */
+export const SLIDER_KEY_STEP_BPS = 100;
+/** Page Up / Page Down move it by 10 points. */
+export const SLIDER_PAGE_STEP_BPS = 1000;
+
+/**
+ * Next slider value for a key press, or null when the key isn't a slider key.
+ * From an off-grid value (e.g. a typed 62.37 %) an arrow moves to the next
+ * whole point in that direction, so one press is never more than 1 point.
+ */
+export function sliderKeyBps(key: string, bps: number): number | null {
+  const clamp = (v: number) => Math.max(BPS_MIN, Math.min(BPS_MAX, v));
+  const up = (step: number) => clamp(Math.floor(bps / step) * step + step);
+  const down = (step: number) => clamp(Math.ceil(bps / step) * step - step);
+  switch (key) {
+    case "ArrowRight":
+    case "ArrowUp":
+      return up(SLIDER_KEY_STEP_BPS);
+    case "ArrowLeft":
+    case "ArrowDown":
+      return down(SLIDER_KEY_STEP_BPS);
+    case "PageUp":
+      return up(SLIDER_PAGE_STEP_BPS);
+    case "PageDown":
+      return down(SLIDER_PAGE_STEP_BPS);
+    case "Home":
+      return BPS_MIN;
+    case "End":
+      return BPS_MAX;
+    default:
+      return null;
+  }
+}
+
+/** Pointer drags snap to whole points; exact values come from the number field. */
+export const snapSliderBps = (v: number) => Math.max(BPS_MIN, Math.min(BPS_MAX, Math.round(v / SLIDER_KEY_STEP_BPS) * SLIDER_KEY_STEP_BPS));
+
+/**
+ * Histogram marker label placement: keep labels inside the chart at the
+ * edges (0 % / 100 %) and drop "You" below the bars when it would collide
+ * with "Avg" (narrow screens).
+ */
+export function markerPlacement(bps: number, otherBps: number | null): { align: "start" | "center" | "end"; below: boolean } {
+  const align = bps < 800 ? "start" : bps > 9200 ? "end" : "center";
+  const below = otherBps !== null && Math.abs(bps - otherBps) < 1600;
+  return { align, below };
 }

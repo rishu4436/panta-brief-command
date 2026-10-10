@@ -210,6 +210,18 @@ export async function getAuthoritativeMarket(marketId: string): Promise<Market |
   return resolveAuthoritativeMarket(row, detail);
 }
 
+/**
+ * Non-blocking view of the catalog: the last built payload (fresh or stale)
+ * or null when none exists yet. Starts a background (single-flight) rebuild
+ * when the cache is missing or expired, so callers on a latency budget never
+ * wait for a cold build.
+ */
+export function peekCatalog(): { payload: CatalogPayload; stale: boolean } | null {
+  const fresh = cached !== null && Date.now() - cached.at < CATALOG_TTL_MS;
+  if (!fresh) void getCatalog().catch(() => undefined);
+  return cached ? { payload: cached.payload, stale: !fresh } : null;
+}
+
 /** Cached build (per server instance). Serves the last good payload if a rebuild fails. */
 export async function getCatalog(): Promise<{ payload: CatalogPayload; stale: boolean }> {
   if (cached && Date.now() - cached.at < CATALOG_TTL_MS) return { payload: cached.payload, stale: false };

@@ -785,31 +785,64 @@ summary:focus:not(:focus-visible) {
 /* Community forecast probability slider (native range, filled to --fill). */
 .forecast-range {
   appearance: none;
+  /* Tall hit area (touch), thin painted track. */
+  height: 28px;
+  background: transparent;
+  cursor: pointer;
+  touch-action: pan-y;
+}
+.forecast-range::-webkit-slider-runnable-track {
   height: 8px;
   border-radius: 9999px;
   background: linear-gradient(90deg, rgb(52 211 153 / 0.85) 0 var(--fill, 50%), rgb(251 113 133 / 0.45) var(--fill, 50%) 100%);
-  cursor: pointer;
+}
+.forecast-range::-moz-range-track {
+  height: 8px;
+  border-radius: 9999px;
+  background: linear-gradient(90deg, rgb(52 211 153 / 0.85) 0 var(--fill, 50%), rgb(251 113 133 / 0.45) var(--fill, 50%) 100%);
 }
 .forecast-range::-webkit-slider-thumb {
   appearance: none;
-  width: 22px;
-  height: 22px;
+  width: 24px;
+  height: 24px;
+  margin-top: -8px;
   border-radius: 9999px;
   background: #e6edf7;
   border: 3px solid rgb(34 211 238);
   box-shadow: 0 0 0 4px rgb(34 211 238 / 0.15);
 }
 .forecast-range::-moz-range-thumb {
-  width: 18px;
-  height: 18px;
+  width: 20px;
+  height: 20px;
   border-radius: 9999px;
   background: #e6edf7;
   border: 3px solid rgb(34 211 238);
 }
 .forecast-range:focus-visible {
   outline: 2px solid rgb(34 211 238);
-  outline-offset: 4px;
+  outline-offset: 2px;
 }
 .forecast-range:disabled {
   cursor: not-allowed;
+}
+/* Room page on phones: sticky nav never covers the panel when jumped to,
+   16px inputs so iOS doesn't zoom on focus, and 44px tap targets. */
+#forecasts,
+#leaderboard {
+  scroll-margin-top: 80px;
+}
+@media (max-width: 639px) {
+  .forecast-field {
+    font-size: 16px;
+  }
+  .forecast-tap {
+    min-height: 44px;
+  }
+}
+@media (pointer: coarse) {
+  .forecast-range::-webkit-slider-thumb {
+    width: 28px;
+    height: 28px;
+    margin-top: -10px;
+  }
 }

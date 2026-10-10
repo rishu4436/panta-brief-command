@@ -11,7 +11,7 @@
  */
 
 import { useWallet } from "@solana/wallet-adapter-react";
-import { useId, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { formatFriendlyIst, marketLabel, shortAddr } from "@/lib/format";
 import { useMarket } from "@/lib/data/hooks";
 import {
@@ -19,13 +19,17 @@ import {
   REASONING_MAX,
   charLen,
   formatBpsPercent,
+  markerPlacement,
   percentToBps,
+  sliderKeyBps,
+  snapSliderBps,
   type Consensus,
   type PublicForecast,
   type PublicRevision,
 } from "@/lib/forecasts/domain";
 import {
   submitForecastRequest,
+  useApplyCommittedForecast,
   useInvalidateForecasts,
   useMyForecast,
   useRoomForecasts,
@@ -61,7 +65,7 @@ export function ForecastPanel({ room }: { room: Room }) {
   const myCurrent = sessionWallet && mine.data?.wallet === sessionWallet ? mine.data.current : null;
 
   return (
-    <Panel title="Forecasts" subtitle="Free · public · no money involved" id="forecasts">
+    <Panel title="Forecasts" subtitle="Free · public · no money involved" id="forecasts" className="forecast-panel min-w-0">
       <div className="space-y-5">
         <WindowHeader question={question} window={data?.window ?? null} loading={forecasts.isPending} />
 
@@ -172,10 +176,10 @@ function ConsensusCard({ consensus, mine }: { consensus: Consensus; mine: Public
                   />
                 </div>
               ))}
-              <Marker bps={meanBps} label="Avg" tone="violet" />
-              {mine ? <Marker bps={mine.probabilityBps} label="You" tone="cyan" /> : null}
+              <Marker bps={meanBps} label="Avg" tone="violet" other={null} />
+              {mine ? <Marker bps={mine.probabilityBps} label="You" tone="cyan" other={meanBps} /> : null}
             </div>
-            <div className="mt-1 flex justify-between font-num text-[10px] text-ink-3" aria-hidden="true">
+            <div className={`${mine && markerPlacement(mine.probabilityBps, meanBps).below ? "mt-5" : "mt-1"} flex justify-between font-num text-[10px] text-ink-3`} aria-hidden="true">
               <span>0%</span>
               <span>50%</span>
               <span>100%</span>
@@ -187,13 +191,15 @@ function ConsensusCard({ consensus, mine }: { consensus: Consensus; mine: Public
   );
 }
 
-function Marker({ bps, label, tone }: { bps: number; label: string; tone: "violet" | "cyan" }) {
+function Marker({ bps, label, tone, other }: { bps: number; label: string; tone: "violet" | "cyan"; other: number | null }) {
   const color = tone === "violet" ? "bg-violet-200" : "bg-cyan-300";
   const text = tone === "violet" ? "text-violet-100" : "text-cyan-200";
+  const { align, below } = markerPlacement(bps, other);
+  const x = align === "start" ? "-translate-x-0.5" : align === "end" ? "-translate-x-full" : "-translate-x-1/2";
   return (
     <div className="pointer-events-none absolute inset-y-0" style={{ left: `${bps / 100}%` }} aria-hidden="true">
       <div className={`absolute inset-y-0 w-0.5 -translate-x-1/2 ${color}`} />
-      <span className={`absolute -top-4 -translate-x-1/2 whitespace-nowrap text-[10px] font-semibold ${text}`}>{label}</span>
+      <span className={`absolute ${below ? "-bottom-4" : "-top-4"} ${x} whitespace-nowrap text-[10px] font-semibold ${text}`}>{label}</span>
     </div>
   );
 }
@@ -253,7 +259,7 @@ function YourForecast({
   } else if (current && !editing) {
     body = (
       <div className="space-y-3">
-        <CurrentForecastCard f={current} />
+        <CurrentForecastCard f={current} focusOnMount={savedNote !== null && savedNote.revision === current.revision} />
         {savedNote && savedNote.revision === current.revision ? (
           <p role="status" className="text-[12px] text-emerald-200">
             Saved by the server · revision {savedNote.revision} at {formatFriendlyIst(savedNote.at)}
@@ -262,7 +268,7 @@ function YourForecast({
         {open ? (
           <button
             type="button"
-            className="btn btn-secondary btn-sm"
+            className="btn btn-secondary btn-sm forecast-tap"
             onClick={() => {
               setSavedNote(null);
               setEditing(true);
@@ -366,9 +372,14 @@ function VerifyWallet({
   );
 }
 
-function CurrentForecastCard({ f }: { f: PublicForecast }) {
+function CurrentForecastCard({ f, focusOnMount = false }: { f: PublicForecast; focusOnMount?: boolean }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    // After a save, move focus to the saved summary (keyboard / screen-reader users land on the result).
+    if (focusOnMount) ref.current?.focus({ preventScroll: true });
+  }, [focusOnMount]);
   return (
-    <div className="rounded-xl border border-cyan-400/25 bg-cyan-400/[0.05] p-3">
+    <div ref={ref} tabIndex={-1} aria-label={`Your saved forecast: ${formatBpsPercent(f.probabilityBps)} YES, revision ${f.revision}`} className="rounded-xl border border-cyan-400/25 bg-cyan-400/[0.05] p-3 outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/50">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <p className="font-num text-[22px] font-semibold text-ink">
           {formatBpsPercent(f.probabilityBps)} <span className="text-[12px] font-medium text-emerald-300">YES</span>
@@ -392,7 +403,7 @@ function SplitBar({ bps }: { bps: number }) {
   );
 }
 
-type SaveState = { kind: "idle" } | { kind: "saving" } | { kind: "error"; message: string; conflict?: boolean } | { kind: "saved"; revision: number; at: string };
+type SaveState = { kind: "idle" } | { kind: "saving" } | { kind: "error"; message: string; conflict?: boolean };
 
 function ForecastForm({
   room,
@@ -411,6 +422,7 @@ function ForecastForm({
 }) {
   const ids = useId();
   const invalidate = useInvalidateForecasts(room.slug);
+  const applyCommitted = useApplyCommittedForecast(room.slug);
   const [bps, setBps] = useState(current?.probabilityBps ?? DEFAULT_BPS);
   const [text, setText] = useState(formatPct(current?.probabilityBps ?? DEFAULT_BPS));
   const [reasoning, setReasoning] = useState(current?.reasoning ?? "");
@@ -426,6 +438,12 @@ function ForecastForm({
   const onSlider = (v: number) => {
     setBps(v);
     setText(formatPct(v));
+  };
+  const onSliderKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    const next = sliderKeyBps(e.key, bps);
+    if (next === null) return;
+    e.preventDefault(); // our step (1 point), not the browser's
+    onSlider(next);
   };
   const onText = (v: string) => {
     setText(v);
@@ -443,9 +461,9 @@ function ForecastForm({
     try {
       const res = await submitForecastRequest(room.slug, { roomId: room.roomId, probabilityBps: bps, reasoning: reasoning.trim(), expectedRevision, idempotencyKey: attempt.current.key });
       attempt.current = null;
-      setSave({ kind: "saved", revision: res.forecast.revision, at: res.forecast.updatedAt });
-      // Only now (server confirmed) does the panel switch to the saved forecast, reloaded from the server.
-      await invalidate();
+      // Server confirmed: put the committed forecast + community aggregate into the cache,
+      // then return the panel to the read-only summary (no refetch wait, no stale flash).
+      await applyCommitted(res);
       onDone(res.forecast.revision, res.forecast.updatedAt);
     } catch (e) {
       const conflict = e instanceof RoomApiError && e.code === "FORECAST_REVISION_CONFLICT";
@@ -485,8 +503,10 @@ function ForecastForm({
               </label>
               <input
                 id={`${ids}-pct`}
-                className="field w-24 text-right font-num"
+                className="field forecast-field w-24 text-right font-num"
                 inputMode="decimal"
+                enterKeyHint="done"
+                autoComplete="off"
                 value={text}
                 onChange={(e) => onText(e.target.value)}
                 onBlur={() => textBps !== null && setText(formatPct(textBps))}
@@ -501,9 +521,10 @@ function ForecastForm({
             type="range"
             min={0}
             max={10000}
-            step={50}
+            step={1}
             value={bps}
-            onChange={(e) => onSlider(Number(e.target.value))}
+            onKeyDown={onSliderKey}
+            onChange={(e) => onSlider(snapSliderBps(Number(e.target.value)))}
             className="forecast-range mt-3 w-full"
             aria-valuetext={`${formatBpsPercent(bps)} chance of YES`}
             style={{ ["--fill" as string]: `${bps / 100}%` }}
@@ -516,7 +537,9 @@ function ForecastForm({
             <span className="hidden sm:inline">100% · YES certain</span>
           </div>
           <p id={`${ids}-pct-help`} className={`mt-1 text-[11px] ${textBps === null ? "text-rose-300" : "text-ink-3"}`}>
-            {textBps === null ? "Enter a number from 0 to 100 (up to two decimals)." : "Slide, or type an exact value (up to two decimals)."}
+            {textBps === null
+              ? "Enter a number from 0 to 100 (up to two decimals)."
+              : "Slide or use the arrow keys (1 point per press), or type an exact value down to 0.01%."}
           </p>
         </div>
 
@@ -526,7 +549,7 @@ function ForecastForm({
           </label>
           <textarea
             id={`${ids}-why`}
-            className="field mt-1.5 min-h-[84px] w-full resize-y"
+            className="field forecast-field mt-1.5 min-h-[84px] w-full resize-y"
             value={reasoning}
             onChange={(e) => setReasoning(e.target.value)}
             maxLength={REASONING_MAX * 2}
@@ -546,11 +569,11 @@ function ForecastForm({
       </p>
 
       <div className="flex flex-wrap items-center gap-3">
-        <button type="submit" className="btn btn-primary" disabled={disabled || busy || textBps === null || tooLong || unchanged}>
+        <button type="submit" className="btn btn-primary forecast-tap" disabled={disabled || busy || textBps === null || tooLong || unchanged}>
           {busy ? "Saving…" : current ? "Save revision" : "Submit forecast"}
         </button>
         {onCancel ? (
-          <button type="button" className="btn btn-ghost btn-sm" onClick={onCancel} disabled={busy}>
+          <button type="button" className="btn btn-ghost btn-sm forecast-tap" onClick={onCancel} disabled={busy}>
             Cancel
           </button>
         ) : null}
@@ -562,10 +585,6 @@ function ForecastForm({
             {save.message}
             {save.conflict ? <span className="mt-1 block text-[12px] text-rose-200/80">Your latest saved forecast has been reloaded above.</span> : null}
           </div>
-        ) : save.kind === "saved" ? (
-          <p className="text-[12px] text-emerald-200">
-            Saved · revision {save.revision} at {formatFriendlyIst(save.at)}
-          </p>
         ) : null}
       </div>
     </form>
@@ -656,10 +675,10 @@ function PublicList({
       )}
       {pages.prev || pages.next ? (
         <div className="mt-2 flex gap-2">
-          <button type="button" className="btn btn-ghost btn-sm" disabled={!pages.prev || fetching} onClick={() => onPage(data.offset - data.limit)}>
+          <button type="button" className="btn btn-ghost btn-sm forecast-tap" disabled={!pages.prev || fetching} onClick={() => onPage(data.offset - data.limit)}>
             ← Newer
           </button>
-          <button type="button" className="btn btn-ghost btn-sm" disabled={!pages.next || fetching} onClick={() => onPage(data.offset + data.limit)}>
+          <button type="button" className="btn btn-ghost btn-sm forecast-tap" disabled={!pages.next || fetching} onClick={() => onPage(data.offset + data.limit)}>
             Older →
           </button>
         </div>

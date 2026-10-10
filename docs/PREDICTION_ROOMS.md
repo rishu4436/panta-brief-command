@@ -131,14 +131,38 @@ accepted only while the market is open for primary participation and before
 the cutoff. Cutoff = Panta's `primaryPhaseEndTime` (end of the primary buy
 window, the timestamp the canonical lifecycle uses to close "Primary · open"),
 or the event `endTime` if earlier; the earliest value any source reports wins.
-Each write re-checks server-side with the server clock: a fresh Panta detail
-(required, no cache) plus the catalog row (on-chain lifecycle) when present.
-The most advanced phase any source reports wins, so a stale catalog row can't
-re-open a closed/resolved market. Secondary, ended, resolved, cancelled and
-unknown → 409 `FORECASTING_CLOSED`; Panta unreachable / partial record with no
-other source / no published cutoff → closed (503 `FORECAST_WINDOW_UNAVAILABLE`
-when Panta couldn't be reached). Reads are never gated; page reads may reuse a
-15 s window check, writes never do.
+Each write re-checks server-side with the server clock (`window-server.ts`):
+
+- **Authorising read: the market's on-chain `Event` account**, fetched fresh
+  for every check (`getAccountInfo`, commitment `confirmed`, 3 s timeout; the
+  account must be owned by the Panta program). Concurrent checks for one
+  market share one in-flight request; the result is never cached for writes.
+- **Panta detail** may only add restrictions. One in-flight request per
+  market; full records are reused for up to 120 s; with a fresh chain read the
+  check waits at most 750 ms for it. A cached record can't re-open anything:
+  the most advanced phase from any source wins.
+- **Catalog row**: used only if the catalog is already built (no cold-build
+  wait).
+- **Chain unreadable**: the Phase 2 policy applies. A detail fetched for this
+  check is required (bounded at 8 s; reused records don't count) and a thin
+  record needs the catalog row; otherwise closed.
+- The cutoff is compared with the server clock read after the source awaits.
+
+Secondary, ended, resolved, cancelled, unknown, `is_active = false` →
+409 `FORECASTING_CLOSED`; no Event account / unknown to Panta, no published
+`primaryPhaseEndTime`, or nothing could be read → closed (503
+`FORECAST_WINDOW_UNAVAILABLE` when sources couldn't be reached). Reads are
+never gated; page reads may reuse a computed window for 15 s (re-checked
+against the clock, "unavailable" never cached), writes never do.
+
+Why (measured 10 Oct 2026, local): Panta's detail endpoint took 3–8 s per call
+(some hit the 10 s timeout) and the old check waited up to 8 s for a cold
+catalog, so a submit took 3–10 s and a cold start could end in "Panta couldn't
+be reached". With the chain as the fresh authorising read, warm submits take
+~30–70 ms end to end.
+
+The submit response includes the committed community aggregate (`consensus`,
+read right after the write), which the client puts straight into its cache.
 
 **Community forecast**: unweighted mean of CURRENT forecasts, one per wallet,
 computed server-side from maintained aggregates (SQL `COUNT/SUM/GROUP BY` on

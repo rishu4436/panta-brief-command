@@ -1,11 +1,14 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { useWalletModal } from "@solana/wallet-adapter-react-ui";
 import { PublicKey } from "@solana/web3.js";
 import { useUsdcBalance } from "@/lib/data/hooks";
 import { shortAddr } from "@/lib/format";
+import { signOutAndRefresh, useRoomSession } from "@/lib/rooms/client";
+import { walletMenuItems } from "@/lib/wallet-menu";
 import { IconChevronDown, IconWallet } from "./ui/Icons";
 
 /** Mainnet USDC mint (balance chip only). */
@@ -22,7 +25,12 @@ export function WalletButton({ block = false }: { block?: boolean }) {
   const { setVisible } = useWalletModal();
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
+  const [signOutFailed, setSignOutFailed] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const qc = useQueryClient();
+  const session = useRoomSession();
+  const sessionWallet = session.data?.wallet ?? null;
   const balance = useUsdcBalance(connection, connected ? publicKey : null, USDC_MINT);
 
   useEffect(() => {
@@ -130,6 +138,27 @@ export function WalletButton({ block = false }: { block?: boolean }) {
           >
             View on Solscan
           </a>
+          {walletMenuItems(sessionWallet).includes("sign-out") ? (
+            <button
+              type="button"
+              role="menuitem"
+              disabled={signingOut}
+              onClick={async () => {
+                setSigningOut(true);
+                setSignOutFailed(false);
+                const r = await signOutAndRefresh(qc);
+                setSigningOut(false);
+                if (r.ok) setOpen(false);
+                else setSignOutFailed(true);
+              }}
+              className="flex min-h-[40px] w-full flex-col items-start justify-center rounded-lg px-3 text-left text-[13px] text-ink-2 hover:bg-elevated hover:text-ink disabled:opacity-60"
+            >
+              <span>{signingOut ? "Signing out…" : "Sign out"}</span>
+              <span className="text-[11px] text-ink-3">
+                {signOutFailed ? "Sign-out didn't complete. Try again." : sessionWallet !== addr ? `Signed in as ${shortAddr(sessionWallet!, 4)} · wallet stays connected` : "Ends sign-in · wallet stays connected"}
+              </span>
+            </button>
+          ) : null}
           <button
             type="button"
             role="menuitem"

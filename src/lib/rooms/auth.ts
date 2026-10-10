@@ -74,6 +74,21 @@ export function verifyEd25519(publicKey: Uint8Array, message: Uint8Array, signat
   }
 }
 
+/** Single line (SIWS statements may not contain newlines). Carries the purpose in words. */
+export const AUTH_STATEMENT =
+  "Verify wallet ownership for Prediction Rooms on Brief Command. Free signature, not a transaction; it cannot move funds or approve anything.";
+export const SIWS_CHAIN_ID = "mainnet";
+
+/** RFC 3339 / ISO-8601 UTC, second precision, e.g. 2026-10-10T09:15:00Z. */
+export const siwsTime = (ms: number) => new Date(Math.floor(ms / 1000) * 1000).toISOString().replace(/\.\d{3}Z$/, "Z");
+
+/**
+ * Strict Sign-In-With-Solana (EIP-4361 style) text, field for field what
+ * @solana/wallet-standard-util createSignInMessageText produces and what
+ * Phantom's parser accepts: header, address, blank, one-line statement,
+ * blank, then only standard fields in standard order. The purpose travels in
+ * the statement and as the Request ID; nothing non-standard is appended.
+ */
 export function buildChallengeMessage(p: {
   domain: string;
   uri: string;
@@ -86,15 +101,15 @@ export function buildChallengeMessage(p: {
     `${p.domain} wants you to sign in with your Solana account:`,
     p.wallet,
     "",
-    "Verify wallet ownership for Prediction Rooms on Brief Command. This is a free signature, not a transaction: it cannot move funds or approve anything.",
+    AUTH_STATEMENT,
     "",
     `URI: ${p.uri}`,
     "Version: 1",
-    "Chain ID: mainnet",
+    `Chain ID: ${SIWS_CHAIN_ID}`,
     `Nonce: ${p.nonce}`,
-    `Issued At: ${new Date(p.issuedAt).toISOString()}`,
-    `Expiration Time: ${new Date(p.expiresAt).toISOString()}`,
-    `Purpose: ${AUTH_PURPOSE}`,
+    `Issued At: ${siwsTime(p.issuedAt)}`,
+    `Expiration Time: ${siwsTime(p.expiresAt)}`,
+    `Request ID: ${AUTH_PURPOSE}`,
   ].join("\n");
 }
 
@@ -105,8 +120,9 @@ export async function issueChallenge(
   if (!decodeWallet(p.wallet)) throw new RoomAuthError("INVALID_WALLET", 400, "Not a valid Solana wallet address.");
   const url = new URL(p.origin);
   const nonce = randomBytes(16).toString("hex");
-  const issuedAt = p.now;
-  const expiresAt = p.now + CHALLENGE_TTL_MS;
+  // Second precision so the stored times are exactly the ones in the message.
+  const issuedAt = Math.floor(p.now / 1000) * 1000;
+  const expiresAt = issuedAt + CHALLENGE_TTL_MS;
   const wallet = p.wallet.trim();
   const message = buildChallengeMessage({ domain: url.host, uri: url.origin, wallet, nonce, issuedAt, expiresAt });
   const rec: AuthChallengeRecord = { nonce, wallet, message, domain: url.host, issuedAt, expiresAt };
@@ -143,6 +159,12 @@ export async function verifyChallenge(
   if (!p.originHost || p.originHost !== challenge.domain) {
     throw new RoomAuthError("ORIGIN_MISMATCH", 403, "This sign-in request was issued for a different site.");
   }
+  // The stored text must be a strict SIWS message whose fields are exactly
+  // this challenge's: binds domain, URI host, wallet, nonce, purpose (Request
+  // ID), chain and expiry to the bytes that were signed.
+  if (challenge.nonce !== p.nonce || !messageMatchesChallenge(challenge)) {
+    throw new RoomAuthError("CHALLENGE_NOT_FOUND", 401, "This sign-in request is unknown or was already used. Start again.");
+  }
   if (!sig || sig.length !== 64) {
     throw new RoomAuthError("INVALID_SIGNATURE_FORMAT", 400, "The wallet returned a malformed signature.");
   }
@@ -151,6 +173,46 @@ export async function verifyChallenge(
     throw new RoomAuthError("SIGNATURE_INVALID", 401, "The signature doesn't match this wallet and message.");
   }
   return { wallet: challenge.wallet };
+}
+
+// Same grammar as @solana/wallet-standard-util parseSignInMessageText (SIWS).
+const SIWS_RE = new RegExp(
+  "^(?<domain>[^\\n]+?) wants you to sign in with your Solana account:\\n(?<address>[^\\n]+)(?:\\n|$)" +
+    "(?:\\n(?<statement>[\\S\\s]*?)(?:\\n|$))??" +
+    "(?:\\nURI: (?<uri>[^\\n]+))?(?:\\nVersion: (?<version>[^\\n]+))?(?:\\nChain ID: (?<chainId>[^\\n]+))?" +
+    "(?:\\nNonce: (?<nonce>[^\\n]+))?(?:\\nIssued At: (?<issuedAt>[^\\n]+))?(?:\\nExpiration Time: (?<expirationTime>[^\\n]+))?" +
+    "(?:\\nNot Before: (?<notBefore>[^\\n]+))?(?:\\nRequest ID: (?<requestId>[^\\n]+))?" +
+    "(?:\\nResources:(?<resources>(?:\\n- [^\\n]+)*))?\\n*$",
+);
+
+export function parseSiwsMessage(text: string): Record<string, string | undefined> | null {
+  const m = SIWS_RE.exec(text);
+  return m?.groups ? { ...m.groups } : null;
+}
+
+function messageMatchesChallenge(c: AuthChallengeRecord): boolean {
+  const f = parseSiwsMessage(c.message);
+  if (!f || !f.uri) return false;
+  let uriHost: string;
+  try {
+    uriHost = new URL(f.uri).host;
+  } catch {
+    return false;
+  }
+  return (
+    f.domain === c.domain &&
+    uriHost === c.domain &&
+    f.address === c.wallet &&
+    f.statement === AUTH_STATEMENT &&
+    f.version === "1" &&
+    f.chainId === SIWS_CHAIN_ID &&
+    f.nonce === c.nonce &&
+    f.issuedAt === siwsTime(c.issuedAt) &&
+    f.expirationTime === siwsTime(c.expiresAt) &&
+    f.requestId === AUTH_PURPOSE &&
+    f.notBefore === undefined &&
+    f.resources === undefined
+  );
 }
 
 // ---------------------------------------------------------------------------

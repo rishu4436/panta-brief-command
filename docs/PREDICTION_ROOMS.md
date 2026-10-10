@@ -75,8 +75,13 @@ atomically (temp file, fsync, rename). All statements are parameterised.
 
 Sign-In-With-Solana style, no transaction:
 
-1. `POST /api/rooms/auth/challenge {wallet}` → server nonce (128 bits) and a
-   message naming the host, wallet, purpose, URI, issuedAt, expiry (5 min).
+1. `POST /api/rooms/auth/challenge {wallet}` → server nonce (128 bits, hex) and
+   a strictly standard SIWS message (Phantom rejects anything else): header with
+   the request host, wallet, one-line statement, then only `URI`, `Version: 1`,
+   `Chain ID: mainnet`, `Nonce`, `Issued At`, `Expiration Time` (5 min, UTC `Z`,
+   second precision) and `Request ID: prediction-rooms-auth` (the purpose).
+   Verified against `@solana/wallet-standard-util` `parseSignInMessageText` in
+   `test/rooms.test.ts`.
 2. Wallet `signMessage` (Ed25519).
 3. `POST /api/rooms/auth/verify {nonce, signature}` → the challenge is consumed
    atomically first (single use), then expiry, Origin host = challenge domain,

@@ -11,6 +11,7 @@ import os from "node:os";
 import path from "node:path";
 import bs58 from "bs58";
 import { NextRequest } from "next/server";
+import { createSignInMessageText, parseSignInMessageText } from "@solana/wallet-standard-util";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { Market } from "@/lib/panta/domain";
 import { marketState } from "@/lib/panta/lifecycle";
@@ -26,6 +27,8 @@ import {
   slugProblem,
 } from "@/lib/rooms/domain";
 import {
+  AUTH_PURPOSE,
+  AUTH_STATEMENT,
   CHALLENGE_TTL_MS,
   SESSION_COOKIE,
   SESSION_TTL_MS,
@@ -379,9 +382,51 @@ describe("wallet ownership challenge", () => {
     expect(c.message).toContain("briefcommand.vercel.app wants you to sign in");
     expect(c.message).toContain("not a transaction");
     expect(c.message).toContain(`Nonce: ${c.nonce}`);
-    expect(c.message).toContain("Purpose: prediction-rooms-auth");
+    expect(c.message).toContain("Request ID: prediction-rooms-auth");
+    expect(c.message).not.toContain("Purpose:");
     expect(c.expiresAt - c.issuedAt).toBe(CHALLENGE_TTL_MS);
     expect(c.nonce).toMatch(/^[a-f0-9]{32}$/);
+  });
+
+  it("is a strictly standard SIWS message (parsed by @solana/wallet-standard-util, no extra fields)", async () => {
+    const w = wallet();
+    const c = await issueChallenge(repo, { wallet: w.address, origin: "http://localhost:3100", now: Date.UTC(2026, 9, 10, 9, 15, 30, 789) });
+    const parsed = parseSignInMessageText(c.message);
+    expect(parsed).not.toBeNull();
+    expect(parsed).toEqual({
+      domain: "localhost:3100",
+      address: w.address,
+      statement: AUTH_STATEMENT,
+      uri: "http://localhost:3100",
+      version: "1",
+      chainId: "mainnet",
+      nonce: c.nonce,
+      issuedAt: "2026-10-10T09:15:30Z",
+      expirationTime: "2026-10-10T09:20:30Z",
+      notBefore: undefined,
+      requestId: AUTH_PURPOSE,
+      resources: undefined,
+    });
+    // Canonical re-serialisation by the reference implementation is byte-identical.
+    expect(createSignInMessageText(parsed!)).toBe(c.message);
+    // Only standard field labels, in standard order.
+    const labels = c.message.split("\n").slice(5).map((l) => l.split(": ")[0]);
+    expect(labels).toEqual(["URI", "Version", "Chain ID", "Nonce", "Issued At", "Expiration Time", "Request ID"]);
+    expect(AUTH_STATEMENT).not.toMatch(/\n/);
+    expect(c.nonce).toMatch(/^[A-Za-z0-9]{8,}$/);
+    expect(parsed!.issuedAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
+    expect(new Date(parsed!.expirationTime!).getTime()).toBe(c.expiresAt);
+  });
+
+  it("a stored challenge whose text was altered is rejected even with a valid signature over it", async () => {
+    const w = wallet();
+    const now = Date.now();
+    const c = await issueChallenge(repo, { wallet: w.address, origin, now });
+    const forged = { ...c, nonce: "b".repeat(32), message: c.message.replace("Request ID: prediction-rooms-auth", "Request ID: something-else") };
+    await repo.saveChallenge(forged);
+    await expect(
+      verifyChallenge(repo, { nonce: forged.nonce, signature: w.signText(forged.message), originHost: "briefcommand.vercel.app", now }),
+    ).rejects.toMatchObject({ code: "CHALLENGE_NOT_FOUND" });
   });
 
   it("rejects invalid wallet addresses", async () => {

@@ -38,10 +38,10 @@ import { DebateValidationError, buildChallengeResponse, buildDebateFromModel, ty
 import { __setForecastDepsForTests } from "@/lib/forecasts/deps";
 import { SafeFetchError, type SafeFetchResult } from "@/lib/net/safe-fetch";
 import type { Market } from "@/lib/panta/domain";
-import { SESSION_COOKIE, sessionSecret, signSession } from "@/lib/rooms/auth";
+import { issueSession, SESSION_COOKIE, sessionSecret } from "@/lib/rooms/auth";
 import type { RoomRecord } from "@/lib/rooms/domain";
 import { newRoomId } from "@/lib/rooms/service";
-import { __setRoomRepositoryForTests } from "@/lib/rooms/store";
+import { __setRoomRepositoryForTests, roomRepository } from "@/lib/rooms/store";
 import { RedisRoomRepository } from "@/lib/rooms/store/redis";
 import { ADD_CHALLENGE_SCRIPT, SAVE_DEBATE_SCRIPT } from "@/lib/rooms/store/redis-debate";
 import { SqliteRoomRepository } from "@/lib/rooms/store/sqlite";
@@ -692,7 +692,8 @@ function req(url: string, init: { method?: string; body?: unknown; cookie?: stri
   return new NextRequest(`http://localhost${url}`, { method: init.method ?? "GET", headers, body: init.body === undefined ? undefined : JSON.stringify(init.body) });
 }
 const ctx = (slug: string) => ({ params: Promise.resolve({ slug }) });
-const cookieFor = (wallet: string) => `${SESSION_COOKIE}=${signSession(wallet, Date.now(), sessionSecret()!).value}`;
+/** A real, registered session (the server checks its store record on every request). */
+const cookieFor = async (wallet: string) => `${SESSION_COOKIE}=${(await issueSession(roomRepository(), wallet, Date.now(), sessionSecret()!)).value}`;
 
 describe("debate HTTP API", () => {
   let repo: RoomRepository;
@@ -756,7 +757,7 @@ describe("debate HTTP API", () => {
   });
 
   it("generate → GET shows it current; ?debate=<id> selects; unknown id falls back with a flag", async () => {
-    const r = await generate(cookieFor(newWallet()));
+    const r = await generate(await cookieFor(newWallet()));
     expect(r.status).toBe(201);
     const { debateId } = (await r.json()) as { debateId: string };
     const v = await getView();
@@ -770,7 +771,7 @@ describe("debate HTTP API", () => {
   });
 
   it("6. GET marks an expired debate stale (never current)", async () => {
-    await generate(cookieFor(newWallet()));
+    await generate(await cookieFor(newWallet()));
     __setDebateDepsForTests({ model, now: () => NOW + 7 * 3600_000, readMarketView: async () => view, collect: async () => snapshot() });
     const v = await getView();
     expect(v.body.debate!.freshness).toBe("stale");
@@ -778,39 +779,39 @@ describe("debate HTTP API", () => {
 
   it("10. challenge & generate auth: no session → 401; cross-origin → 403; nothing written", async () => {
     expect((await generate(undefined)).status).toBe(401);
-    expect((await generate(cookieFor(newWallet()), key(), { origin: "https://evil.example" })).status).toBe(403);
+    expect((await generate(await cookieFor(newWallet()), key(), { origin: "https://evil.example" })).status).toBe(403);
     expect(await repo.listDebates(room.roomId, { limit: 5 })).toEqual([]);
-    await generate(cookieFor(newWallet()));
+    await generate(await cookieFor(newWallet()));
     const b = (await repo.getLatestDebate(room.roomId))!;
     const body = { debateId: b.debate.debateId, claimId: b.claims[0].claimId, text: "The live feed predates kickoff.", idempotencyKey: key() };
     expect((await challenge(undefined, body)).status).toBe(401);
-    expect((await challenge(cookieFor(newWallet()), body, { origin: "https://evil.example" })).status).toBe(403);
+    expect((await challenge(await cookieFor(newWallet()), body, { origin: "https://evil.example" })).status).toBe(403);
     expect((await challenge(`${SESSION_COOKIE}=forged.value`, body)).status).toBe(401);
     expect(await repo.listChallenges(room.roomId, b.debate.debateId, { limit: 60 })).toEqual([]);
   });
 
   it("11. forged wallet: a body naming a wallet is rejected; the stored challenger is the session wallet", async () => {
-    await generate(cookieFor(newWallet()));
+    await generate(await cookieFor(newWallet()));
     const b = (await repo.getLatestDebate(room.roomId))!;
     const me = newWallet();
     const body = { debateId: b.debate.debateId, claimId: b.claims[0].claimId, text: "The live feed predates kickoff.", idempotencyKey: key() };
-    const forged = await challenge(cookieFor(me), { ...body, wallet: newWallet() });
+    const forged = await challenge(await cookieFor(me), { ...body, wallet: newWallet() });
     expect(forged.status).toBe(400);
     expect(((await forged.json()) as { code: string }).code).toBe("CLIENT_WALLET_REJECTED");
-    const good = await challenge(cookieFor(me), body);
+    const good = await challenge(await cookieFor(me), body);
     expect(good.status).toBe(201);
     expect(((await good.json()) as { challenge: DebateChallenge }).challenge.wallet).toBe(me);
     // replay with the same key → 200, same challenge, no second model call
     const calls = model.calls.length;
-    const replay = await challenge(cookieFor(me), body);
+    const replay = await challenge(await cookieFor(me), body);
     expect(replay.status).toBe(200);
     expect(model.calls.length).toBe(calls);
   });
 
   it("challenge input limits: 10–500 chars, https-only links, unsafe URLs refused by the real safe fetcher (22)", async () => {
-    await generate(cookieFor(newWallet()));
+    await generate(await cookieFor(newWallet()));
     const b = (await repo.getLatestDebate(room.roomId))!;
-    const c = cookieFor(newWallet());
+    const c = await cookieFor(newWallet());
     const base = { debateId: b.debate.debateId, claimId: b.claims[0].claimId };
     expect((await challenge(c, { ...base, text: "short", idempotencyKey: key() })).status).toBe(400);
     expect((await challenge(c, { ...base, text: "x".repeat(501), idempotencyKey: key() })).status).toBe(400);
@@ -825,9 +826,9 @@ describe("debate HTTP API", () => {
   });
 
   it("12. challenge rate limit: per wallet (5 / 10 min) → 429", async () => {
-    await generate(cookieFor(newWallet()));
+    await generate(await cookieFor(newWallet()));
     const b = (await repo.getLatestDebate(room.roomId))!;
-    const c = cookieFor(newWallet());
+    const c = await cookieFor(newWallet());
     const statuses: number[] = [];
     for (let i = 0; i < 6; i++) statuses.push((await challenge(c, { debateId: b.debate.debateId, claimId: b.claims[i % 4].claimId, text: `Challenge number ${i} with detail.`, idempotencyKey: key() })).status);
     expect(statuses.slice(0, 5)).toEqual([201, 201, 201, 201, 201]);
@@ -835,17 +836,17 @@ describe("debate HTTP API", () => {
   });
 
   it("challenge rate limit: per IP (10 / 10 min) → 429 across wallets", async () => {
-    await generate(cookieFor(newWallet()));
+    await generate(await cookieFor(newWallet()));
     const b = (await repo.getLatestDebate(room.roomId))!;
     const ip = "192.0.2.77";
     const statuses: number[] = [];
-    for (let i = 0; i < 11; i++) statuses.push((await challenge(cookieFor(newWallet()), { debateId: b.debate.debateId, claimId: b.claims[i % 4].claimId, text: `Challenge number ${i} with detail.`, idempotencyKey: key() }, { ip })).status);
+    for (let i = 0; i < 11; i++) statuses.push((await challenge(await cookieFor(newWallet()), { debateId: b.debate.debateId, claimId: b.claims[i % 4].claimId, text: `Challenge number ${i} with detail.`, idempotencyKey: key() }, { ip })).status);
     expect(statuses.filter((s) => s === 201)).toHaveLength(10);
     expect(statuses[10]).toBe(429);
   });
 
   it("24. generation rate limit: per wallet 3 / hour (replays of the same key don't count)", async () => {
-    const c = cookieFor(newWallet());
+    const c = await cookieFor(newWallet());
     const k = key();
     expect((await generate(c, k)).status).toBe(201);
     expect((await generate(c, k)).status).toBe(200); // replay
@@ -859,10 +860,10 @@ describe("debate HTTP API", () => {
     const archived = await seedRoom(repo, { status: "archived" });
     const g = await routes.get(req(`/api/rooms/${archived.slug}/debate`), ctx(archived.slug));
     expect(g.status).toBe(404);
-    const p = await routes.post(req(`/api/rooms/${archived.slug}/debate`, { method: "POST", body: { idempotencyKey: key() }, cookie: cookieFor(newWallet()) }), ctx(archived.slug));
+    const p = await routes.post(req(`/api/rooms/${archived.slug}/debate`, { method: "POST", body: { idempotencyKey: key() }, cookie: await cookieFor(newWallet()) }), ctx(archived.slug));
     expect(p.status).toBe(404);
     const ch = await routes.challenge(
-      req(`/api/rooms/${archived.slug}/debate/challenges`, { method: "POST", body: { debateId: "dbt_00000000000000000000", claimId: "clm_0000000000000000", text: "Challenge an archived room.", idempotencyKey: key() }, cookie: cookieFor(newWallet()) }),
+      req(`/api/rooms/${archived.slug}/debate/challenges`, { method: "POST", body: { debateId: "dbt_00000000000000000000", claimId: "clm_0000000000000000", text: "Challenge an archived room.", idempotencyKey: key() }, cookie: await cookieFor(newWallet()) }),
       ctx(archived.slug),
     );
     expect(ch.status).toBe(404);
@@ -877,17 +878,17 @@ describe("debate HTTP API", () => {
   });
 
   it("19. resolved market: prior debate shown as historical; no new generation or challenges", async () => {
-    await generate(cookieFor(newWallet()));
+    await generate(await cookieFor(newWallet()));
     const b = (await repo.getLatestDebate(room.roomId))!;
     view = { status: "ok", lifecycle: "resolved", question: QUESTION };
     const v = await getView();
     expect(v.body.debate!.freshness).toBe("historical");
     expect(v.body.generation).toMatchObject({ allowed: false });
     const calls = model.calls.length;
-    const p = await generate(cookieFor(newWallet()));
+    const p = await generate(await cookieFor(newWallet()));
     expect(p.status).toBe(409);
     expect(((await p.json()) as { code: string }).code).toBe("MARKET_RESOLVED");
-    const ch = await challenge(cookieFor(newWallet()), { debateId: b.debate.debateId, claimId: b.claims[0].claimId, text: "Challenge after resolution.", idempotencyKey: key() });
+    const ch = await challenge(await cookieFor(newWallet()), { debateId: b.debate.debateId, claimId: b.claims[0].claimId, text: "Challenge after resolution.", idempotencyKey: key() });
     expect(ch.status).toBe(409);
     expect(model.calls.length).toBe(calls);
     expect(collectCalls.n).toBe(1);
@@ -895,10 +896,10 @@ describe("debate HTTP API", () => {
 
   it("ended / unknown market or fresh read showing resolution → no generation", async () => {
     view = { status: "ok", lifecycle: "ended", question: QUESTION };
-    expect((await generate(cookieFor(newWallet()))).status).toBe(409);
+    expect((await generate(await cookieFor(newWallet()))).status).toBe(409);
     view = { status: "ok", lifecycle: "open", question: QUESTION };
     __setDebateDepsForTests({ model, now: () => NOW, readMarketView: async () => view, collect: async () => snapshot({ lifecycle: "resolved" }) });
-    const r = await generate(cookieFor(newWallet()));
+    const r = await generate(await cookieFor(newWallet()));
     expect(r.status).toBe(409);
     expect(model.calls).toHaveLength(0);
     expect(await repo.listDebates(room.roomId, { limit: 5 })).toEqual([]);
@@ -910,7 +911,7 @@ describe("debate HTTP API", () => {
     const v = await getView();
     expect(v.body.ai).toMatchObject({ available: false });
     expect(v.body.generation).toMatchObject({ allowed: false });
-    const r = await generate(cookieFor(newWallet()));
+    const r = await generate(await cookieFor(newWallet()));
     expect(r.status).toBe(503);
     expect(((await r.json()) as { code: string }).code).toBe("AI_UNAVAILABLE");
     expect(collectCalls.n).toBe(0);
@@ -918,7 +919,7 @@ describe("debate HTTP API", () => {
   });
 
   it("25–28. regressions: room, forecasts and leaderboard routes unchanged; embeds stay AI-free", async () => {
-    await generate(cookieFor(newWallet()));
+    await generate(await cookieFor(newWallet()));
     const b = (await repo.getLatestDebate(room.roomId))!;
     expect((await routes.room(req(`/api/rooms/${room.slug}`), ctx(room.slug))).status).toBe(200);
     expect((await routes.forecasts(req(`/api/rooms/${room.slug}/forecasts`), ctx(room.slug))).status).toBe(200);

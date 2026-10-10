@@ -5,7 +5,7 @@ import { debateErrorResponse } from "@/lib/debate/http";
 import { challengeClaim, cleanChallengeText } from "@/lib/debate/service";
 import { CLIENT_IDENTITY_KEYS } from "@/lib/forecasts/domain";
 import { slugProblem } from "@/lib/rooms/domain";
-import { DEBATE_RATE, currentSession, ok, readJson, reject, sameOriginOrReject } from "@/lib/rooms/http";
+import { DEBATE_RATE, ok, readJson, reject, sameOriginOrReject, requireSession } from "@/lib/rooms/http";
 import { clientIp } from "@/lib/rate-limit";
 import { limitShared } from "@/lib/shared-store";
 
@@ -23,8 +23,9 @@ type Ctx = { params: Promise<{ slug: string }> };
 export async function POST(req: NextRequest, ctx: Ctx) {
   const cross = sameOriginOrReject(req);
   if (cross) return cross;
-  const session = currentSession(req);
-  if (!session) return reject(401, "WALLET_NOT_VERIFIED", "Verify your wallet to challenge a claim.");
+  const auth = await requireSession(req, { message: "Verify your wallet to challenge a claim." });
+  if (!auth.ok) return auth.res;
+  const session = auth.session;
   const { slug: rawSlug } = await ctx.params;
   const slug = (rawSlug || "").toLowerCase();
   if (slugProblem(slug) !== null) return reject(404, "ROOM_NOT_FOUND", "No room at this address.");

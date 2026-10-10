@@ -57,6 +57,9 @@ class UnavailableRoomRepository implements RoomRepository {
   updateRoom = async (): Promise<never> => this.fail();
   saveChallenge = async (): Promise<never> => this.fail();
   consumeChallenge = async (): Promise<never> => this.fail();
+  createSession = async (): Promise<never> => this.fail();
+  getActiveSession = async (): Promise<never> => this.fail();
+  revokeSession = async (): Promise<never> => this.fail();
   submitForecast = async (): Promise<never> => this.fail();
   getCurrentForecast = async (): Promise<never> => this.fail();
   getForecastHistory = async (): Promise<never> => this.fail();

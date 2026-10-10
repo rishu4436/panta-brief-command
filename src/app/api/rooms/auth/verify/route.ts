@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { RoomAuthError, sessionCookieOptions, sessionSecret, signSession, verifyChallenge, SESSION_COOKIE } from "@/lib/rooms/auth";
+import { issueSession, RoomAuthError, sessionCookieOptions, sessionSecret, verifyChallenge, SESSION_COOKIE } from "@/lib/rooms/auth";
 import { roomDeps } from "@/lib/rooms/deps";
 import { AUTH_BODY_MAX_BYTES, errorResponse, ok, originHost, readJson, reject, sameOriginOrReject } from "@/lib/rooms/http";
 
@@ -24,7 +24,8 @@ export async function POST(req: NextRequest) {
   try {
     const t = now();
     const { wallet } = await verifyChallenge(repo, { nonce: body.nonce, signature: body.signature, originHost: originHost(req), now: t });
-    const { value, session } = signSession(wallet, t, secret);
+    // Registered in the session store BEFORE the cookie is set: if the store can't record it, sign-in fails closed (503).
+    const { value, session } = await issueSession(repo, wallet, t, secret);
     const res = ok({ wallet, expiresAt: new Date(session.expiresAt).toISOString() });
     res.cookies.set(SESSION_COOKIE, value, sessionCookieOptions());
     return res;

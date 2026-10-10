@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { forecastDeps } from "@/lib/forecasts/deps";
 import { walletForecast } from "@/lib/forecasts/service";
 import { slugProblem } from "@/lib/rooms/domain";
-import { currentSession, errorResponse, limitRequest, ok, reject } from "@/lib/rooms/http";
+import { resolveSession, errorResponse, limitRequest, ok, reject } from "@/lib/rooms/http";
 
 export const dynamic = "force-dynamic";
 
@@ -19,7 +19,9 @@ export async function GET(req: NextRequest, ctx: Ctx) {
   const { slug: raw } = await ctx.params;
   const slug = (raw || "").toLowerCase();
   if (slugProblem(slug)) return reject(404, "ROOM_NOT_FOUND", "No room at this address.");
-  const session = currentSession(req);
+  const check = await resolveSession(req);
+  if (check.unavailable) return reject(503, "SESSION_STORE_UNAVAILABLE", "Sign-in couldn't be confirmed right now. Try again.");
+  const session = check.session;
   const { repo } = forecastDeps();
   try {
     const room = await repo.getRoomBySlug(slug);

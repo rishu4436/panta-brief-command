@@ -13,10 +13,10 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import type { MarketSnapshot } from "@/lib/embed/market-snapshot";
 import { __resetSnapshotCacheForTests } from "@/lib/embed/market-snapshot";
 import { submitForecast } from "@/lib/forecasts/service";
-import { SESSION_COOKIE, sessionSecret, signSession } from "@/lib/rooms/auth";
+import { issueSession, SESSION_COOKIE, sessionSecret, signSession } from "@/lib/rooms/auth";
 import type { RoomRecord } from "@/lib/rooms/domain";
 import { newRoomId } from "@/lib/rooms/service";
-import { __setRoomRepositoryForTests } from "@/lib/rooms/store";
+import { __setRoomRepositoryForTests, roomRepository } from "@/lib/rooms/store";
 import { RedisRoomRepository, ROOMS_REDIS_PREFIX } from "@/lib/rooms/store/redis";
 import { studioKeys } from "@/lib/rooms/store/redis-studio";
 import { SqliteRoomRepository } from "@/lib/rooms/store/sqlite";
@@ -127,7 +127,8 @@ function req(url: string, init: { method?: string; body?: unknown; rawBody?: str
   return new NextRequest(`http://localhost${url}`, { method: init.method ?? "GET", headers, body });
 }
 const ctx = (slug: string) => ({ params: Promise.resolve({ slug }) });
-const cookieFor = (wallet: string) => `${SESSION_COOKIE}=${signSession(wallet, Date.now(), sessionSecret()!).value}`;
+/** A real, registered session (the server checks its store record on every request). */
+const cookieFor = async (wallet: string) => `${SESSION_COOKIE}=${(await issueSession(roomRepository(), wallet, Date.now(), sessionSecret()!)).value}`;
 
 type Handler = (req: NextRequest, ctx: { params: Promise<{ slug: string }> }) => Promise<Response>;
 let overviewGET: (req: NextRequest) => Promise<Response>;
@@ -185,7 +186,7 @@ describe.each(factories)("studio access & ownership: $name", ({ make }) => {
       expect((await roomsGET(req("/api/studio/rooms", { cookie }))).status).toBe(401);
       expect((await studioRoomGET(req(`/api/studio/rooms/${room.slug}`, { cookie }), ctx(room.slug))).status).toBe(401);
     }
-    const ok = await overviewGET(req("/api/studio/overview", { cookie: cookieFor(a) }));
+    const ok = await overviewGET(req("/api/studio/overview", { cookie: await cookieFor(a) }));
     expect(ok.status).toBe(200);
     expect(ok.headers.get("cache-control")).toBe("no-store");
   });
@@ -197,11 +198,11 @@ describe.each(factories)("studio access & ownership: $name", ({ make }) => {
     await seedRoom(m.repo, a, { title: "A unlisted", visibility: "unlisted" });
     await seedRoom(m.repo, a, { title: "A archived", status: "archived" });
     await seedRoom(m.repo, b, { title: "B room" });
-    const res = await roomsGET(req(`/api/studio/rooms?wallet=${b}`, { cookie: cookieFor(a), headers: { "x-wallet": b } }));
+    const res = await roomsGET(req(`/api/studio/rooms?wallet=${b}`, { cookie: await cookieFor(a), headers: { "x-wallet": b } }));
     const page = (await res.json()) as { items: { title: string }[]; total: number };
     expect(page.total).toBe(3);
     expect(page.items.map((r) => r.title).sort()).toEqual(["A archived", "A public", "A unlisted"]);
-    const ov = (await (await overviewGET(req(`/api/studio/overview?wallet=${b}`, { cookie: cookieFor(a) }))).json()) as { wallet: string; rooms: { total: number; archived: number } };
+    const ov = (await (await overviewGET(req(`/api/studio/overview?wallet=${b}`, { cookie: await cookieFor(a) }))).json()) as { wallet: string; rooms: { total: number; archived: number } };
     expect(ov.wallet).toBe(a);
     expect(ov.rooms).toMatchObject({ total: 3, archived: 1 });
   });
@@ -210,25 +211,26 @@ describe.each(factories)("studio access & ownership: $name", ({ make }) => {
     const a = newWallet();
     const b = newWallet();
     const rooms = [await seedRoom(m.repo, b), await seedRoom(m.repo, b, { visibility: "unlisted" }), await seedRoom(m.repo, b, { status: "archived" })];
-    const missing = await studioRoomGET(req("/api/studio/rooms/no-such-room", { cookie: cookieFor(a) }), ctx("no-such-room"));
+    const missing = await studioRoomGET(req("/api/studio/rooms/no-such-room", { cookie: await cookieFor(a) }), ctx("no-such-room"));
     const missingBody = await missing.json();
     for (const r of rooms) {
-      const res = await studioRoomGET(req(`/api/studio/rooms/${r.slug}`, { cookie: cookieFor(a) }), ctx(r.slug));
+      const res = await studioRoomGET(req(`/api/studio/rooms/${r.slug}`, { cookie: await cookieFor(a) }), ctx(r.slug));
       expect(res.status).toBe(404);
       expect(await res.json()).toEqual(missingBody);
     }
-    const own = await studioRoomGET(req(`/api/studio/rooms/${rooms[2].slug}`, { cookie: cookieFor(b) }), ctx(rooms[2].slug));
+    const own = await studioRoomGET(req(`/api/studio/rooms/${rooms[2].slug}`, { cookie: await cookieFor(b) }), ctx(rooms[2].slug));
     expect(own.status).toBe(200);
   });
 
   it("4. PATCH settings: creator only, same-origin only, market and slug immutable", async () => {
     const a = newWallet();
     const room = await seedRoom(m.repo, a);
-    const patch = (body: unknown, init: Parameters<typeof req>[1] = {}) => roomPATCH(req(`/api/rooms/${room.slug}`, { method: "PATCH", body, cookie: cookieFor(a), ...init }), ctx(room.slug));
+    const ownCookie = await cookieFor(a);
+    const patch = (body: unknown, init: Parameters<typeof req>[1] = {}) => roomPATCH(req(`/api/rooms/${room.slug}`, { method: "PATCH", body, cookie: ownCookie, ...init }), ctx(room.slug));
     expect((await patch({ visibility: "unlisted" }, { cookie: undefined })).status).toBe(401);
     expect((await patch({ visibility: "unlisted" }, { origin: "https://evil.example" })).status).toBe(403);
     expect((await patch({ visibility: "unlisted" }, { origin: null })).status).toBe(403);
-    expect((await patch({ visibility: "unlisted" }, { cookie: cookieFor(newWallet()) })).status).toBe(403);
+    expect((await patch({ visibility: "unlisted" }, { cookie: await cookieFor(newWallet()) })).status).toBe(403);
     expect((await patch({ marketId: MARKET2 })).status).toBe(400);
     expect((await patch({ slug: "new-slug" })).status).toBe(400);
     expect((await patch({ creatorWallet: newWallet() })).status).toBe(400);
@@ -246,14 +248,14 @@ describe.each(factories)("studio access & ownership: $name", ({ make }) => {
     const w = newWallet();
     const room = await seedRoom(m.repo, a);
     await forecast(m.repo, room, w, 6000, NOW);
-    const archive = await roomPATCH(req(`/api/rooms/${room.slug}`, { method: "PATCH", body: { status: "archived" }, cookie: cookieFor(a) }), ctx(room.slug));
+    const archive = await roomPATCH(req(`/api/rooms/${room.slug}`, { method: "PATCH", body: { status: "archived" }, cookie: await cookieFor(a) }), ctx(room.slug));
     expect(archive.status).toBe(200);
     expect((await roomGET(req(`/api/rooms/${room.slug}`), ctx(room.slug))).status).toBe(404);
     expect((await embedGET(req(`/embed/rooms/${room.slug}`), ctx(room.slug))).status).toBe(404);
     const list = (await (await roomsListGET(req("/api/rooms?limit=50"))).json()) as { rooms: { slug: string }[] };
     expect(list.rooms.map((r) => r.slug)).not.toContain(room.slug);
     // non-creators can't learn it exists through PATCH either
-    expect((await roomPATCH(req(`/api/rooms/${room.slug}`, { method: "PATCH", body: { title: "Hijack" }, cookie: cookieFor(newWallet()) }), ctx(room.slug))).status).toBe(404);
+    expect((await roomPATCH(req(`/api/rooms/${room.slug}`, { method: "PATCH", body: { title: "Hijack" }, cookie: await cookieFor(newWallet()) }), ctx(room.slug))).status).toBe(404);
     // no new forecasts (store-level check), history intact
     await expect(forecast(m.repo, room, newWallet(), 5000, NOW + 1)).rejects.toThrow();
     expect((await m.repo.getCurrentForecast(room.roomId, w))?.probabilityBps).toBe(6000);
@@ -263,7 +265,7 @@ describe.each(factories)("studio access & ownership: $name", ({ make }) => {
     expect(s?.participation.currentForecasts).toBe(1);
     expect(s?.links.embedUrl).toBeNull();
     // unarchive
-    expect((await roomPATCH(req(`/api/rooms/${room.slug}`, { method: "PATCH", body: { status: "active" }, cookie: cookieFor(a) }), ctx(room.slug))).status).toBe(200);
+    expect((await roomPATCH(req(`/api/rooms/${room.slug}`, { method: "PATCH", body: { status: "active" }, cookie: await cookieFor(a) }), ctx(room.slug))).status).toBe(200);
     expect((await roomGET(req(`/api/rooms/${room.slug}`), ctx(room.slug))).status).toBe(200);
     const again = (await (await roomsListGET(req("/api/rooms?limit=50"))).json()) as { rooms: { slug: string }[] };
     expect(again.rooms.map((r) => r.slug)).toContain(room.slug);
@@ -621,7 +623,7 @@ describe("studio logic", () => {
     expect((await listStudioRooms(deps(repo), a, { q: "", status: "unlisted", page: 1 })).total).toBe(1);
     const row = p1.items[0];
     expect(row).toMatchObject({ lifecycle: null, lifecycleLabel: "Market status unavailable", forecasting: "unknown", participants: 0, communityMeanBps: null });
-    const cookie = cookieFor(a);
+    const cookie = await cookieFor(a);
     expect((await roomsGET(req("/api/studio/rooms?status=deleted", { cookie }))).status).toBe(400);
     expect((await roomsGET(req("/api/studio/rooms?page=-1", { cookie }))).status).toBe(400);
     expect((await roomsGET(req("/api/studio/rooms?page=1&q=salah&status=active", { cookie }))).status).toBe(200);

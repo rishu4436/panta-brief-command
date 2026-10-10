@@ -6,7 +6,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { readLimitedJson, reject } from "@/lib/evidence/http";
 import { clientIp } from "@/lib/rate-limit";
 import { limitShared } from "@/lib/shared-store";
-import { readSession, sessionSecret, SESSION_COOKIE, RoomAuthError, type RoomSession } from "./auth";
+import { checkSession, sessionSecret, SESSION_COOKIE, RoomAuthError, type RoomSession, type SessionCheck } from "./auth";
 import { MarketRejectedError } from "./service";
 import { ForecastRoomMismatchError, ForecastingClosedError } from "@/lib/forecasts/service";
 import { FinalizationIntegrityError } from "@/lib/arena/types";
@@ -19,7 +19,7 @@ import {
   RoomStoreUnavailableError,
   SlugTakenError,
 } from "./store/types";
-import { UNCONFIGURED_MESSAGE } from "./store";
+import { roomRepository, UNCONFIGURED_MESSAGE } from "./store";
 
 export const ROOM_BODY_MAX_BYTES = 4 * 1024;
 export const AUTH_BODY_MAX_BYTES = 1024;
@@ -100,8 +100,32 @@ export function sameOriginOrReject(req: NextRequest): NextResponse | null {
   return null;
 }
 
-export function currentSession(req: NextRequest, now = Date.now()): RoomSession | null {
-  return readSession(req.cookies.get(SESSION_COOKIE)?.value, now, sessionSecret());
+/**
+ * Signed cookie + active server-side session record (lib/rooms/auth checkSession).
+ * Every authenticated request re-checks the store, so a revoked (signed-out)
+ * cookie fails immediately, wherever it was copied to.
+ */
+export function resolveSession(req: NextRequest, now = Date.now()): Promise<SessionCheck> {
+  return checkSession(roomRepository(), req.cookies.get(SESSION_COOKIE)?.value, now, sessionSecret());
+}
+
+/** Optional identity (public reads that only personalise): no session when the store can't confirm one. */
+export async function currentSession(req: NextRequest, now = Date.now()): Promise<RoomSession | null> {
+  return (await resolveSession(req, now)).session;
+}
+
+/**
+ * Authenticated operations: 401 without an active session; 503 (fail closed)
+ * when the session store can't be read.
+ */
+export async function requireSession(
+  req: NextRequest,
+  unauthenticated: { code?: string; message: string },
+): Promise<{ ok: true; session: RoomSession } | { ok: false; res: NextResponse }> {
+  const c = await resolveSession(req);
+  if (c.session) return { ok: true, session: c.session };
+  if (c.unavailable) return { ok: false, res: reject(503, "SESSION_STORE_UNAVAILABLE", "Sign-in couldn't be confirmed right now (session storage didn't respond). Nothing was changed. Try again.") };
+  return { ok: false, res: reject(401, unauthenticated.code ?? "WALLET_NOT_VERIFIED", unauthenticated.message) };
 }
 
 /** Map service/repository errors to safe HTTP answers (no internals leak). */

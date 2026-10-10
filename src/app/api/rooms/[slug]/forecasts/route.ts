@@ -6,13 +6,13 @@ import { publicWindow } from "@/lib/forecasts/window-public";
 import { slugProblem } from "@/lib/rooms/domain";
 import {
   FORECAST_WALLET_LIMIT,
-  currentSession,
   errorResponse,
   limitRequest,
   ok,
   readJson,
   reject,
   sameOriginOrReject,
+  requireSession,
 } from "@/lib/rooms/http";
 import { limitShared } from "@/lib/shared-store";
 
@@ -67,8 +67,9 @@ export async function GET(req: NextRequest, ctx: Ctx) {
 export async function POST(req: NextRequest, ctx: Ctx) {
   const cross = sameOriginOrReject(req);
   if (cross) return cross;
-  const session = currentSession(req);
-  if (!session) return reject(401, "WALLET_NOT_VERIFIED", "Verify your wallet before forecasting.");
+  const auth = await requireSession(req, { message: "Verify your wallet before forecasting." });
+  if (!auth.ok) return auth.res;
+  const session = auth.session;
   const slug = await slugFrom(ctx);
   if (!slug) return reject(404, "ROOM_NOT_FOUND", "No room at this address.");
   const read = await readJson(req, "forecast", FORECAST_BODY_MAX_BYTES);

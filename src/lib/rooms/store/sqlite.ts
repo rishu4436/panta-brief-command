@@ -85,6 +85,7 @@ import {
   RoomStoreUnavailableError,
   SlugTakenError,
   type AuthChallengeRecord,
+  type AuthSessionRecord,
   type CreateRoomResult,
   type NewRoom,
   type RoomPatch,
@@ -136,6 +137,19 @@ export const MIGRATIONS: readonly { version: number; sql: string }[] = [
   { version: 3, sql: ARENA_MIGRATION_SQL },
   { version: 4, sql: DEBATE_MIGRATION_SQL },
   { version: 5, sql: STUDIO_MIGRATION_SQL },
+  {
+    // Active room sessions (allowlist). Keyed by SHA-256 of the cookie's sid; expired rows are swept on sign-in.
+    version: 6,
+    sql: `
+      CREATE TABLE auth_sessions (
+        sid_hash   TEXT    PRIMARY KEY,
+        wallet     TEXT    NOT NULL,
+        issued_at  INTEGER NOT NULL,
+        expires_at INTEGER NOT NULL
+      );
+      CREATE INDEX auth_sessions_expiry ON auth_sessions (expires_at);
+    `,
+  },
 ];
 
 const LOCK_WAIT_MS = 5_000;
@@ -506,6 +520,36 @@ export class SqliteRoomRepository implements RoomRepository {
       if (!r) return [null, false];
       this.tx(db, () => db.run("DELETE FROM auth_challenges WHERE nonce = ?", [nonce]));
       return [toChallenge(r), true];
+    });
+  }
+
+  // ------------------------------------------------------------ sessions (allowlist)
+
+  createSession(r: AuthSessionRecord) {
+    if (!(r.expiresAt > r.issuedAt)) return Promise.reject(new RoomStoreUnavailableError("failure", "session already expired"));
+    return this.write((db) => {
+      this.tx(db, () => {
+        db.run("DELETE FROM auth_sessions WHERE expires_at <= ?", [r.issuedAt]);
+        // PRIMARY KEY: a (practically impossible) id collision throws instead of overwriting.
+        db.run("INSERT INTO auth_sessions (sid_hash, wallet, issued_at, expires_at) VALUES (?, ?, ?, ?)", [r.sidHash, r.wallet, r.issuedAt, r.expiresAt]);
+      });
+      return [undefined, true];
+    });
+  }
+
+  getActiveSession(sidHash: string, now: number) {
+    return this.read((db) => {
+      const r = one(db, "SELECT sid_hash, wallet, issued_at, expires_at FROM auth_sessions WHERE sid_hash = ? AND expires_at > ?", [sidHash, now]);
+      return r ? ({ sidHash: String(r.sid_hash), wallet: String(r.wallet), issuedAt: Number(r.issued_at), expiresAt: Number(r.expires_at) } satisfies AuthSessionRecord) : null;
+    });
+  }
+
+  revokeSession(sidHash: string) {
+    return this.write((db) => {
+      const had = one(db, "SELECT 1 AS x FROM auth_sessions WHERE sid_hash = ?", [sidHash]);
+      if (!had) return [undefined, false];
+      this.tx(db, () => db.run("DELETE FROM auth_sessions WHERE sid_hash = ?", [sidHash]));
+      return [undefined, true];
     });
   }
 

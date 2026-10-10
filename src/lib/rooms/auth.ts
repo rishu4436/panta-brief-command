@@ -18,9 +18,9 @@ import "server-only";
  *     creator from this cookie and nothing else.
  */
 
-import { createHmac, createPublicKey, randomBytes, timingSafeEqual, verify as cryptoVerify } from "node:crypto";
+import { createHash, createHmac, createPublicKey, randomBytes, timingSafeEqual, verify as cryptoVerify } from "node:crypto";
 import bs58 from "bs58";
-import type { AuthChallengeRecord, RoomRepository } from "./store/types";
+import { RoomStoreUnavailableError, type AuthChallengeRecord, type AuthSessionRecord, type RoomRepository } from "./store/types";
 
 export const CHALLENGE_TTL_MS = 5 * 60_000;
 export const SESSION_TTL_MS = 30 * 60_000;
@@ -216,9 +216,24 @@ function messageMatchesChallenge(c: AuthChallengeRecord): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// Session cookie (HMAC-SHA256 signed, HttpOnly, short TTL)
+// Session cookie (HMAC-SHA256 signed, HttpOnly, short TTL) + server-side
+// active-session record.
+//
+// A cookie is accepted only if (1) its HMAC verifies, (2) it hasn't expired,
+// and (3) the store still holds an ACTIVE record for its session id with the
+// same wallet. Sign-out deletes the record, so a copied cookie stops working
+// at once. Allowlist, not a revocation list: a lost or missing record denies
+// (fail closed), legacy cookies have no record, and records expire with the
+// session (Redis PX TTL; SQLite expires_at + sweep). The store keeps only
+// SHA-256(sid); the sid itself lives only inside the signed HttpOnly cookie.
+//
+// v2 cookies carry a 256-bit random sid. v1 cookies (Phase ≤ 7B, no tracked
+// sid) are rejected outright: the version and MAC domain both changed.
 
 export type RoomSession = { wallet: string; issuedAt: number; expiresAt: number; sid: string };
+
+export const SESSION_COOKIE_VERSION = "v2";
+const SID_RE = /^[A-Za-z0-9_-]{43}$/;
 
 const devSecretKey = Symbol.for("pbc.rooms.devSessionSecret");
 
@@ -238,18 +253,48 @@ export function sessionSecret(env: Record<string, string | undefined> = process.
 
 const b64u = (b: Buffer | string) => Buffer.from(b).toString("base64url");
 const mac = (secret: string, payload: string) =>
-  createHmac("sha256", secret).update(`pbc-rooms-session.v1.${payload}`).digest();
+  createHmac("sha256", secret).update(`pbc-rooms-session.${SESSION_COOKIE_VERSION}.${payload}`).digest();
 
-export function signSession(wallet: string, now: number, secret: string): { value: string; session: RoomSession } {
-  const session: RoomSession = { wallet, issuedAt: now, expiresAt: now + SESSION_TTL_MS, sid: randomBytes(9).toString("hex") };
-  const payload = b64u(JSON.stringify({ v: 1, w: session.wallet, iat: session.issuedAt, exp: session.expiresAt, sid: session.sid }));
-  return { value: `v1.${payload}.${b64u(mac(secret, payload))}`, session };
+/** What the store keys a session by (never the raw sid). */
+export function sessionIdHash(sid: string): string {
+  return createHash("sha256").update(`pbc-rooms-sid.${sid}`).digest("hex");
 }
 
-export function readSession(value: string | undefined | null, now: number, secret: string | null): RoomSession | null {
+/** Pure: mint a signed cookie value. Use issueSession() to also register it (required for it to work). */
+export function signSession(wallet: string, now: number, secret: string): { value: string; session: RoomSession } {
+  const session: RoomSession = { wallet, issuedAt: now, expiresAt: now + SESSION_TTL_MS, sid: randomBytes(32).toString("base64url") };
+  const payload = b64u(JSON.stringify({ v: 2, w: session.wallet, iat: session.issuedAt, exp: session.expiresAt, sid: session.sid }));
+  return { value: `${SESSION_COOKIE_VERSION}.${payload}.${b64u(mac(secret, payload))}`, session };
+}
+
+export function sessionRecord(s: RoomSession): AuthSessionRecord {
+  return { sidHash: sessionIdHash(s.sid), wallet: s.wallet, issuedAt: s.issuedAt, expiresAt: s.expiresAt };
+}
+
+/**
+ * Sign + register an active session. If the store can't record it, this
+ * throws and no cookie must be set (sign-in fails closed).
+ */
+export async function issueSession(repo: Pick<RoomRepository, "createSession">, wallet: string, now: number, secret: string): Promise<{ value: string; session: RoomSession }> {
+  const out = signSession(wallet, now, secret);
+  try {
+    await repo.createSession(sessionRecord(out.session));
+  } catch (e) {
+    // Any failure to record the session is a store outage for the caller (503, no cookie).
+    if (e instanceof RoomStoreUnavailableError) throw e;
+    throw new RoomStoreUnavailableError("failure", "session could not be recorded");
+  }
+  return out;
+}
+
+/**
+ * Verify the cookie's MAC and shape. `allowExpired` is only for sign-out
+ * (revoking an expired session is harmless); it never authenticates.
+ */
+export function readSession(value: string | undefined | null, now: number, secret: string | null, opts: { allowExpired?: boolean } = {}): RoomSession | null {
   if (!value || !secret || value.length > 1024) return null;
   const parts = value.split(".");
-  if (parts.length !== 3 || parts[0] !== "v1") return null;
+  if (parts.length !== 3 || parts[0] !== SESSION_COOKIE_VERSION) return null;
   const [, payload, sigPart] = parts;
   let given: Buffer;
   try {
@@ -267,12 +312,42 @@ export function readSession(value: string | undefined | null, now: number, secre
       exp?: unknown;
       sid?: unknown;
     };
-    if (p.v !== 1 || typeof p.w !== "string" || !decodeWallet(p.w)) return null;
-    if (typeof p.exp !== "number" || typeof p.iat !== "number" || p.exp <= now) return null;
-    return { wallet: p.w, issuedAt: p.iat, expiresAt: p.exp, sid: String(p.sid ?? "") };
+    if (p.v !== 2 || typeof p.w !== "string" || !decodeWallet(p.w)) return null;
+    if (typeof p.sid !== "string" || !SID_RE.test(p.sid)) return null;
+    if (typeof p.exp !== "number" || typeof p.iat !== "number") return null;
+    if (!opts.allowExpired && p.exp <= now) return null;
+    return { wallet: p.w, issuedAt: p.iat, expiresAt: p.exp, sid: p.sid };
   } catch {
     return null;
   }
+}
+
+export type SessionCheck = { session: RoomSession | null; unavailable: boolean };
+
+/**
+ * The full check for an authenticated request: signed cookie AND an active
+ * store record for the same wallet that hasn't expired. A store error is
+ * reported as `unavailable` (callers fail closed: 503 on authenticated ops).
+ */
+export async function checkSession(repo: Pick<RoomRepository, "getActiveSession">, value: string | undefined | null, now: number, secret: string | null): Promise<SessionCheck> {
+  const s = readSession(value, now, secret);
+  if (!s) return { session: null, unavailable: false };
+  let rec: AuthSessionRecord | null;
+  try {
+    rec = await repo.getActiveSession(sessionIdHash(s.sid), now);
+  } catch {
+    return { session: null, unavailable: true };
+  }
+  if (!rec || rec.wallet !== s.wallet || rec.expiresAt <= now || rec.expiresAt !== s.expiresAt) return { session: null, unavailable: false };
+  return { session: s, unavailable: false };
+}
+
+/** Sign-out: delete the active record (idempotent). Unsigned / legacy cookies: nothing to revoke. */
+export async function revokeSessionCookie(repo: Pick<RoomRepository, "revokeSession">, value: string | undefined | null, now: number, secret: string | null): Promise<boolean> {
+  const s = readSession(value, now, secret, { allowExpired: true });
+  if (!s) return false;
+  await repo.revokeSession(sessionIdHash(s.sid));
+  return true;
 }
 
 export function sessionCookieOptions(env: Record<string, string | undefined> = process.env, maxAgeMs = SESSION_TTL_MS) {

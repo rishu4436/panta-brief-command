@@ -24,6 +24,14 @@ export { ForecastRevisionConflictError } from "@/lib/forecasts/types";
 
 export type RoomStoreKind = "sqlite" | "redis" | "unavailable";
 
+/** Active room session (allowlist). Keyed by SHA-256 of the cookie's sid; the sid itself is never stored. */
+export type AuthSessionRecord = {
+  sidHash: string;
+  wallet: string;
+  issuedAt: number;
+  expiresAt: number;
+};
+
 export type AuthChallengeRecord = {
   nonce: string;
   wallet: string;
@@ -72,6 +80,13 @@ export interface RoomRepository extends ForecastRepository, ArenaRepository, Deb
   saveChallenge(c: AuthChallengeRecord): Promise<void>;
   /** Atomically remove and return the challenge (null if unknown or already used). */
   consumeChallenge(nonce: string): Promise<AuthChallengeRecord | null>;
+
+  /** Register an active session (expires at r.expiresAt). Throws on a store failure or id collision. */
+  createSession(r: AuthSessionRecord): Promise<void>;
+  /** The active record, or null when unknown, revoked or expired at `now`. Throws on a store failure. */
+  getActiveSession(sidHash: string, now: number): Promise<AuthSessionRecord | null>;
+  /** Delete the record. Idempotent: revoking twice (or concurrently) is fine. */
+  revokeSession(sidHash: string): Promise<void>;
 }
 
 export class SlugTakenError extends Error {

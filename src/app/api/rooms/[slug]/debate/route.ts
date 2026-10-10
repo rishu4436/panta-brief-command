@@ -4,7 +4,7 @@ import { debateDeps } from "@/lib/debate/deps";
 import { debateErrorResponse } from "@/lib/debate/http";
 import { generateDebate, readDebateView } from "@/lib/debate/service";
 import { slugProblem } from "@/lib/rooms/domain";
-import { DEBATE_RATE, currentSession, limitRequest, ok, readJson, reject, sameOriginOrReject } from "@/lib/rooms/http";
+import { DEBATE_RATE, currentSession, limitRequest, ok, readJson, reject, sameOriginOrReject, requireSession } from "@/lib/rooms/http";
 import { clientIp } from "@/lib/rate-limit";
 import { limitShared } from "@/lib/shared-store";
 
@@ -36,7 +36,7 @@ export async function GET(req: NextRequest, ctx: Ctx) {
     const room = await deps.repo.getRoomBySlug(slug);
     if (!room || room.status !== "active") return reject(404, "ROOM_NOT_FOUND", "No room at this address.");
     const view = await readDebateView(deps, room, { debateId });
-    const session = currentSession(req);
+    const session = await currentSession(req);
     return ok({ roomId: room.roomId, viewer: { verified: Boolean(session) }, ...view, requestedDebateMissing: view.requestedDebateMissing || Boolean(raw && !debateId) });
   } catch (e) {
     return debateErrorResponse(e);
@@ -51,8 +51,9 @@ export async function GET(req: NextRequest, ctx: Ctx) {
 export async function POST(req: NextRequest, ctx: Ctx) {
   const cross = sameOriginOrReject(req);
   if (cross) return cross;
-  const session = currentSession(req);
-  if (!session) return reject(401, "WALLET_NOT_VERIFIED", "Verify your wallet to generate a debate.");
+  const auth = await requireSession(req, { message: "Verify your wallet to generate a debate." });
+  if (!auth.ok) return auth.res;
+  const session = auth.session;
   const slug = await slugFrom(ctx);
   if (!slug) return reject(404, "ROOM_NOT_FOUND", "No room at this address.");
   const read = await readJson(req, "debateGenerate", 1024);

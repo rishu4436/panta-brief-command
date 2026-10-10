@@ -4,7 +4,7 @@ import { appOrigin } from "@/lib/embed/origin";
 import { embedPath, roomUrl } from "@/lib/embed/snippet";
 import { slugProblem } from "@/lib/rooms/domain";
 import { roomRepository } from "@/lib/rooms/store";
-import { currentSession, errorResponse, limitRequest, ok, reject } from "@/lib/rooms/http";
+import { errorResponse, limitRequest, ok, reject, requireSession } from "@/lib/rooms/http";
 
 export const dynamic = "force-dynamic";
 
@@ -25,8 +25,9 @@ export async function GET(req: NextRequest, ctx: Ctx) {
   try {
     const room = await roomRepository().getRoomBySlug(slug);
     if (!room || room.status !== "active") return reject(404, "ROOM_NOT_FOUND", "No room at this address.");
-    const session = currentSession(req);
-    if (!session) return reject(401, "ROOM_AUTH_REQUIRED", "Verify your wallet to manage this room.");
+    const auth = await requireSession(req, { code: "ROOM_AUTH_REQUIRED", message: "Verify your wallet to manage this room." });
+    if (!auth.ok) return auth.res;
+    const session = auth.session;
     if (session.wallet !== room.creatorWallet) return reject(403, "ROOM_CREATOR_ONLY", "Only the room's creator can manage its embeds.");
     const origin = appOrigin();
     return ok({

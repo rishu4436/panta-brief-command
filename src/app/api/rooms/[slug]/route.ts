@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { slugProblem, UpdateRoomInput } from "@/lib/rooms/domain";
 import { roomDeps } from "@/lib/rooms/deps";
 import { getRoomBySlug, updateRoomDetails } from "@/lib/rooms/service";
-import { currentSession, errorResponse, limitRequest, ok, readJson, reject, sameOriginOrReject } from "@/lib/rooms/http";
+import { errorResponse, limitRequest, ok, readJson, reject, sameOriginOrReject, requireSession } from "@/lib/rooms/http";
 
 export const dynamic = "force-dynamic";
 
@@ -39,8 +39,9 @@ export async function GET(req: NextRequest, ctx: Ctx) {
 export async function PATCH(req: NextRequest, ctx: Ctx) {
   const cross = sameOriginOrReject(req);
   if (cross) return cross;
-  const session = currentSession(req);
-  if (!session) return reject(401, "WALLET_NOT_VERIFIED", "Verify your wallet first.");
+  const auth = await requireSession(req, { message: "Verify your wallet first." });
+  if (!auth.ok) return auth.res;
+  const session = auth.session;
   const slug = await slugFrom(ctx);
   if (!slug) return reject(404, "ROOM_NOT_FOUND", "No room at this address.");
   const read = await readJson(req, "update");

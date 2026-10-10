@@ -3,7 +3,7 @@ import { CreateRoomInput, roomPath } from "@/lib/rooms/domain";
 import { decodeWallet } from "@/lib/rooms/auth";
 import { roomDeps } from "@/lib/rooms/deps";
 import { createRoom, listCreatorRooms, listPublicRooms } from "@/lib/rooms/service";
-import { currentSession, errorResponse, limitRequest, ok, readJson, reject, sameOriginOrReject } from "@/lib/rooms/http";
+import { currentSession, errorResponse, limitRequest, ok, readJson, reject, sameOriginOrReject, requireSession } from "@/lib/rooms/http";
 
 export const dynamic = "force-dynamic";
 
@@ -25,7 +25,7 @@ export async function GET(req: NextRequest) {
   try {
     if (creator !== null) {
       if (!decodeWallet(creator)) return reject(400, "INVALID_WALLET", "Not a valid Solana wallet address.");
-      const own = currentSession(req)?.wallet === creator.trim();
+      const own = (await currentSession(req))?.wallet === creator.trim();
       const rooms = await listCreatorRooms(repo, creator.trim(), { limit, includeUnlisted: own });
       return ok({ rooms, store: repo.kind });
     }
@@ -42,8 +42,9 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const cross = sameOriginOrReject(req);
   if (cross) return cross;
-  const session = currentSession(req);
-  if (!session) return reject(401, "WALLET_NOT_VERIFIED", "Verify your wallet before creating a room.");
+  const auth = await requireSession(req, { message: "Verify your wallet before creating a room." });
+  if (!auth.ok) return auth.res;
+  const session = auth.session;
   const read = await readJson(req, "create");
   if (!read.ok) return read.res;
   const parsed = CreateRoomInput.safeParse(read.body);

@@ -81,6 +81,7 @@ import {
   RoomStoreUnavailableError,
   SlugTakenError,
   type AuthChallengeRecord,
+  type AuthSessionRecord,
   type CreateRoomResult,
   type NewRoom,
   type RoomPatch,
@@ -179,6 +180,7 @@ const K = {
   publicIndex: () => `${ROOMS_REDIS_PREFIX}public`,
   creatorIndex: (wallet: string) => `${ROOMS_REDIS_PREFIX}creator:${wallet}`,
   challenge: (nonce: string) => `${ROOMS_REDIS_PREFIX}challenge:${nonce}`,
+  session: (sidHash: string) => `${ROOMS_REDIS_PREFIX}session:${sidHash}`,
 };
 
 /** Compare-and-set on one room key: KEYS room; ARGV expected JSON, new JSON. 1 = written, 0 = changed underneath. */
@@ -374,6 +376,40 @@ export class RedisRoomRepository implements RoomRepository {
       } catch {
         return null;
       }
+    });
+  }
+
+  // ------------------------------------------------------------ sessions (allowlist)
+  // rooms:session:<sha256(sid)> STRING {w, iat, exp}, PX = remaining lifetime.
+  // Redis drops it at expiry; sign-out DELs it (idempotent).
+
+  createSession(r: AuthSessionRecord) {
+    return this.call(async () => {
+      const ttl = r.expiresAt - r.issuedAt;
+      if (!(ttl > 0)) throw new RoomStoreUnavailableError("failure", "session already expired");
+      if (!(await this.r.setNx(K.session(r.sidHash), JSON.stringify({ w: r.wallet, iat: r.issuedAt, exp: r.expiresAt }), ttl))) {
+        throw new RoomStoreUnavailableError("failure", "session id collision");
+      }
+    });
+  }
+
+  getActiveSession(sidHash: string, now: number) {
+    return this.call(async () => {
+      const raw = await this.r.get(K.session(sidHash));
+      if (!raw) return null;
+      try {
+        const p = JSON.parse(raw) as { w?: unknown; iat?: unknown; exp?: unknown };
+        if (typeof p.w !== "string" || typeof p.iat !== "number" || typeof p.exp !== "number" || p.exp <= now) return null;
+        return { sidHash, wallet: p.w, issuedAt: p.iat, expiresAt: p.exp } satisfies AuthSessionRecord;
+      } catch {
+        return null;
+      }
+    });
+  }
+
+  revokeSession(sidHash: string) {
+    return this.call(async () => {
+      await this.r.del(K.session(sidHash));
     });
   }
 

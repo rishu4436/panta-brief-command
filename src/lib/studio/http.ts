@@ -2,7 +2,7 @@ import "server-only";
 
 import { NextRequest, NextResponse } from "next/server";
 import { appOrigin } from "@/lib/embed/origin";
-import { currentSession, limitRequest, reject } from "@/lib/rooms/http";
+import { limitRequest, requireSession } from "@/lib/rooms/http";
 import { roomRepository } from "@/lib/rooms/store";
 import type { MarketSnapshot } from "@/lib/embed/market-snapshot";
 import { forecastDeps } from "@/lib/forecasts/deps";
@@ -35,7 +35,7 @@ export function studioDeps(): StudioDeps {
 export async function studioAuth(req: NextRequest): Promise<{ ok: true; wallet: string } | { ok: false; res: NextResponse }> {
   const limited = await limitRequest(req, "studioRead");
   if (limited) return { ok: false, res: limited };
-  const session = currentSession(req);
-  if (!session) return { ok: false, res: reject(401, "WALLET_NOT_VERIFIED", "Sign in with your wallet to open Creator Studio.") };
-  return { ok: true, wallet: session.wallet };
+  const auth = await requireSession(req, { message: "Sign in with your wallet to open Creator Studio." });
+  if (!auth.ok) return { ok: false, res: auth.res };
+  return { ok: true, wallet: auth.session.wallet };
 }

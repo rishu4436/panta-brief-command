@@ -4,6 +4,8 @@
  * imported directly. Market data is injected into the bounded snapshot cache
  * (never live Panta / RPC here). Wallet keys are generated per run.
  */
+import { __setForecastDepsForTests } from "@/lib/forecasts/deps";
+import type { ForecastWindow } from "@/lib/forecasts/window";
 import { generateKeyPairSync } from "node:crypto";
 import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs";
 import os from "node:os";
@@ -31,10 +33,10 @@ import { EMBED_CSS, EMBED_CSS_HASH } from "@/lib/embed/styles";
 import { EMBED_CACHE_CONTROL, EMBED_RATE_LIMIT_PER_MIN } from "@/lib/embed/respond";
 import { buildEmbedCsp, embedSecurityHeaders, securityHeaders } from "@/lib/security-headers";
 import { emptyAggregate, type ForecastAggregate } from "@/lib/forecasts/domain";
-import { SESSION_COOKIE, sessionSecret, signSession } from "@/lib/rooms/auth";
+import { issueSession, SESSION_COOKIE, sessionSecret } from "@/lib/rooms/auth";
 import { newRoomId } from "@/lib/rooms/service";
 import { SqliteRoomRepository } from "@/lib/rooms/store/sqlite";
-import { __setRoomRepositoryForTests } from "@/lib/rooms/store";
+import { __setRoomRepositoryForTests, roomRepository } from "@/lib/rooms/store";
 import type { RoomRepository } from "@/lib/rooms/store/types";
 import type { RoomRecord } from "@/lib/rooms/domain";
 import { createHash } from "node:crypto";
@@ -168,7 +170,8 @@ function req(url: string, init: { cookie?: string; ip?: string; host?: string } 
 }
 const ctx = (slug: string) => ({ params: Promise.resolve({ slug }) });
 const embed = (slug: string, q = "", init: Parameters<typeof req>[1] = {}) => embedGET(req(`/embed/rooms/${slug}${q ? `?${q}` : ""}`, init), ctx(slug));
-const cookieFor = (wallet: string) => `${SESSION_COOKIE}=${signSession(wallet, Date.now(), sessionSecret()!).value}`;
+/** A real, registered session (the server checks its store record on every request). */
+const cookieFor = async (wallet: string) => `${SESSION_COOKIE}=${(await issueSession(roomRepository(), wallet, Date.now(), sessionSecret()!)).value}`;
 
 let repo: RoomRepository;
 const repoCalls: string[] = [];
@@ -199,8 +202,16 @@ beforeEach(async () => {
   __resetSnapshotCacheForTests();
   // Market data for MARKET comes from the injected snapshot cache only.
   await getMarketSnapshot(MARKET, { src: sources(openMarket()) });
+  // The shared forecast window (same function the room panel and Studio use), pinned: no network in tests.
+  __setForecastDepsForTests({ checkWindow: async (_m, nowMs) => embedWindowNow(nowMs) });
 });
-afterEach(() => __resetSnapshotCacheForTests());
+afterEach(() => {
+  __resetSnapshotCacheForTests();
+  __setForecastDepsForTests({});
+});
+
+/** What the shared window check answers in the route tests (tests override it per case). */
+const embedWindowNow: (nowMs: number) => ForecastWindow = (nowMs) => ({ open: true, cutoffAt: nowMs + 3_600_000, lifecycle: "open", checkedAt: nowMs });
 
 // ---------------------------------------------------------------- 1–4 public render & denial
 
@@ -413,7 +424,7 @@ describe("creator embed API + snippet", () => {
   it("13. creator controls: the room's creator (server-verified session) gets the generator config", async () => {
     const creator = newWallet();
     const room = await seedRoom(repo, { creatorWallet: creator, title: "Mine" });
-    const res = await creatorGET(req(`/api/rooms/${room.slug}/embed`, { cookie: cookieFor(creator) }), ctx(room.slug));
+    const res = await creatorGET(req(`/api/rooms/${room.slug}/embed`, { cookie: await cookieFor(creator) }), ctx(room.slug));
     expect(res.status).toBe(200);
     const body = (await res.json()) as Record<string, unknown>;
     expect(body).toMatchObject({
@@ -430,12 +441,12 @@ describe("creator embed API + snippet", () => {
   it("14. non-creator denial: no session 401, another wallet 403, forged cookie 401, archived/missing 404", async () => {
     const room = await seedRoom(repo);
     expect((await creatorGET(req(`/api/rooms/${room.slug}/embed`), ctx(room.slug))).status).toBe(401);
-    expect((await creatorGET(req(`/api/rooms/${room.slug}/embed`, { cookie: cookieFor(newWallet()) }), ctx(room.slug))).status).toBe(403);
+    expect((await creatorGET(req(`/api/rooms/${room.slug}/embed`, { cookie: await cookieFor(newWallet()) }), ctx(room.slug))).status).toBe(403);
     const forged = `${SESSION_COOKIE}=v1.${Buffer.from(JSON.stringify({ v: 1, w: room.creatorWallet, iat: 0, exp: 9e15 })).toString("base64url")}.AAAA`;
     expect((await creatorGET(req(`/api/rooms/${room.slug}/embed`, { cookie: forged }), ctx(room.slug))).status).toBe(401);
     const arch = await seedRoom(repo, { status: "archived" });
-    expect((await creatorGET(req(`/api/rooms/${arch.slug}/embed`, { cookie: cookieFor(arch.creatorWallet) }), ctx(arch.slug))).status).toBe(404);
-    expect((await creatorGET(req(`/api/rooms/nope-nope/embed`, { cookie: cookieFor(room.creatorWallet) }), ctx("nope-nope"))).status).toBe(404);
+    expect((await creatorGET(req(`/api/rooms/${arch.slug}/embed`, { cookie: await cookieFor(arch.creatorWallet) }), ctx(arch.slug))).status).toBe(404);
+    expect((await creatorGET(req(`/api/rooms/nope-nope/embed`, { cookie: await cookieFor(room.creatorWallet) }), ctx("nope-nope"))).status).toBe(404);
   });
 
   it("15. safe snippet: escaped attributes, encoded slug, sandboxed, lazy, no script", () => {
@@ -471,7 +482,7 @@ describe("creator embed API + snippet", () => {
     const room = await seedRoom(repo, { creatorWallet: creator });
     const html = await (await embed(room.slug, "", { host: "evil.example" })).text();
     expect(html).not.toContain("evil.example");
-    const api = (await (await creatorGET(req(`/api/rooms/${room.slug}/embed`, { cookie: cookieFor(creator), host: "evil.example" }), ctx(room.slug))).json()) as { origin: string };
+    const api = (await (await creatorGET(req(`/api/rooms/${room.slug}/embed`, { cookie: await cookieFor(creator), host: "evil.example" }), ctx(room.slug))).json()) as { origin: string };
     expect(api.origin).toBe(DEV_FALLBACK_ORIGIN);
   });
 });

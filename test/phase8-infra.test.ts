@@ -74,7 +74,7 @@ describe("no public RPC fallback for server reads in production", () => {
 describe("shared store isolated prefix (live rate-limit verification only)", () => {
   it("accepts only pbc:phase8test:<random>: and defaults to the production prefix", async () => {
     const { upstashFromEnv } = await import("@/lib/shared-store");
-    const env = { UPSTASH_REDIS_REST_URL: "https://example-test.upstash.io", UPSTASH_REDIS_REST_TOKEN: "t".repeat(40) };
+    const env = { UPSTASH_REDIS_REST_URL: "https://example-test.upstash.io", UPSTASH_REDIS_REST_TOKEN: "t".repeat(40), ROOMS_ALLOW_LOCAL_REDIS: "1" };
     for (const bad of ["pbc:", "pbc:rl:", "pbc:phase8test:", "pbc:phase8test:ABC:"]) expect(() => upstashFromEnv(env, { isolatedPrefix: bad })).toThrow();
     expect(upstashFromEnv(env, { isolatedPrefix: newIsolatedPrefix() })?.kind).toBe("redis");
     expect(upstashFromEnv(env)?.kind).toBe("redis");

@@ -71,8 +71,8 @@ describe("store selection", () => {
   it("uses Upstash only when both URL and token are set (either naming)", () => {
     expect(upstashFromEnv({})).toBeNull();
     expect(upstashFromEnv({ UPSTASH_REDIS_REST_URL: "https://x.upstash.io" })).toBeNull();
-    expect(upstashFromEnv({ UPSTASH_REDIS_REST_URL: "https://x.upstash.io", UPSTASH_REDIS_REST_TOKEN: "t" })?.kind).toBe("redis");
-    expect(upstashFromEnv({ KV_REST_API_URL: "https://x.upstash.io", KV_REST_API_TOKEN: "t" })?.kind).toBe("redis");
+    expect(upstashFromEnv({ UPSTASH_REDIS_REST_URL: "https://x.upstash.io", UPSTASH_REDIS_REST_TOKEN: "t", VERCEL: "1", VERCEL_URL: "briefcommand-test.vercel.app" })?.kind).toBe("redis");
+    expect(upstashFromEnv({ KV_REST_API_URL: "https://x.upstash.io", KV_REST_API_TOKEN: "t", VERCEL: "1", VERCEL_URL: "briefcommand-test.vercel.app" })?.kind).toBe("redis");
   });
 });
 
@@ -196,6 +196,8 @@ describe("fail fast + explicit status", () => {
   });
 
   it("a Redis error is recorded without credentials", async () => {
+    vi.stubEnv("VERCEL", "1");
+    vi.stubEnv("VERCEL_URL", "briefcommand-test.vercel.app");
     vi.stubEnv("UPSTASH_REDIS_REST_TOKEN", "tok-SECRET-123");
     vi.stubEnv("UPSTASH_REDIS_REST_URL", "https://x.upstash.io");
     await expect(
@@ -229,7 +231,7 @@ describe("fail fast + explicit status", () => {
 
   it("KV_* aliases count as configured", () => {
     __setSharedStoreForTests(undefined);
-    expect(storeStatus({ KV_REST_API_URL: "https://x", KV_REST_API_TOKEN: "t" })).toMatchObject({
+    expect(storeStatus({ KV_REST_API_URL: "https://x", KV_REST_API_TOKEN: "t", VERCEL: "1", VERCEL_URL: "briefcommand-test.vercel.app" })).toMatchObject({
       configured: true,
       env: { url: "KV_REST_API_URL", token: "KV_REST_API_TOKEN" },
     });
@@ -246,7 +248,7 @@ describe("fail fast + explicit status", () => {
       },
     }));
     const mod = await import("@/lib/shared-store");
-    mod.upstashFromEnv({ UPSTASH_REDIS_REST_URL: "https://x.upstash.io", UPSTASH_REDIS_REST_TOKEN: "t" });
+    mod.upstashFromEnv({ UPSTASH_REDIS_REST_URL: "https://x.upstash.io", UPSTASH_REDIS_REST_TOKEN: "t", VERCEL: "1", VERCEL_URL: "briefcommand-test.vercel.app" });
     const cfg = ctor.mock.calls[0][0] as { retry: { retries: number }; signal: () => AbortSignal };
     expect(cfg.retry).toEqual({ retries: 0 });
     expect(typeof cfg.signal).toBe("function");

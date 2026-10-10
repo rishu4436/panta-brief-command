@@ -292,7 +292,7 @@ describe("redis adapter failure handling", () => {
 
 describe("room store selection", () => {
   it("uses Redis when Upstash credentials are configured", () => {
-    expect(resolveRoomStoreConfig({ UPSTASH_REDIS_REST_URL: "https://x.upstash.io", UPSTASH_REDIS_REST_TOKEN: "t", NODE_ENV: "production", VERCEL: "1" }).kind).toBe("redis");
+    expect(resolveRoomStoreConfig({ UPSTASH_REDIS_REST_URL: "https://x.upstash.io", UPSTASH_REDIS_REST_TOKEN: "t", NODE_ENV: "production", VERCEL: "1", VERCEL_URL: "briefcommand-test.vercel.app" }).kind).toBe("redis");
   });
   it("never uses SQLite on Vercel, and production without a durable store is unavailable", () => {
     expect(resolveRoomStoreConfig({ VERCEL: "1", NODE_ENV: "production", ROOMS_SQLITE_PATH: "/tmp/x.sqlite" }).kind).toBe("unavailable");

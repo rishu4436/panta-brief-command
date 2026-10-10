@@ -41,14 +41,47 @@ export const CIRCUIT_MAX_MS = 60_000;
 const URL_VARS = ["UPSTASH_REDIS_REST_URL", "KV_REST_API_URL"] as const;
 const TOKEN_VARS = ["UPSTASH_REDIS_REST_TOKEN", "KV_REST_API_TOKEN"] as const;
 
+/** Explicit opt-in for using UPSTASH_* / KV_REST_API_* outside Vercel (self-hosted, or a dedicated dev database). */
+export const LOCAL_REDIS_OPT_IN = "ROOMS_ALLOW_LOCAL_REDIS";
+
+/**
+ * Running on Vercel (build or runtime): VERCEL=1 and a deployment URL. A
+ * `vercel env pull` file sets VERCEL=1 but leaves VERCEL_URL empty, so a pulled
+ * .env on a laptop doesn't count.
+ */
+export function onVercel(env: Record<string, string | undefined>): boolean {
+  return (env.VERCEL || "").trim() === "1" && Boolean((env.VERCEL_URL || "").trim());
+}
+
+/**
+ * Local guard: off Vercel, Redis credentials found in the environment are
+ * ignored unless ROOMS_ALLOW_LOCAL_REDIS=1, so a dev machine whose shell
+ * exports production credentials can't read or write production keys by
+ * running `next dev` / `next start`. Rooms then use local SQLite (dev) or fail
+ * closed (production build), and rate limits use memory.
+ */
+function localRedisBlocked(env: Record<string, string | undefined>): boolean {
+  return !onVercel(env) && (env[LOCAL_REDIS_OPT_IN] || "").trim() !== "1";
+}
+
+let warnedIgnored = false;
+
 function envCreds(env: Record<string, string | undefined>) {
   const urlVar = URL_VARS.find((k) => (env[k] || "").trim());
   const tokenVar = TOKEN_VARS.find((k) => (env[k] || "").trim());
+  if ((urlVar || tokenVar) && localRedisBlocked(env)) {
+    if (!warnedIgnored && env === process.env) {
+      warnedIgnored = true;
+      console.warn(`[shared-store] Redis credentials in the environment are ignored outside Vercel (set ${LOCAL_REDIS_OPT_IN}=1 to use them on purpose).`);
+    }
+    return { url: "", token: "", urlVar: null, tokenVar: null, ignored: true };
+  }
   return {
     url: urlVar ? env[urlVar]!.trim() : "",
     token: tokenVar ? env[tokenVar]!.trim() : "",
     urlVar: urlVar ?? null,
     tokenVar: tokenVar ?? null,
+    ignored: false,
   };
 }
 

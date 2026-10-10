@@ -66,8 +66,16 @@ export function publicForecasterRow(r: ReputationRecord, rank: number | null, pe
   };
 }
 
-export function publicScore(s: ScoreRecord, room: { slug: string; title: string; visibility: string } | null, marketTitle: string | null): PublicScore {
-  const listed = room && room.visibility === "public";
+/**
+ * A room is linked from public listings (arena, profiles) only when it is
+ * listed: visibility "public" AND status "active". Unlisted rooms are
+ * link-only (shown as "Unlisted room", no link or title); archived rooms are
+ * disabled (same treatment). Scores still count either way.
+ */
+export const isListedRoom = (room: { visibility: string; status: string } | null): boolean => Boolean(room && room.visibility === "public" && room.status === "active");
+
+export function publicScore(s: ScoreRecord, room: { slug: string; title: string; visibility: string; status: string } | null, marketTitle: string | null): PublicScore {
+  const listed = room && isListedRoom(room);
   return {
     roomId: s.roomId,
     roomSlug: listed ? room.slug : null,

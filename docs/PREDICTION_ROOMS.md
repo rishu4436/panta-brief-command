@@ -193,3 +193,4 @@ over an in-memory keyspace; it has not been run against live Upstash.
 - `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` (durable rooms on Vercel)
 - `ROOMS_SESSION_SECRET` (≥ 32 random chars)
 - `ROOMS_ADMIN_TOKEN` (≥ 32 random chars; enables arena finalization, see docs/ARENA.md. Optional: without it nothing is ever scored)
+- `APP_ORIGIN` (canonical https origin for embed snippets, share links and room metadata, see docs/EMBEDS.md. Optional: falls back to https://briefcommand.vercel.app; set it for any other domain)

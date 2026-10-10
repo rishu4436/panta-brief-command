@@ -169,17 +169,17 @@ describe("CSP + anti-framing", () => {
     expect(csp).not.toMatch(/helius|api-key|mainnet-beta|x\.example/);
   });
   it("wallet + images: Solflare SDK frame allowed, market images from any https host, no third-party styles", () => {
-    expect(dir(prod, "frame-src")).toBe("frame-src https://connect.solflare.com");
+    expect(dir(prod, "frame-src")).toBe("frame-src 'self' https://connect.solflare.com"); // 'self': the creator's embed preview
     expect(dir(prod, "img-src")).toContain("https:");
     expect(dir(prod, "style-src")).toBe("style-src 'self' 'unsafe-inline'");
   });
-  it("securityHeaders sends CSP and X-Frame-Options DENY; next.config applies them to every route", async () => {
+  it("securityHeaders sends CSP and X-Frame-Options DENY; next.config applies them to every route except /embed/**", async () => {
     const h = securityHeaders({ NODE_ENV: "production", NEXT_PUBLIC_DEFAULT_RPC: "https://api.mainnet-beta.solana.com" });
     expect(h.find((x) => x.key === "X-Frame-Options")?.value).toBe("DENY");
     expect(h.find((x) => x.key === "Content-Security-Policy")?.value).toContain("frame-ancestors 'none'");
     const cfg = (await import("../next.config")).default;
     const rules = await cfg.headers!();
-    expect(rules[0].source).toBe("/:path*");
+    expect(rules[0].source).toBe("/((?!embed/).*)"); // /embed/** handlers send the embed policy (test/embed.test.ts #18/#19)
     expect(rules[0].headers.map((x: { key: string }) => x.key)).toEqual(["Content-Security-Policy", "X-Frame-Options"]);
   });
   it("vendored wallet-adapter CSS = upstream minus the Google Fonts @import", () => {

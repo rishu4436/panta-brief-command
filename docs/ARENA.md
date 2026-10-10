@@ -187,10 +187,55 @@ reachable by finalization. If indexing fails, the forecast is not saved.
 - **No Sybil resistance is claimed.** Wallets are pseudonymous and one person
   can use many. The minimum sample and shrinkage only stop a short lucky streak
   from topping the table.
-- A **blocked** market is terminal. Reconciliation (an admin override with an
-  audit record) is not built.
+- A **blocked** market is terminal today; see section 10 for what recovery
+  requires.
 - The Redis scripts have been run in a real Lua VM (fengari) in tests, **not
   against live Upstash**.
 - If a forecast write fails after its participation was indexed, the Redis
   indexes can hold a stale entry. Pending counts self-correct at finalization,
   and profile readers check the current forecast.
+
+## 10. Recovering from a blocked outcome conflict
+
+**What happens now.** When Panta's market record and the on-chain `Event`
+account both report a final but *different* outcome, finalization writes a
+`blocked` record (status `blocked`, outcome `null`, no scores, full provenance
+of both reads). That record is immutable in both stores: SQLite triggers
+reject UPDATE/DELETE, and the Redis finalize script refuses a second commit.
+Re-running `POST /api/arena/finalize` (or the CLI) for that market returns
+`already_finalized` with the stored blocked record. **It does not fetch new
+evidence and never rescores.** The room leaderboard shows "blocked" and
+nobody is scored. Forecasts are untouched and still public.
+
+**There is deliberately no outcome override.** Nobody (admin token or not)
+can pick a side, and no endpoint accepts an outcome.
+
+**What recovery requires** (not implemented; any future implementation must
+satisfy all of these):
+
+1. **Convergence of the sources, not a human decision.** A blocked market may
+   only be re-evaluated when a fresh read shows Panta's record and the
+   on-chain account agreeing on one final outcome, using the same rules as
+   section 3. If they still disagree, or either is unreadable, nothing changes.
+2. **Append-only supersession.** The blocked record stays. A new record
+   (`market_finalization_supersessions`: marketId, the blocked record's
+   finalizedAt, new provenance with slot and fetch times, operator identity,
+   reason, time) links the blocked evaluation to a new scored one. That
+   requires a schema change in which a finalization is keyed by
+   (marketId, generation) with the same immutability triggers, plus the same
+   in the Redis script (a new generation is allowed only if the latest one is
+   `blocked`). Scores, global scores and reputation are written once, for the
+   new generation only, in the same atomic step as today.
+3. **Explicit and authenticated.** It runs only on an explicit admin request
+   (the same ROOMS_ADMIN_TOKEN rules, rate limits and strict body, e.g.
+   `{"marketId": "…", "supersedeBlocked": true}`), never on page loads or
+   polling. It is audited: both evaluations stay visible in provenance.
+4. **No partial effects.** If the integrity checks fail (every score must
+   match its stored revision, as today), nothing is written and the market
+   stays blocked.
+
+**What an operator must not do:** delete or edit the blocked row, or Redis
+keys (`arena:{arena}:final`, scores or reputation), by hand. That bypasses
+the immutability guarantees, can desynchronise reputation aggregates from the
+score records, and leaves no audit trail. Until supersession is built, a
+blocked market simply stays unscored, which is the honest state.

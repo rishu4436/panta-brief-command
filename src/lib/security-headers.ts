@@ -26,8 +26,9 @@
  *    sends the image bytes straight from the browser to Cloudinary ("image
  *    bytes never pass through Panta"), so we allow exactly that path — not
  *    the host, not other clouds — instead of proxying bytes ourselves.
- *  - frame-src https://connect.solflare.com: the Solflare adapter opens its
- *    SDK iframe there when the extension isn't installed. Phantom / Solflare
+ *  - frame-src 'self' https://connect.solflare.com: the Solflare adapter opens its
+ *    SDK iframe there when the extension isn't installed; 'self' is for the
+ *    room creator's embed preview (an /embed/** page). Phantom / Solflare
  *    extensions inject via content scripts, which page CSP doesn't block.
  *  - object-src 'none', base-uri 'self', form-action 'self'.
  */
@@ -47,7 +48,8 @@ export function buildCsp(opts: { dev?: boolean } = {}): string {
     ["img-src", ["'self'", "https:", "data:", "blob:"]],
     ["font-src", ["'self'", "data:"]],
     ["connect-src", connect],
-    ["frame-src", [SOLFLARE_FRAME]],
+    // 'self': the room creator's live embed preview (/embed/rooms/...). The app itself still can't be framed.
+    ["frame-src", ["'self'", SOLFLARE_FRAME]],
     ["worker-src", ["'self'", "blob:"]],
     ["object-src", ["'none'"]],
     ["base-uri", ["'self'"]],
@@ -62,4 +64,44 @@ export function securityHeaders(env: Record<string, string | undefined> = proces
     { key: "Content-Security-Policy", value: buildCsp({ dev: env.NODE_ENV === "development" }) },
     { key: "X-Frame-Options", value: "DENY" },
   ];
+}
+
+// ---------------------------------------------------------------------------
+// Embeds (/embed/**) — the ONLY routes that may be framed by other sites.
+//
+// next.config applies securityHeaders() to every path EXCEPT /embed/**; the
+// embed route handlers send embedSecurityHeaders() themselves (every
+// /embed/** path, including unknown ones, is served by those handlers).
+//  - frame-ancestors https: (+ http://localhost / 127.0.0.1 in development);
+//    no X-Frame-Options (it can't express "any site").
+//  - default-src 'none': no script at all, no connections, no fonts.
+//  - style-src = the hash of the one inline stylesheet; no style attributes.
+//  - img-src 'self' data: (no third-party images).
+//  - sandbox allow-popups allow-popups-to-escape-sandbox: even when opened
+//    directly or framed without a sandbox attribute, the page runs with an
+//    opaque origin, no scripts, no forms; links still open a normal tab.
+
+export const EMBED_PATH_PREFIX = "/embed/";
+
+export function buildEmbedCsp(opts: { dev?: boolean; styleHash: string }): string {
+  const ancestors = ["https:", ...(opts.dev ? ["http://localhost:*", "http://127.0.0.1:*"] : [])];
+  const directives: [string, string[]][] = [
+    ["default-src", ["'none'"]],
+    ["style-src", [`'${opts.styleHash}'`]],
+    ["img-src", ["'self'", "data:"]],
+    ["base-uri", ["'none'"]],
+    ["form-action", ["'none'"]],
+    ["frame-ancestors", ancestors],
+    ["sandbox", ["allow-popups", "allow-popups-to-escape-sandbox"]],
+  ];
+  return directives.map(([k, v]) => `${k} ${v.join(" ")}`).join("; ");
+}
+
+export function embedSecurityHeaders(styleHash: string, env: Record<string, string | undefined> = process.env): Record<string, string> {
+  return {
+    "Content-Security-Policy": buildEmbedCsp({ dev: env.NODE_ENV === "development", styleHash }),
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+    "X-Content-Type-Options": "nosniff",
+    "X-Robots-Tag": "noindex, nofollow",
+  };
 }

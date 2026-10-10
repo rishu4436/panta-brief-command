@@ -11,7 +11,7 @@ import { peekCatalog } from "@/lib/panta/catalog-server";
 import { marketLabel } from "@/lib/format";
 import type { RoomRecord } from "@/lib/rooms/domain";
 import type { RoomRepository } from "@/lib/rooms/store/types";
-import { ARENA_METHODOLOGY, publicForecasterRow, publicScore, type PublicForecasterRow, type PublicScore } from "./public";
+import { ARENA_METHODOLOGY, isListedRoom, publicForecasterRow, publicScore, type PublicForecasterRow, type PublicScore } from "./public";
 import { reputationView } from "./scoring";
 
 export const ARENA_PAGE_MAX = 50;
@@ -113,7 +113,7 @@ export async function forecasterProfile(repo: RoomRepository, wallet: string, sc
   for (const wr of rooms) {
     const room = await roomOf(wr.roomId);
     if (!room) continue;
-    const listed = room.visibility === "public" && room.status === "active";
+    const listed = isListedRoom(room);
     const [current, history, fin, roomScore, globalScore] = await Promise.all([
       repo.getCurrentForecast(wr.roomId, wallet),
       repo.getForecastHistory(wr.roomId, wallet, { limit: PROFILE_REVISIONS_MAX }),

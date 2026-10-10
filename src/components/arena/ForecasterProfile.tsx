@@ -40,7 +40,7 @@ function RoomName({ slug, title }: { slug: string | null; title: string | null }
       {title}
     </Link>
   ) : (
-    <span className="font-semibold text-ink-3">Unlisted room</span>
+    <span className="font-semibold text-ink-3">Room not listed</span>
   );
 }
 
@@ -146,7 +146,7 @@ function ScoresSection({ p, onPage, busy }: { p: Profile; onPage: (o: number) =>
                         {x.roomTitle}
                       </Link>
                     ) : (
-                      "unlisted room"
+                      "room not listed"
                     )}{" "}
                     · <span className="font-num">{formatFriendlyIst(x.finalizedAt)}</span>
                   </p>

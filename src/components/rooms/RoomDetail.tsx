@@ -6,6 +6,7 @@ import { useRoomSession } from "@/lib/rooms/client";
 import type { Room } from "@/lib/rooms/domain";
 import { Panel } from "../Panel";
 import { StatusBadge } from "../ui/StatusBadge";
+import { EmbedGenerator } from "./EmbedGenerator";
 import { ForecastPanel } from "./ForecastPanel";
 import { RoomLeaderboard } from "./RoomLeaderboard";
 import { RoomMarketPanel } from "./RoomMarketPanel";
@@ -73,6 +74,8 @@ export function RoomDetail({ room, canonicalUrl }: { room: Room; canonicalUrl: s
           <RoomMarketPanel marketId={room.marketId} />
 
           <RoomLeaderboard slug={room.slug} />
+
+          <EmbedGenerator room={room} sessionWallet={session.data?.wallet ?? null} />
 
           <Panel title="Coming to rooms" subtitle="Not operational yet">
             <ul className="space-y-3">

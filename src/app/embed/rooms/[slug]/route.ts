@@ -1,0 +1,74 @@
+import { NextRequest } from "next/server";
+import { buildEmbedModel } from "@/lib/embed/model";
+import { renderEmbed, renderEmbedMessage } from "@/lib/embed/html";
+import { getMarketSnapshot, getUncachedMarketSnapshot, type SnapshotSources } from "@/lib/embed/market-snapshot";
+import { parseEmbedOptions, type EmbedOptions } from "@/lib/embed/options";
+import { appOrigin } from "@/lib/embed/origin";
+import { EMBED_RATE_LIMIT_PER_MIN, embedHtml, embedNotFound } from "@/lib/embed/respond";
+import { clientIp } from "@/lib/rate-limit";
+import { slugProblem } from "@/lib/rooms/domain";
+import { roomRepository } from "@/lib/rooms/store";
+import { limitShared } from "@/lib/shared-store";
+
+export const dynamic = "force-dynamic";
+
+type Ctx = { params: Promise<{ slug: string }> };
+
+/**
+ * Development-only: `_dev_market=unavailable` renders the widget as if Panta
+ * and the chain were unreachable (for the local preview page). The branch
+ * is removed from production builds (NODE_ENV is inlined) and ignored in tests.
+ */
+function devSources(req: NextRequest): SnapshotSources | undefined {
+  if (process.env.NODE_ENV !== "development") return undefined;
+  if (req.nextUrl.searchParams.get("_dev_market") !== "unavailable") return undefined;
+  return {
+    readChain: async () => ({ status: "failed", error: "simulated (dev only)", fetchedAt: Date.now() }),
+    readDetail: async () => ({ status: "failed", detail: null }),
+    catalogRow: () => null,
+  };
+}
+
+function unavailable(o: EmbedOptions, home: string) {
+  return embedHtml(renderEmbedMessage(o, home, "Temporarily unavailable", "Room data couldn't be loaded right now. Try again shortly."), 503, "no-store");
+}
+
+/**
+ * GET /embed/rooms/:slug?theme&layout&dist&market — public, read-only,
+ * frameable widget for a room. Same visibility as /rooms/:slug (active rooms,
+ * public or unlisted, are viewable by link); missing, archived and malformed
+ * slugs get one identical 404. Never reads cookies or the session, never
+ * fetches resolution evidence or finalizes anything.
+ */
+export async function GET(req: NextRequest, ctx: Ctx): Promise<Response> {
+  const o = parseEmbedOptions(req.nextUrl.searchParams);
+  const origin = appOrigin();
+  const rl = await limitShared(`embed:${clientIp(req.headers)}`, EMBED_RATE_LIMIT_PER_MIN, 60_000);
+  if (!rl.ok) {
+    const res = embedHtml(renderEmbedMessage(o, origin, "Too many requests", "Please wait a minute and reload."), 429, "no-store");
+    res.headers.set("Retry-After", String(rl.retryAfterSec));
+    return res;
+  }
+  let slug: string;
+  try {
+    slug = decodeURIComponent((await ctx.params).slug || "").toLowerCase();
+  } catch {
+    return embedNotFound(o, origin);
+  }
+  if (slugProblem(slug)) return embedNotFound(o, origin);
+  try {
+    const repo = roomRepository();
+    const room = await repo.getRoomBySlug(slug);
+    if (!room || room.status !== "active") return embedNotFound(o, origin);
+    const dev = devSources(req);
+    const [aggregate, finalization, snapshot] = await Promise.all([
+      repo.getForecastAggregate(room.roomId),
+      repo.getFinalization(room.marketId),
+      dev ? getUncachedMarketSnapshot(room.marketId, dev) : getMarketSnapshot(room.marketId),
+    ]);
+    const model = buildEmbedModel({ room, origin, aggregate, finalization, snapshot, nowMs: Date.now() });
+    return embedHtml(renderEmbed(model, o));
+  } catch {
+    return unavailable(o, origin);
+  }
+}

@@ -1,11 +1,12 @@
 import type { Metadata } from "next";
-import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import { cache } from "react";
 import { RoomDetail } from "@/components/rooms/RoomDetail";
 import { ErrorState } from "@/components/ui/States";
 import { marketLabel } from "@/lib/format";
-import { getMarketServerSoft } from "@/lib/panta/server";
+import { getMarketSnapshot } from "@/lib/embed/market-snapshot";
+import { appOrigin } from "@/lib/embed/origin";
+import { consensusFrom, formatBpsPercent } from "@/lib/forecasts/domain";
 import { roomPath, slugProblem, type Room } from "@/lib/rooms/domain";
 import { getRoomBySlug } from "@/lib/rooms/service";
 import { roomRepository, RoomStoreUnavailableError, UNCONFIGURED_MESSAGE } from "@/lib/rooms/store";
@@ -36,23 +37,28 @@ const lookupRoom = cache(async (rawSlug: string): Promise<Lookup> => {
   }
 });
 
-async function siteOrigin(): Promise<string> {
-  const h = await headers();
-  const host = (h.get("x-forwarded-host") || h.get("host") || "localhost").split(",")[0].trim();
-  const proto = (h.get("x-forwarded-proto") || (host.startsWith("localhost") || host.startsWith("127.") ? "http" : "https")).split(",")[0].trim();
-  return `${proto === "http" ? "http" : "https"}://${host}`;
-}
+/** Canonical origin from configuration (never the request's Host / X-Forwarded-Host). */
+const siteOrigin = () => appOrigin();
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params;
   const found = await lookupRoom(slug);
   if (found.kind !== "found") return { title: found.kind === "missing" ? "Room not found" : "Prediction Room", robots: { index: false } };
   const { room } = found;
-  const origin = await siteOrigin();
+  const origin = siteOrigin();
   const url = `${origin}${roomPath(room.slug)}`;
-  const market = await getMarketServerSoft(room.marketId);
-  const marketLine = market ? `Market: ${marketLabel(market, { max: 100 })}` : null;
-  const description = [room.description || "A Prediction Room on Brief Command.", marketLine].filter(Boolean).join(" · ").slice(0, 200);
+  // Bounded (≤ 1.2 s) cached snapshot + persisted aggregate: share cards never wait on slow Panta.
+  const [snap, agg] = await Promise.all([
+    getMarketSnapshot(room.marketId).catch(() => null),
+    roomRepository()
+      .getForecastAggregate(room.roomId)
+      .catch(() => null),
+  ]);
+  const market = snap?.market ?? null;
+  const marketLine = market && (market.title || "").trim() ? `Market: ${marketLabel(market, { max: 100 })}` : null;
+  const c = agg ? consensusFrom(agg) : null;
+  const communityLine = c?.kind === "consensus" ? `Community forecast: ${formatBpsPercent(c.meanBps, 1)} YES from ${c.participants} forecaster${c.participants === 1 ? "" : "s"}` : null;
+  const description = [room.description || "A Prediction Room on Brief Command.", marketLine, communityLine].filter(Boolean).join(" · ").slice(0, 240);
   return {
     title: room.title,
     description,
@@ -74,6 +80,6 @@ export default async function RoomPage({ params }: Props) {
       </div>
     );
   }
-  const origin = await siteOrigin();
+  const origin = siteOrigin();
   return <RoomDetail room={found.room} canonicalUrl={`${origin}${roomPath(found.room.slug)}`} />;
 }

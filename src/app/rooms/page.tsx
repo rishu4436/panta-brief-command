@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
+import { CommunityUnavailablePage } from "@/components/community/CommunityUnavailable";
 import { RoomsDirectory } from "@/components/rooms/RoomsDirectory";
+import { communityAvailability } from "@/lib/rooms/availability";
 
 export const metadata: Metadata = {
   title: "Prediction Rooms",
@@ -12,6 +14,18 @@ export const metadata: Metadata = {
   },
 };
 
-export default function RoomsPage() {
+export default async function RoomsPage() {
+  const { available, readOnly } = await communityAvailability();
+  if (!available) {
+    return (
+      <CommunityUnavailablePage
+        feature="rooms"
+        readOnly={readOnly}
+        eyebrow="Community"
+        title="Prediction Rooms"
+        description="Rooms are wallet-owned community spaces, each built around one live Panta market."
+      />
+    );
+  }
   return <RoomsDirectory />;
 }

@@ -8,6 +8,7 @@ import type { Market } from "@/lib/panta/domain";
 import { marketState } from "@/lib/panta/lifecycle";
 import { RoomApiError, useRooms } from "@/lib/rooms/client";
 import { roomPath, type Room } from "@/lib/rooms/domain";
+import { CommunityUnavailable } from "../community/CommunityUnavailable";
 import { EmptyState, ErrorState, Skeleton } from "../ui/States";
 import { StatusBadge, type StatusTone } from "../ui/StatusBadge";
 import { IconArrowRight, IconLayers } from "../ui/Icons";
@@ -92,12 +93,10 @@ export function RoomsDirectory() {
             </li>
           ))}
         </ul>
+      ) : rooms.isError && rooms.error instanceof RoomApiError && rooms.error.code === "ROOMS_STORE_UNCONFIGURED" ? (
+        <CommunityUnavailable feature="rooms" compact />
       ) : rooms.isError ? (
-        <ErrorState
-          title={rooms.error instanceof RoomApiError && rooms.error.code === "ROOMS_STORE_UNCONFIGURED" ? "Rooms aren't available on this deployment yet" : "Couldn't load rooms"}
-          description={rooms.error instanceof Error ? rooms.error.message : "Try again."}
-          onRetry={() => void rooms.refetch()}
-        />
+        <ErrorState title="Couldn't load rooms" description={rooms.error instanceof Error ? rooms.error.message : "Try again."} onRetry={() => void rooms.refetch()} />
       ) : list.length === 0 ? (
         <div className="card">
           <EmptyState

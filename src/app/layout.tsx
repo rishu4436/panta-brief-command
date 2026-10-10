@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Geist_Mono, Inter } from "next/font/google";
+import { Geist_Mono, Instrument_Serif, Inter } from "next/font/google";
 import { Providers } from "@/components/Providers";
 import { AppShell } from "@/components/AppShell";
 import { isReadOnlyDeployment } from "@/lib/deploy-env";
@@ -17,25 +17,38 @@ const geistMono = Geist_Mono({
   display: "swap",
 });
 
+// Editorial accent face for marketing headlines; self-hosted by next/font, so
+// the CSP needs no new font host.
+const editorial = Instrument_Serif({
+  subsets: ["latin"],
+  weight: "400",
+  style: "italic",
+  variable: "--font-editorial",
+  display: "swap",
+});
+
+const DESCRIPTION =
+  "A prediction-market platform for intelligence, forecasting, community and execution. Discover live Panta markets on Solana, make free community forecasts in Prediction Rooms, challenge ideas with evidence, and trade through your own wallet.";
+const SOCIAL =
+  "Read the market, test your thesis, bring others in. Live Panta markets, free community forecasting, evidence-first research and wallet-controlled execution on Solana.";
+
 export const metadata: Metadata = {
   title: {
-    default: "Brief Command",
+    default: "Brief Command — Prediction markets, forecasting and community",
     template: "%s | Brief Command",
   },
-  description:
-    "Brief Command — an AI-native prediction-market desk on Panta API + Solana. Discover markets, read evidence-based briefs, execute with your wallet, and track positions.",
+  description: DESCRIPTION,
+  applicationName: "Brief Command",
   openGraph: {
-    title: "Brief Command",
-    description:
-      "Solana prediction desk powered by Panta — intel, signal-based market briefs, primary buys.",
+    title: "Brief Command — Read the market. Test your thesis. Bring others in.",
+    description: SOCIAL,
     siteName: "Brief Command",
     type: "website",
   },
   twitter: {
     card: "summary",
-    title: "Brief Command",
-    description:
-      "Solana prediction desk powered by Panta — intel, signal-based market briefs, primary buys.",
+    title: "Brief Command — Read the market. Test your thesis. Bring others in.",
+    description: SOCIAL,
   },
 };
 
@@ -45,7 +58,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={`${inter.variable} ${geistMono.variable}`}>
+    <html lang="en" className={`${inter.variable} ${geistMono.variable} ${editorial.variable}`}>
       <body className="font-sans antialiased">
         {isReadOnlyDeployment() && (
           <div role="status" data-testid="preview-read-only" className="bg-amber-500/15 px-4 py-1.5 text-center text-xs text-amber-200">

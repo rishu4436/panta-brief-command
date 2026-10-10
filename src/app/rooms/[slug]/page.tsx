@@ -2,7 +2,9 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { cache } from "react";
 import { RoomDetail } from "@/components/rooms/RoomDetail";
+import { CommunityUnavailable } from "@/components/community/CommunityUnavailable";
 import { ErrorState } from "@/components/ui/States";
+import { isReadOnlyDeployment } from "@/lib/deploy-env";
 import { marketLabel } from "@/lib/format";
 import { getMarketSnapshot } from "@/lib/embed/market-snapshot";
 import { appOrigin } from "@/lib/embed/origin";
@@ -15,7 +17,7 @@ export const dynamic = "force-dynamic";
 
 type Props = { params: Promise<{ slug: string }> };
 
-type Lookup = { kind: "found"; room: Room } | { kind: "missing" } | { kind: "unavailable"; message: string };
+type Lookup = { kind: "found"; room: Room } | { kind: "missing" } | { kind: "unavailable"; message: string; unconfigured: boolean };
 
 /** One repository read per request, shared by metadata and the page. */
 const lookupRoom = cache(async (rawSlug: string): Promise<Lookup> => {
@@ -31,7 +33,7 @@ const lookupRoom = cache(async (rawSlug: string): Promise<Lookup> => {
     return room && room.status === "active" ? { kind: "found", room } : { kind: "missing" };
   } catch (e) {
     if (e instanceof RoomStoreUnavailableError) {
-      return { kind: "unavailable", message: e.reason === "unconfigured" ? UNCONFIGURED_MESSAGE : "Room storage didn't respond. Try again shortly." };
+      return { kind: "unavailable", unconfigured: e.reason === "unconfigured", message: e.reason === "unconfigured" ? UNCONFIGURED_MESSAGE : "Room storage didn't respond. Try again shortly." };
     }
     throw e;
   }
@@ -73,6 +75,13 @@ export default async function RoomPage({ params }: Props) {
   const { slug } = await params;
   const found = await lookupRoom(slug);
   if (found.kind === "missing") notFound();
+  if (found.kind === "unavailable" && found.unconfigured) {
+    return (
+      <div className="mx-auto max-w-3xl py-6">
+        <CommunityUnavailable feature="room" readOnly={isReadOnlyDeployment()} />
+      </div>
+    );
+  }
   if (found.kind === "unavailable") {
     return (
       <div className="mx-auto max-w-xl py-10">

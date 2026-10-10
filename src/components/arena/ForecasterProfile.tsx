@@ -9,6 +9,7 @@ import { marketHref } from "@/lib/panta/lifecycle";
 import { RoomApiError } from "@/lib/rooms/client";
 import { roomPath } from "@/lib/rooms/domain";
 import { Panel } from "../Panel";
+import { CommunityUnavailable } from "../community/CommunityUnavailable";
 import { EmptyState, ErrorState, Skeleton } from "../ui/States";
 import { StatusBadge } from "../ui/StatusBadge";
 import { IconLayers } from "../ui/Icons";
@@ -206,9 +207,11 @@ export function ForecasterProfile({ wallet }: { wallet: string }) {
             <Skeleton key={i} className="h-20 w-full" />
           ))}
         </div>
+      ) : q.isError && q.error instanceof RoomApiError && q.error.code === "ROOMS_STORE_UNCONFIGURED" ? (
+        <CommunityUnavailable feature="profile" compact />
       ) : q.isError || !p ? (
         <ErrorState
-          title={q.error instanceof RoomApiError && q.error.code === "ROOMS_STORE_UNCONFIGURED" ? "Profiles aren't available on this deployment yet" : "Couldn't load this profile"}
+          title="Couldn't load this profile"
           description={q.error instanceof Error ? q.error.message : "Try again."}
           onRetry={() => void q.refetch()}
         />

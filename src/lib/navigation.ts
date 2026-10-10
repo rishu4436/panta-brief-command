@@ -10,11 +10,15 @@ import { marketHref } from "@/lib/panta/lifecycle";
  *   "More" menu below xl.
  * - Rooms, Arena, Studio (`group: "community"`) are always in a "Community" menu.
  * The mobile menu lists every item flat.
+ *
+ * Marketing pages (/, /about) use a lighter bar: Markets, a Community menu
+ * (Rooms, Arena, Studio), a Trade menu (execute, Book, Create Market) and
+ * About, with "Open Trading Desk" as the header CTA.
  */
-export type NavGroup = "community" | "more";
+export type NavGroup = "community" | "more" | "trade";
 export type NavItem = { href: string; label: string; active: boolean; group?: NavGroup };
 
-export const NAV_GROUP_LABEL: Record<NavGroup, string> = { community: "Community", more: "More" };
+export const NAV_GROUP_LABEL: Record<NavGroup, string> = { community: "Community", more: "More", trade: "Trade" };
 
 export function isMarketingPath(pathname: string) {
   return pathname === "/" || pathname === "/about";
@@ -31,9 +35,13 @@ export function buildNavItems({ pathname, tab, recentMarketId }: { pathname: str
     return {
       marketing,
       items: [
-        { href: "/", label: "Home", active: pathname === "/" },
-        { href: "/execute", label: "Trade", active: false },
         { href: "/desk", label: "Markets", active: false },
+        { href: "/rooms", label: "Rooms", active: false, group: "community" },
+        { href: "/arena", label: "Arena", active: false, group: "community" },
+        { href: "/studio", label: "Studio", active: false, group: "community" },
+        { href: "/execute", label: "Execute a trade", active: false, group: "trade" },
+        { href: "/book?tab=positions", label: "Book", active: false, group: "trade" },
+        { href: "/create", label: "Create Market", active: false, group: "trade" },
         { href: "/about", label: "About", active: pathname === "/about" },
       ],
     };
@@ -63,9 +71,10 @@ export function buildNavItems({ pathname, tab, recentMarketId }: { pathname: str
 }
 
 /**
- * Desktop bar layout: inline entries in order, with the Community menu where its
- * first item would be. "More" items render inline only at xl+ (`xlOnly`), and the
- * More menu (`belowXl`) collects them below xl.
+ * Desktop bar layout: inline entries in order, with the Community (and, on
+ * marketing pages, Trade) menu where its first item would be. "More" items
+ * render inline only at xl+ (`xlOnly`), and the More menu (`belowXl`)
+ * collects them below xl.
  */
 export type DesktopEntry =
   | { kind: "link"; item: NavItem; xlOnly: boolean }
@@ -73,17 +82,18 @@ export type DesktopEntry =
 
 export function desktopEntries(items: NavItem[]): DesktopEntry[] {
   const out: DesktopEntry[] = [];
-  const community = items.filter((i) => i.group === "community");
   const more = items.filter((i) => i.group === "more");
-  let communityPlaced = false;
+  const placed = new Set<NavGroup>();
   for (const item of items) {
-    if (item.group === "community") {
-      if (!communityPlaced) {
-        out.push({ kind: "menu", group: "community", label: NAV_GROUP_LABEL.community, items: community, active: community.some((i) => i.active), belowXl: false });
-        communityPlaced = true;
+    const g = item.group;
+    if (g && g !== "more") {
+      if (!placed.has(g)) {
+        const members = items.filter((i) => i.group === g);
+        out.push({ kind: "menu", group: g, label: NAV_GROUP_LABEL[g], items: members, active: members.some((i) => i.active), belowXl: false });
+        placed.add(g);
       }
     } else {
-      out.push({ kind: "link", item, xlOnly: item.group === "more" });
+      out.push({ kind: "link", item, xlOnly: g === "more" });
     }
   }
   if (more.length) out.push({ kind: "menu", group: "more", label: NAV_GROUP_LABEL.more, items: more, active: more.some((i) => i.active), belowXl: true });

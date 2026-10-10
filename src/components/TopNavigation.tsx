@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useId, useRef, useState } from "react";
 import { useRecents } from "@/hooks/useLocalIds";
-import { buildNavItems, desktopEntries, isMarketingPath, type NavItem } from "@/lib/navigation";
+import { NAV_GROUP_LABEL, buildNavItems, desktopEntries, isMarketingPath, type NavItem } from "@/lib/navigation";
 import { BrandMark } from "./BrandMark";
 import { WalletButton } from "./WalletButton";
 import { IconArrowRight, IconChevronDown, IconClose, IconMenu } from "./ui/Icons";
@@ -194,7 +194,7 @@ function MobileNavigation({ marketing }: { marketing: boolean }) {
   }, [open]);
 
   return (
-    <div className={marketing ? "md:hidden" : "lg:hidden"}>
+    <div className="lg:hidden">
       <button
         ref={toggleRef}
         type="button"
@@ -230,25 +230,60 @@ function MobileNavigation({ marketing }: { marketing: boolean }) {
   );
 }
 
-function MobileLinks() {
-  const { items } = useNavItems();
+function MobileLink({ item }: { item: NavItem }) {
   return (
-    <ul className="flex flex-col">
-      {items.map((item) => (
-        <li key={item.label}>
-          <Link
-            href={item.href}
-            aria-current={item.active ? "page" : undefined}
-            className={`flex min-h-[48px] items-center justify-between rounded-lg px-3 text-[15px] font-medium ${
-              item.active ? "bg-elevated text-ink" : "text-ink-2 hover:bg-elevated hover:text-ink"
-            }`}
-          >
-            {item.label}
-            {item.active ? <span className="h-1.5 w-1.5 rounded-full bg-cyan-400" aria-hidden="true" /> : null}
-          </Link>
-        </li>
+    <Link
+      href={item.href}
+      aria-current={item.active ? "page" : undefined}
+      className={`flex min-h-[48px] items-center justify-between rounded-lg px-3 text-[15px] font-medium ${
+        item.active ? "bg-elevated text-ink" : "text-ink-2 hover:bg-elevated hover:text-ink"
+      }`}
+    >
+      {item.label}
+      {item.active ? <span className="h-1.5 w-1.5 rounded-full bg-cyan-400" aria-hidden="true" /> : null}
+    </Link>
+  );
+}
+
+/**
+ * Mobile menu: the app lists every item flat; marketing pages show the same
+ * items under small Community / Trade headings so the longer list scans.
+ */
+function MobileLinks() {
+  const { items, marketing } = useNavItems();
+  if (!marketing) {
+    return (
+      <ul className="flex flex-col">
+        {items.map((item) => (
+          <li key={item.label}>
+            <MobileLink item={item} />
+          </li>
+        ))}
+      </ul>
+    );
+  }
+  const sections: { label: string | null; items: NavItem[] }[] = [];
+  for (const item of items) {
+    const label = item.group ? NAV_GROUP_LABEL[item.group] : null;
+    const last = sections[sections.length - 1];
+    if (last && last.label === label) last.items.push(item);
+    else sections.push({ label, items: [item] });
+  }
+  return (
+    <div className="flex flex-col gap-1">
+      {sections.map((sec, i) => (
+        <div key={`${sec.label ?? "top"}-${i}`} className={sec.label ? "mt-2 border-t border-line/60 pt-2" : ""}>
+          {sec.label ? <p className="px-3 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-ink-3">{sec.label}</p> : null}
+          <ul className="flex flex-col">
+            {sec.items.map((item) => (
+              <li key={item.label}>
+                <MobileLink item={item} />
+              </li>
+            ))}
+          </ul>
+        </div>
       ))}
-    </ul>
+    </div>
   );
 }
 
@@ -257,7 +292,7 @@ export function TopNavigation() {
   const marketing = isMarketingPath(pathname);
   return (
     <header className="sticky top-0 z-40 border-b border-line/80 bg-bg/75 backdrop-blur-xl">
-      <div className={`relative mx-auto flex h-16 items-center justify-between gap-4 px-4 sm:px-6 ${marketing ? "max-w-[1280px]" : "max-w-[1600px]"}`}>
+      <div className={`relative mx-auto flex h-16 items-center justify-between gap-4 ${marketing ? "max-w-[1360px] px-5 sm:px-8" : "max-w-[1600px] px-4 sm:px-6"}`}>
         <div className={`flex min-w-0 items-center ${marketing ? "gap-8" : "gap-4 xl:gap-8"}`}>
           <Brand />
           {!marketing && (
@@ -269,7 +304,7 @@ export function TopNavigation() {
           )}
         </div>
         {marketing && (
-          <nav aria-label="Primary" className="absolute left-1/2 hidden -translate-x-1/2 md:block">
+          <nav aria-label="Primary" className="absolute left-1/2 hidden -translate-x-1/2 lg:block">
             <Suspense fallback={null}>
               <DesktopLinks />
             </Suspense>

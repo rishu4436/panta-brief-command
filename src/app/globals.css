@@ -846,3 +846,208 @@ summary:focus:not(:focus-visible) {
     margin-top: -10px;
   }
 }
+
+/* ==========================================================================
+   Landing v2 (Phase 10): editorial type, terminal labels, product panels.
+   Scoped "lv-" classes so the desk and community pages are untouched.
+   ========================================================================== */
+@layer components {
+.lv-h1 {
+  font-size: clamp(2.6rem, 0.9rem + 5.4vw, 5.6rem);
+  line-height: 0.98;
+  font-weight: 650;
+  letter-spacing: -0.048em;
+  color: var(--ink);
+}
+.lv-h2 {
+  font-size: clamp(2.05rem, 1.15rem + 2.9vw, 3.75rem);
+  line-height: 1.02;
+  font-weight: 640;
+  letter-spacing: -0.042em;
+  color: var(--ink);
+  text-wrap: balance;
+}
+.lv-h3 {
+  font-size: clamp(1.25rem, 1.05rem + 0.6vw, 1.55rem);
+  line-height: 1.15;
+  font-weight: 620;
+  letter-spacing: -0.025em;
+  color: var(--ink);
+}
+/* The italic serif accent inside a sans headline. */
+.lv-accent {
+  font-family: var(--font-editorial), ui-serif, Georgia, serif;
+  font-style: italic;
+  font-weight: 400;
+  letter-spacing: -0.02em;
+  padding-right: 0.06em;
+}
+.lv-lede {
+  font-size: clamp(1.02rem, 0.96rem + 0.3vw, 1.18rem);
+  line-height: 1.6;
+  color: var(--ink-2);
+  text-wrap: pretty;
+}
+.lv-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.lv-kicker > b {
+  font-weight: 500;
+  color: var(--cyan);
+}
+.lv-kicker::after {
+  content: "";
+  width: 2.5rem;
+  height: 1px;
+  background: linear-gradient(90deg, var(--line-strong), transparent);
+}
+.lv-mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+}
+.lv-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+/* Product panel: thin border, restrained glass, a hairline highlight on top. */
+.lv-panel {
+  position: relative;
+  background: linear-gradient(180deg, rgba(17, 27, 45, 0.86), rgba(9, 15, 28, 0.92));
+  border: 1px solid rgba(148, 167, 196, 0.14);
+  border-radius: 16px;
+  box-shadow:
+    0 1px 0 0 rgba(255, 255, 255, 0.05) inset,
+    0 30px 60px -30px rgba(0, 0, 0, 0.85);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+.lv-panel--flat {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  background: rgba(11, 18, 32, 0.7);
+}
+.lv-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  border-bottom: 1px solid rgba(148, 167, 196, 0.1);
+  padding: 0.65rem 0.9rem;
+}
+.lv-illustrative {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  white-space: nowrap;
+  border: 1px solid rgba(246, 185, 74, 0.38);
+  background: rgba(246, 185, 74, 0.08);
+  color: #f9d48f;
+  border-radius: 999px;
+  padding: 0.15rem 0.55rem;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.lv-illustrative::before {
+  content: "";
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: currentColor;
+  opacity: 0.8;
+}
+.lv-rule {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(148, 167, 196, 0.22) 20%, rgba(148, 167, 196, 0.22) 80%, transparent);
+}
+.lv-grid {
+  background-image:
+    linear-gradient(rgba(164, 178, 199, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(164, 178, 199, 0.05) 1px, transparent 1px);
+  background-size: 64px 64px;
+}
+.lv-grid--fade {
+  mask-image: radial-gradient(ellipse 75% 70% at 50% 35%, black 15%, transparent 78%);
+  -webkit-mask-image: radial-gradient(ellipse 75% 70% at 50% 35%, black 15%, transparent 78%);
+}
+.lv-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-height: 44px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+  border-bottom: 1px solid transparent;
+  transition: color 0.2s ease, gap 0.2s ease;
+}
+.lv-link:hover {
+  color: var(--cyan);
+  gap: 0.65rem;
+}
+.lv-bar {
+  border-radius: 3px 3px 1px 1px;
+  background: linear-gradient(180deg, rgba(18, 214, 245, 0.85), rgba(52, 120, 246, 0.35));
+}
+.lv-bar--muted {
+  background: rgba(148, 167, 196, 0.18);
+}
+.lv-hover {
+  transition: border-color 0.25s ease, transform 0.35s cubic-bezier(0.22, 1, 0.36, 1), background-color 0.25s ease;
+}
+.lv-hover:hover {
+  border-color: rgba(18, 214, 245, 0.32);
+  transform: translateY(-2px);
+}
+.lv-path-forecast {
+  --path: 32, 214, 161;
+}
+.lv-path-trade {
+  --path: 52, 120, 246;
+}
+}
+
+/* Scroll-linked reveal: CSS only, so content is visible without JS and in
+   browsers without scroll timelines. Reduced motion: no movement at all. */
+@media (prefers-reduced-motion: no-preference) {
+  @supports (animation-timeline: view()) {
+    .lv-reveal {
+      animation: lv-reveal linear both;
+      animation-timeline: view();
+      animation-range: entry 0% entry 38%;
+    }
+  }
+  @media (min-width: 1280px) {
+    .lv-float {
+      animation: lv-float 9s ease-in-out infinite;
+    }
+    .lv-float--slow {
+      animation-duration: 12s;
+      animation-delay: -4s;
+    }
+  }
+}
+@keyframes lv-reveal {
+  from { opacity: 0; transform: translateY(28px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes lv-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-6px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .lv-hover:hover { transform: none; }
+}

@@ -7,6 +7,7 @@ import { forecasterPath, type PublicForecasterRow } from "@/lib/arena/public";
 import { shortAddr } from "@/lib/format";
 import { RoomApiError } from "@/lib/rooms/client";
 import { Panel } from "../Panel";
+import { CommunityUnavailable } from "../community/CommunityUnavailable";
 import { EmptyState, ErrorState, Skeleton } from "../ui/States";
 import { StatusBadge } from "../ui/StatusBadge";
 import { IconArrowRight, IconLayers } from "../ui/Icons";
@@ -60,13 +61,13 @@ function Tier({ tier, title, subtitle, emptyTitle, emptyBody }: { tier: "ranked"
             <Skeleton key={i} className="h-8 w-full" />
           ))}
         </div>
+      ) : q.isError && q.error instanceof RoomApiError && q.error.code === "ROOMS_STORE_UNCONFIGURED" ? (
+        <div className="p-4">
+          <CommunityUnavailable feature="arena" compact />
+        </div>
       ) : q.isError ? (
         <div className="p-4">
-          <ErrorState
-            title={q.error instanceof RoomApiError && q.error.code === "ROOMS_STORE_UNCONFIGURED" ? "The arena isn't available on this deployment yet" : "Couldn't load the arena"}
-            description={q.error instanceof Error ? q.error.message : "Try again."}
-            onRetry={() => void q.refetch()}
-          />
+          <ErrorState title="Couldn't load the arena" description={q.error instanceof Error ? q.error.message : "Try again."} onRetry={() => void q.refetch()} />
         </div>
       ) : !data || data.items.length === 0 ? (
         <EmptyState icon={<IconLayers className="h-5 w-5" />} title={emptyTitle} description={emptyBody} />

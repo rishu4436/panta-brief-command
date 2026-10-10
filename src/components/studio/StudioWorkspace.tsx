@@ -8,6 +8,7 @@ import { RoomApiError } from "@/lib/rooms/client";
 import { useStudioOverview, useStudioRooms, type StudioRoomsQuery } from "@/lib/studio/client";
 import { DEFINITIONS, MAX_STUDIO_ROOMS, type StudioOverview, type StudioRoomRow } from "@/lib/studio/domain";
 import { Panel } from "../Panel";
+import { CommunityUnavailable } from "../community/CommunityUnavailable";
 import { EmptyState, ErrorState, SkeletonLoader } from "../ui/States";
 import { StatusBadge, type StatusTone } from "../ui/StatusBadge";
 import { IconSearch } from "../ui/Icons";
@@ -15,9 +16,7 @@ import { ChartFrame, ChartState, DailyBars, HBars } from "./StudioCharts";
 import { StudioGate } from "./StudioGate";
 import { formatPct, InsightsList, Metric, useCopy } from "./StudioParts";
 
-function storeErrorTitle(e: unknown) {
-  return e instanceof RoomApiError && e.code === "ROOMS_STORE_UNCONFIGURED" ? "Rooms storage isn't configured here" : "Couldn't load Creator Studio";
-}
+const storeUnconfigured = (e: unknown) => e instanceof RoomApiError && e.code === "ROOMS_STORE_UNCONFIGURED";
 
 function Overview({ o }: { o: StudioOverview }) {
   const p = o.participation;
@@ -237,7 +236,11 @@ function MyRooms({ wallet }: { wallet: string }) {
       {rooms.isPending ? (
         <SkeletonLoader rows={3} label="Loading your rooms" />
       ) : rooms.isError ? (
-        <ErrorState title={storeErrorTitle(rooms.error)} description={rooms.error instanceof Error ? rooms.error.message : "Try again."} onRetry={() => void rooms.refetch()} />
+        storeUnconfigured(rooms.error) ? (
+          <CommunityUnavailable feature="studio" compact />
+        ) : (
+          <ErrorState title="Couldn't load Creator Studio" description={rooms.error instanceof Error ? rooms.error.message : "Try again."} onRetry={() => void rooms.refetch()} />
+        )
       ) : !data || data.total === 0 ? (
         p.q || p.status !== "all" ? (
           <EmptyState title="No rooms match" description="Try a different search or status." />
@@ -286,7 +289,11 @@ function Dashboard({ wallet }: { wallet: string }) {
       {overview.isPending ? (
         <SkeletonLoader rows={4} label="Loading your studio" />
       ) : overview.isError ? (
-        <ErrorState title={storeErrorTitle(overview.error)} description={overview.error instanceof Error ? overview.error.message : "Try again."} onRetry={() => void overview.refetch()} />
+        storeUnconfigured(overview.error) ? (
+          <CommunityUnavailable feature="studio" compact />
+        ) : (
+          <ErrorState title="Couldn't load Creator Studio" description={overview.error instanceof Error ? overview.error.message : "Try again."} onRetry={() => void overview.refetch()} />
+        )
       ) : (
         <Overview o={overview.data} />
       )}

@@ -50,9 +50,27 @@ describe("top navigation model", () => {
     expect(activeLabels(app("/book", "activity"))).toEqual(["Activity"]);
   });
 
-  it("marketing pages have no groups", () => {
+  it("marketing pages: Markets, Community and Trade menus, About; nothing xl-only", () => {
     const m = buildNavItems({ pathname: "/", tab: null, recentMarketId: null });
     expect(m.marketing).toBe(true);
-    expect(desktopEntries(m.items).every((e) => e.kind === "link" && !e.xlOnly)).toBe(true);
+    const entries = desktopEntries(m.items);
+    const shape = entries.map((e) => (e.kind === "menu" ? `${e.label}[${e.items.map((i) => i.label).join(",")}]${e.belowXl ? "<xl" : ""}` : `${e.item.label}${e.xlOnly ? "@xl" : ""}`));
+    expect(shape).toEqual(["Markets", "Community[Rooms,Arena,Studio]", "Trade[Execute a trade,Book,Create Market]", "About"]);
+  });
+
+  it("marketing nav reaches every product area through real routes", () => {
+    const m = buildNavItems({ pathname: "/", tab: null, recentMarketId: null });
+    expect(Object.fromEntries(m.items.map((i) => [i.label, i.href]))).toEqual({
+      Markets: "/desk",
+      Rooms: "/rooms",
+      Arena: "/arena",
+      Studio: "/studio",
+      "Execute a trade": "/execute",
+      Book: "/book?tab=positions",
+      "Create Market": "/create",
+      About: "/about",
+    });
+    expect(activeLabels(m.items)).toEqual([]);
+    expect(activeLabels(buildNavItems({ pathname: "/about", tab: null, recentMarketId: null }).items)).toEqual(["About"]);
   });
 });

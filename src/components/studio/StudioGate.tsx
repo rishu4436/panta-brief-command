@@ -87,7 +87,7 @@ export function StudioGate({ children }: { children: (wallet: string) => ReactNo
     setBusy(true);
     setError(null);
     try {
-      await verifyWalletOwnership(connectedAddr, signMessage);
+      await verifyWalletOwnership(connectedAddr, signMessage, sessionWallet);
       await inval.session();
     } catch (e) {
       setError(isWalletRejection(e) ? "You declined the signature request. Nothing was signed." : e instanceof RoomApiError ? e.message : "The wallet couldn't sign the message. Try again.");

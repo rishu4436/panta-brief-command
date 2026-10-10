@@ -8,7 +8,9 @@
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import bs58 from "bs58";
+import { useEffect } from "react";
 import type { Room } from "./domain";
+import { announceSessionChange, browserSessionSync, expiryDelayMs, signInEvent } from "./session-sync";
 
 export class RoomApiError extends Error {
   constructor(
@@ -76,6 +78,30 @@ export function useRoomSession() {
   });
 }
 
+/**
+ * Mount once (Providers): another tab's sign-in / sign-out / wallet switch
+ * makes this tab re-read the session from the server (the message itself
+ * authorises nothing), and the session is re-read once when it expires.
+ */
+export function useRoomSessionSync() {
+  const qc = useQueryClient();
+  const session = useRoomSession();
+  const expiresAt = session.data?.expiresAt ?? null;
+  useEffect(() => {
+    const sync = browserSessionSync();
+    if (!sync) return;
+    return sync.subscribe(() => {
+      void qc.invalidateQueries({ queryKey: roomKeys.session() });
+    });
+  }, [qc]);
+  useEffect(() => {
+    const delay = expiryDelayMs(expiresAt, Date.now());
+    if (delay === null) return;
+    const t = setTimeout(() => void qc.invalidateQueries({ queryKey: roomKeys.session() }), delay);
+    return () => clearTimeout(t);
+  }, [expiresAt, qc]);
+}
+
 export function useInvalidateRooms() {
   const qc = useQueryClient();
   return {
@@ -91,6 +117,8 @@ export function useInvalidateRooms() {
 export async function verifyWalletOwnership(
   wallet: string,
   signMessage: (message: Uint8Array) => Promise<Uint8Array>,
+  /** The wallet this browser was signed in as before, if any (labels the cross-tab event). */
+  previousWallet?: string | null,
 ): Promise<RoomSessionState> {
   const ch = await call<{ nonce: string; message: string; wallet: string }>("/api/rooms/auth/challenge", {
     method: "POST",
@@ -98,14 +126,37 @@ export async function verifyWalletOwnership(
   });
   if (ch.wallet !== wallet) throw new RoomApiError(400, "WALLET_MISMATCH", "The sign-in request named a different wallet.");
   const signature = await signMessage(new TextEncoder().encode(ch.message));
-  return call<RoomSessionState>("/api/rooms/auth/verify", {
+  const res = await call<RoomSessionState>("/api/rooms/auth/verify", {
     method: "POST",
     body: JSON.stringify({ nonce: ch.nonce, signature: bs58.encode(signature) }),
   });
+  // Only after the server accepted the signature: other tabs re-read the session.
+  announceSessionChange(signInEvent(previousWallet, wallet));
+  return res;
 }
 
-export function signOutRooms(): Promise<unknown> {
-  return call("/api/rooms/auth/session", { method: "DELETE" });
+/** Ends the room session (server clears the HttpOnly cookie), then tells other tabs to re-read it. */
+export async function signOutRooms(): Promise<unknown> {
+  const res = await call("/api/rooms/auth/session", { method: "DELETE" });
+  announceSessionChange("signed-out");
+  return res;
+}
+
+/**
+ * Wallet-menu "Sign out": the existing logout (server clears the HttpOnly
+ * cookie), then this tab re-reads the session; signOutRooms already told the
+ * other tabs. The wallet stays connected; signing in again needs a fresh
+ * challenge signature. If the request fails, the re-read still shows the truth.
+ */
+export async function signOutAndRefresh(qc: { invalidateQueries: (f: { queryKey: readonly unknown[] }) => Promise<unknown> }): Promise<{ ok: boolean }> {
+  let ok = true;
+  try {
+    await signOutRooms();
+  } catch {
+    ok = false;
+  }
+  await qc.invalidateQueries({ queryKey: roomKeys.session() });
+  return { ok };
 }
 
 export type SlugCheck = { slug: string; available: boolean; reason: string | null; message: string | null };

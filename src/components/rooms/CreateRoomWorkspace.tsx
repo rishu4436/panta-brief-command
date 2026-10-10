@@ -126,7 +126,7 @@ function VerifyStep({ onDone }: { onDone: () => void }) {
     setBusy(true);
     setError(null);
     try {
-      await verifyWalletOwnership(connectedAddr, signMessage);
+      await verifyWalletOwnership(connectedAddr, signMessage, verifiedAddr);
       await inval.session();
     } catch (e) {
       setError(

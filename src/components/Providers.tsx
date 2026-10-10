@@ -14,6 +14,7 @@ import "@/styles/wallet-adapter-ui.css";
 import { makeQueryClient } from "@/lib/data/query-client";
 import { clientRpcEndpoint } from "@/lib/rpc";
 import { onWalletError } from "@/lib/wallet-errors";
+import { useRoomSessionSync } from "@/lib/rooms/client";
 
 /**
  * Every browser RPC call goes through the same-origin relay; the provider URL
@@ -43,6 +44,12 @@ function WalletModalA11y() {
   return null;
 }
 
+/** Cross-tab room-session sync (re-reads the server session; see lib/rooms/session-sync). */
+function RoomSessionSync() {
+  useRoomSessionSync();
+  return null;
+}
+
 export function Providers({ children }: { children: ReactNode }) {
   const [queryClient] = useState(makeQueryClient);
   const wallets = useMemo(
@@ -57,6 +64,7 @@ export function Providers({ children }: { children: ReactNode }) {
           <WalletModalProvider>
             <WalletModalA11y />
             <UsageBeacon />
+            <RoomSessionSync />
             {children}
           </WalletModalProvider>
         </WalletProvider>

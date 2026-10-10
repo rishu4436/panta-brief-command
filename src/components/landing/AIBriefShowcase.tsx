@@ -118,22 +118,25 @@ export function AIBriefFigure({ className = "" }: { className?: string }) {
           </div>
         </div>
 
-        <p className="mb-1.5 mt-4 flex flex-wrap items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-ink-3">
-          2 · Written brief
-          <span className="rounded border border-violet-500/40 px-1.5 py-0.5 text-[10px] font-normal normal-case tracking-normal text-violet-200">
-            Template · AI unavailable
-          </span>
-        </p>
-        <div className="rounded-xl border border-violet-500/20 bg-inset p-3">
-          <div className="mb-1.5 flex items-center gap-2">
-            <EvidenceTag layer="observed" />
-            <span className="text-[11px] text-ink-3">Observation</span>
-          </div>
-          <p className="type-body">{OBSERVATION}</p>
-          <p className="type-meta mt-2 flex items-center gap-2">
-            <EvidenceTag layer="interpretation" />
-            With AI on, an Interpretation section follows; the template writes none.
+        {/* The written brief adds little at phone width; the evidence rows carry the idea. */}
+        <div className="hidden sm:block">
+          <p className="mb-1.5 mt-4 flex flex-wrap items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-ink-3">
+            2 · Written brief
+            <span className="rounded border border-violet-500/40 px-1.5 py-0.5 text-[10px] font-normal normal-case tracking-normal text-violet-200">
+              Template · AI unavailable
+            </span>
           </p>
+          <div className="rounded-xl border border-violet-500/20 bg-inset p-3">
+            <div className="mb-1.5 flex items-center gap-2">
+              <EvidenceTag layer="observed" />
+              <span className="text-[11px] text-ink-3">Observation</span>
+            </div>
+            <p className="type-body">{OBSERVATION}</p>
+            <p className="type-meta mt-2 flex items-center gap-2">
+              <EvidenceTag layer="interpretation" />
+              With AI on, an Interpretation section follows; the template writes none.
+            </p>
+          </div>
         </div>
         <figcaption className="mt-3 text-[12px] text-ink-3">
           Sample market and tape, run through the real signals engine and brief template. Not a forecast or advice.

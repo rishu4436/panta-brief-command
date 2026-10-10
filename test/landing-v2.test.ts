@@ -25,6 +25,7 @@ import { Hero } from "@/components/landing/v2/Hero";
 import { Journey } from "@/components/landing/v2/Journey";
 import { ParticipationPaths } from "@/components/landing/v2/ParticipationPaths";
 import { PlatformFeature } from "@/components/landing/v2/PlatformFeature";
+import { PlatformModules } from "@/components/landing/v2/PlatformModules";
 import { RoomsFeature } from "@/components/landing/v2/RoomsFeature";
 import { communityAvailabilityAtBuild } from "@/lib/rooms/availability";
 
@@ -149,6 +150,58 @@ describe("landing v2 copy and structure", () => {
     for (const s of ["Secondary-market execution is not supported", "not yet proven by a completed creation", "disabled on read-only preview", "not claimed to be comprehensively tested in production"]) {
       expect(t).toContain(s);
     }
+  });
+
+  it("section 06 tabs: one tabpanel per tab, linked both ways, roving tabindex, inactive panels inert", () => {
+    const h = html(createElement(PlatformModules));
+    const tabs = [...h.matchAll(/<button[^>]*role="tab"[^>]*>/g)].map((m) => m[0]);
+    const panels = [...h.matchAll(/<div[^>]*role="tabpanel"[^>]*>/g)].map((m) => m[0]);
+    expect(tabs).toHaveLength(5);
+    expect(panels).toHaveLength(5);
+    const attr = (tag: string, name: string) => tag.match(new RegExp(`\\s${name}="([^"]*)"`))?.[1];
+    const panelIds = new Set(panels.map((p) => attr(p, "id")));
+    expect(panelIds.size).toBe(5);
+    tabs.forEach((t, i) => {
+      const controls = attr(t, "aria-controls");
+      expect(panelIds.has(controls), controls).toBe(true);
+      const panel = panels.find((p) => attr(p, "id") === controls)!;
+      expect(attr(panel, "aria-labelledby")).toBe(attr(t, "id"));
+      const selected = i === 0;
+      expect(attr(t, "aria-selected")).toBe(String(selected));
+      expect(attr(t, "tabindex")).toBe(selected ? "0" : "-1");
+      // The inactive panels stay in the DOM (so the stack keeps the tallest height) but are inert.
+      expect(/\sinert=""/.test(panel)).toBe(!selected);
+      expect(panel).toContain("[grid-area:stack]");
+    });
+    // No fixed height on the panel stack that could clip content.
+    const stack = h.match(/<div[^>]*data-panels[^>]*>/)![0];
+    expect(stack).not.toMatch(/\b(min-|max-)?h-\[|height:/);
+    // Every capability's points are in the markup before any interaction.
+    const t = text(h);
+    for (const s of ["Live Panta catalog with categories", "Deterministic signal analysis", "Primary YES / NO buying", "Settlement and claim eligibility", "Named sources of truth"]) {
+      expect(t).toContain(s);
+    }
+  });
+
+  it("debate and creators keep their honesty labels in the compact phone compositions too", () => {
+    const d = text(html(createElement(DebateFeature)));
+    expect(d.match(/EVIDENCE REFEREE/g)).toHaveLength(2); // phone card + desktop referee
+    expect(d).toContain("no winner picked");
+    expect(d).toContain("Placeholder sources");
+    expect(d.match(/Source A · illustrative/g)!.length).toBeGreaterThanOrEqual(2);
+    const c = text(html(createElement(CreatorsFeature)));
+    expect(c).toContain("Illustrative metrics");
+    expect(c).toContain("Embed visits & forecasts → Studio");
+    expect(c).toContain("Wallet counts are wallets, not people");
+  });
+
+  it("the social card is static: no fetch, no live data, honest copy", () => {
+    const src = readFileSync(path.join(process.cwd(), "src/app/opengraph-image.tsx"), "utf8");
+    expect(src).toContain('from "next/og"');
+    expect(src).not.toMatch(/\bfetch\(|readFile|https?:\/\//);
+    expect(src).toContain("width: 1200, height: 630");
+    expect(src).toContain("Read the market.");
+    expect(src).not.toMatch(/\d+%\s*(YES|NO)|\$\d|USDC/); // no sample prices or amounts
   });
 
   it("makes no Panta requests: landing sources import no data hooks or fetch", () => {

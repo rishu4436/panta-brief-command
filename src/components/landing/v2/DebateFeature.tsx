@@ -69,7 +69,7 @@ function Referee() {
         <IconSparkles className="h-3.5 w-3.5" /> EVIDENCE REFEREE
       </p>
       <p className="mt-3 text-[13px] leading-snug text-ink-2">Audits both cases. It never picks a winner.</p>
-      <dl className="mt-5 space-y-3">
+      <dl className="mt-5 space-y-3 md:grid md:grid-cols-2 md:gap-x-6 md:gap-y-3 md:space-y-0 lg:block lg:space-y-3">
         {rows.map(([k, v, c]) => (
           <div key={k} className="border-l border-violet-400/30 pl-3">
             <dt className={`lv-label !text-[9.5px] ${c}`}>{k}</dt>
@@ -87,10 +87,65 @@ function Referee() {
   );
 }
 
+/** Phones: one condensed card. One claim per side, then the referee summary. */
+function CompactDebate() {
+  const sides = [
+    { key: "YES", data: YES, cls: "text-emerald-300", bar: "bg-emerald-400/70" },
+    { key: "NO", data: NO, cls: "text-rose-300", bar: "bg-rose-400/70" },
+  ] as const;
+  const summary = [
+    ["Supporting", "C1 and market flow agree", "text-emerald-200"],
+    ["Conflicting", "Both read the same flow", "text-rose-200"],
+    ["Quality", "Moderate · one dated source", "text-amber-200"],
+    ["Missing", "Order-book depth, catalysts", "text-ink-2"],
+  ] as const;
+  return (
+    <div className="lv-panel overflow-hidden">
+      <div className="lv-panel-head">
+        <span className="lv-label flex items-center gap-2">
+          <IconSparkles className="h-3 w-3 text-violet-300" /> AI debate
+        </span>
+        <Illustrative>Placeholder sources</Illustrative>
+      </div>
+      <div className="divide-y divide-line/70">
+        {sides.map(({ key, data, cls, bar }) => (
+          <div key={key} className="relative py-3.5 pl-5 pr-4">
+            <span className={`absolute bottom-3.5 left-0 top-3.5 w-[3px] rounded-r ${bar}`} aria-hidden="true" />
+            <p className={`lv-mono text-[11px] font-semibold tracking-[0.14em] ${cls}`}>{key} THESIS</p>
+            <p className="mt-1 text-[14px] leading-snug text-ink">{data.thesis}</p>
+            <p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] leading-snug text-ink-3">
+              <span className="text-ink-2">{data.claims[0].text}</span>
+              <span className="lv-mono rounded border border-line px-1.5 py-0.5 text-[9.5px]">{data.claims[0].source} · illustrative</span>
+            </p>
+          </div>
+        ))}
+      </div>
+      <div className="border-t border-violet-500/25 bg-violet-500/[0.05] px-4 py-3.5">
+        <p className="lv-mono flex items-center justify-between gap-2 text-[11px] font-semibold tracking-[0.14em] text-violet-200">
+          <span>EVIDENCE REFEREE</span>
+          <span className="font-normal tracking-normal text-ink-3">no winner picked</span>
+        </p>
+        <dl className="mt-2.5 grid grid-cols-2 gap-x-4 gap-y-2.5">
+          {summary.map(([k, v, c]) => (
+            <div key={k}>
+              <dt className={`lv-label !text-[9.5px] ${c}`}>{k}</dt>
+              <dd className="mt-0.5 text-[12px] leading-snug text-ink-2">{v}</dd>
+            </div>
+          ))}
+        </dl>
+        <p className="mt-3 border-t border-line/60 pt-2.5 text-[12px] leading-snug text-ink-3">
+          <span className="lv-label !text-[9.5px] mr-1.5">Challenge · open</span>
+          &ldquo;Source B covers a different threshold.&rdquo;
+        </p>
+      </div>
+    </div>
+  );
+}
+
 /** F. AI Debate. */
 export function DebateFeature() {
   return (
-    <section id="debate" aria-labelledby="debate-title" className="relative scroll-mt-20 overflow-hidden py-20 sm:py-28">
+    <section id="debate" aria-labelledby="debate-title" className="relative scroll-mt-20 overflow-hidden py-14 sm:py-20 lg:py-28">
       <div
         className="pointer-events-none absolute inset-0 -z-10"
         aria-hidden="true"
@@ -101,23 +156,26 @@ export function DebateFeature() {
           <Kicker index="04" className="justify-center">
             AI Debate Arena
           </Kicker>
-          <h2 id="debate-title" className="lv-h2 mt-5">
+          <h2 id="debate-title" className="lv-h2 mt-4 sm:mt-5">
             Two sides. Real evidence. <span className="lv-accent text-violet-200">Better questions.</span>
           </h2>
-          <p className="lv-lede mx-auto mt-6 max-w-2xl">
+          <p className="lv-lede mx-auto mt-4 sm:mt-6 max-w-2xl">
             The strongest sourced case for YES and for NO, each claim tied to its source, with assumptions and uncertainty stated. An Evidence
             Referee audits both, and the community can challenge any claim.
           </p>
         </div>
 
-        <figure className="lv-reveal relative mt-14">
+        <figure className="lv-reveal relative mt-8 sm:mt-14">
           <figcaption className="sr-only">
             Illustrative debate layout with placeholder sources: a YES thesis, a NO thesis and an Evidence Referee panel. Not a real debate.
           </figcaption>
-          <div className="mb-4 flex flex-wrap items-center justify-center gap-3 text-[12px] text-ink-3" aria-hidden="true">
+          <div aria-hidden="true" inert className="md:hidden">
+            <CompactDebate />
+          </div>
+          <div className="mb-4 hidden flex-wrap items-center justify-center gap-3 text-[12px] text-ink-3 md:flex" aria-hidden="true">
             <Illustrative>Illustrative · placeholder sources</Illustrative>
           </div>
-          <div aria-hidden="true" inert className="grid gap-4 md:grid-cols-2 lg:grid-cols-[minmax(0,1fr)_minmax(0,0.9fr)_minmax(0,1fr)]">
+          <div aria-hidden="true" inert className="hidden gap-4 md:grid md:grid-cols-2 lg:grid-cols-[minmax(0,1fr)_minmax(0,0.9fr)_minmax(0,1fr)]">
             <div className="lg:order-1">
               <Side side="yes" data={YES} />
             </div>
@@ -130,7 +188,7 @@ export function DebateFeature() {
           </div>
         </figure>
 
-        <p className="mx-auto mt-8 max-w-2xl text-center text-[13px] leading-relaxed text-ink-3">
+        <p className="mx-auto mt-5 max-w-2xl text-center text-[12.5px] leading-relaxed text-ink-3 sm:mt-8 sm:text-[13px]">
           Debates are generated only when an AI provider is available on the server; otherwise the room says so and nothing is simulated. They
           are a research aid, not advice, and no side is declared the winner.
         </p>

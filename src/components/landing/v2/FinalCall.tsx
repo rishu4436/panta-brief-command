@@ -4,7 +4,7 @@ import { IconArrowRight } from "../../ui/Icons";
 /** J. Final call to action. */
 export function FinalCall() {
   return (
-    <section aria-labelledby="final-title" className="relative isolate overflow-hidden border-t border-line/60 py-24 sm:py-32">
+    <section aria-labelledby="final-title" className="relative isolate overflow-hidden border-t border-line/60 py-16 sm:py-24 lg:py-32">
       <div className="lv-grid lv-grid--fade pointer-events-none absolute inset-0 -z-10" aria-hidden="true" />
       <div
         className="pointer-events-none absolute inset-0 -z-10"
@@ -15,7 +15,7 @@ export function FinalCall() {
         <h2 id="final-title" className="lv-h2 !text-[clamp(2.3rem,1.1rem+4vw,4.6rem)]">
           Turn market curiosity into <span className="lv-accent text-gradient-flow">collective intelligence.</span>
         </h2>
-        <p className="lv-lede mx-auto mt-6 max-w-xl">Explore markets, share forecasts, challenge evidence and follow the outcome.</p>
+        <p className="lv-lede mx-auto mt-4 sm:mt-6 max-w-xl">Explore markets, share forecasts, challenge evidence and follow the outcome.</p>
         <div className="mt-10 flex flex-col items-stretch justify-center gap-3 sm:flex-row sm:items-center">
           <Link href="/desk" className="btn btn-primary btn-lg group">
             Explore Markets <IconArrowRight className="icon-nudge h-4 w-4" />

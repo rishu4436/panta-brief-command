@@ -24,12 +24,25 @@ export function ExecutionStage() {
   const [state, setState] = useState<TradeStateId>("quote_ready");
   return (
     <div>
-      <div className="segmented max-w-full flex-wrap" role="group" aria-label="Preview a trade state">
-        {STATES.map((s) => (
-          <button key={s.id} type="button" className="min-h-11 whitespace-nowrap sm:min-h-[30px]" aria-pressed={state === s.id} onClick={() => setState(s.id)}>
-            {s.label}
-          </button>
-        ))}
+      {/* Phones: one compact control instead of seven wrapping buttons. */}
+      <label className="flex items-center gap-3 sm:hidden">
+        <span className="shrink-0 text-[11px] font-semibold uppercase tracking-wider text-ink-3">Trade state</span>
+        <select className="field min-h-11 flex-1 py-2 text-[14px]" value={state} onChange={(e) => setState(e.target.value as TradeStateId)}>
+          {STATES.map((s) => (
+            <option key={s.id} value={s.id}>
+              {s.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      <div className="hidden sm:block">
+        <div className="segmented max-w-full flex-wrap" role="group" aria-label="Preview a trade state">
+          {STATES.map((s) => (
+            <button key={s.id} type="button" className="min-h-[30px] whitespace-nowrap" aria-pressed={state === s.id} onClick={() => setState(s.id)}>
+              {s.label}
+            </button>
+          ))}
+        </div>
       </div>
       <figure className="mt-4 text-left">
         <figcaption className="sr-only">Illustrative trade ticket with sample values; actions disabled.</figcaption>

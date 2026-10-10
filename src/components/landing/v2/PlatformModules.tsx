@@ -6,8 +6,7 @@ import { IconCheck } from "../../ui/Icons";
 import { Illustrative } from "./primitives";
 
 /* The heavy previews are the desk's own components; each loads in its own
-   chunk, and only the selected one renders. Fixed-ratio placeholders keep
-   the layout stable while a chunk loads. */
+   chunk. Fixed-ratio placeholders hold space while a chunk loads. */
 const Placeholder = ({ ratio = "1280 / 900" }: { ratio?: string }) => <div className="skeleton w-full rounded-2xl" style={{ aspectRatio: ratio }} aria-hidden="true" />;
 const ProductPreview = dynamic(() => import("../ProductPreview").then((m) => m.ProductPreview), { loading: () => <Placeholder /> });
 const AIBriefFigure = dynamic(() => import("../AIBriefShowcase").then((m) => m.AIBriefFigure), { loading: () => <Placeholder ratio="4 / 3" /> });
@@ -31,13 +30,13 @@ function CreationMock() {
         </div>
         <dl className="divide-y divide-line/60">
           {rows.map(([k, v]) => (
-            <div key={k} className="grid gap-1 px-5 py-3 sm:grid-cols-[150px_1fr] sm:gap-4">
+            <div key={k} className="grid gap-1 px-4 py-2.5 sm:grid-cols-[150px_1fr] sm:gap-4 sm:px-5 sm:py-3">
               <dt className="lv-label !text-[9.5px] pt-0.5">{k}</dt>
               <dd className="text-[13px] text-ink-2">{v}</dd>
             </div>
           ))}
         </dl>
-        <div className="grid gap-3 border-t border-line/70 bg-inset/50 p-5 sm:grid-cols-[1fr_auto] sm:items-center">
+        <div className="grid gap-3 border-t border-line/70 bg-inset/50 p-4 sm:grid-cols-[1fr_auto] sm:items-center sm:p-5">
           <div className="space-y-1.5 text-[12px] text-ink-3">
             <p className="flex items-center gap-2">
               <IconCheck className="h-3.5 w-3.5 text-emerald-300" /> Quote and creation fee shown before signing
@@ -96,20 +95,49 @@ const MODULES: Module[] = [
   },
 ];
 
-/** H. Interactive module index: pick a capability, see the real component. */
+function PanelBody({ m }: { m: Module }) {
+  return (
+    <>
+      {m.visual()}
+      <div className="mt-5 grid gap-4 sm:mt-6 sm:grid-cols-[minmax(0,1fr)_minmax(0,0.9fr)] sm:gap-5">
+        <ul className="space-y-2">
+          {m.points.map((p) => (
+            <li key={p} className="flex items-start gap-2.5 text-[13.5px] text-ink-2 sm:text-[14px]">
+              <IconCheck className="mt-0.5 h-4 w-4 shrink-0 text-cyan-300" />
+              {p}
+            </li>
+          ))}
+        </ul>
+        {m.limit ? (
+          <p className="self-start rounded-xl border border-amber-400/25 bg-amber-400/[0.05] p-3.5 text-[13px] leading-relaxed text-amber-100/90">
+            <span className="lv-label mb-1 block !text-amber-200/80">Limit</span>
+            {m.limit}
+          </p>
+        ) : null}
+      </div>
+    </>
+  );
+}
+
+/** H. Interactive module index: pick a capability, see the real component.
+ *
+ * Every panel is rendered. From lg up they share one grid cell, so the
+ * container is always as tall as the tallest panel and switching tabs never
+ * moves the page; inactive panels are invisible and inert. Below lg the
+ * tabs sit above the panel and the tallest panel is far taller than the
+ * rest, so inactive panels leave the layout and each tab takes its natural
+ * height; the tab row above it stays put. */
 export function PlatformModules() {
   const [active, setActive] = useState(MODULES[0].id);
   const base = useId();
-  const m = MODULES.find((x) => x.id === active) ?? MODULES[0];
   const focusTab = (id: string) => document.getElementById(`${base}-tab-${id}`)?.focus();
 
   return (
-    <div className="grid gap-8 lg:grid-cols-[300px_minmax(0,1fr)] lg:gap-12">
+    <div className="grid gap-6 sm:gap-8 lg:grid-cols-[300px_minmax(0,1fr)] lg:gap-12">
       <div
         role="tablist"
         aria-label="Platform modules"
-        aria-orientation="vertical"
-        className="flex flex-wrap gap-2 lg:flex-col lg:gap-0 lg:border-l lg:border-line/70"
+        className="flex flex-wrap gap-2 lg:flex-col lg:gap-0 lg:self-start lg:border-l lg:border-line/70"
         onKeyDown={(e) => {
           const keys = ["ArrowDown", "ArrowUp", "ArrowRight", "ArrowLeft", "Home", "End"];
           if (!keys.includes(e.key)) return;
@@ -130,7 +158,7 @@ export function PlatformModules() {
               role="tab"
               type="button"
               aria-selected={on}
-              aria-controls={`${base}-panel`}
+              aria-controls={`${base}-panel-${x.id}`}
               tabIndex={on ? 0 : -1}
               onClick={() => setActive(x.id)}
               className={`group relative min-h-11 rounded-full border px-3.5 text-left text-[13px] font-medium transition-colors lg:-ml-px lg:rounded-none lg:border-0 lg:border-l-2 lg:px-5 lg:py-4 ${
@@ -145,26 +173,26 @@ export function PlatformModules() {
         })}
       </div>
 
-      <div id={`${base}-panel`} role="tabpanel" aria-labelledby={`${base}-tab-${m.id}`} className="min-w-0" tabIndex={0}>
-        <div key={m.id} className="animate-fade-in">
-          {m.visual()}
-        </div>
-        <div className="mt-6 grid gap-5 sm:grid-cols-[minmax(0,1fr)_minmax(0,0.9fr)]">
-          <ul className="space-y-2">
-            {m.points.map((p) => (
-              <li key={p} className="flex items-start gap-2.5 text-[14px] text-ink-2">
-                <IconCheck className="mt-0.5 h-4 w-4 shrink-0 text-cyan-300" />
-                {p}
-              </li>
-            ))}
-          </ul>
-          {m.limit ? (
-            <p className="self-start rounded-xl border border-amber-400/25 bg-amber-400/[0.05] p-3.5 text-[13px] leading-relaxed text-amber-100/90">
-              <span className="lv-label mb-1 block !text-amber-200/80">Limit</span>
-              {m.limit}
-            </p>
-          ) : null}
-        </div>
+      <div data-panels className="grid min-w-0 [grid-template-areas:'stack'] [grid-template-columns:minmax(0,1fr)]">
+        {MODULES.map((x) => {
+          const on = x.id === active;
+          return (
+            <div
+              key={x.id}
+              id={`${base}-panel-${x.id}`}
+              role="tabpanel"
+              aria-labelledby={`${base}-tab-${x.id}`}
+              tabIndex={on ? 0 : -1}
+              inert={!on}
+              data-active={on ? "" : undefined}
+              className={`min-w-0 [grid-area:stack] motion-safe:transition-[opacity,visibility] motion-safe:duration-200 motion-safe:ease-out ${
+                on ? "visible opacity-100" : "hidden lg:invisible lg:block lg:opacity-0"
+              }`}
+            >
+              <PanelBody m={x} />
+            </div>
+          );
+        })}
       </div>
     </div>
   );

@@ -171,20 +171,28 @@ export function HeroComposition() {
         Illustrative product composition with sample data: a market intelligence panel, a Prediction Room comparing the market price with a
         community forecast, an AI debate preview and a wallet execution card. Not live markets, users or outcomes.
       </figcaption>
-      <div aria-hidden="true" inert className="relative grid gap-3 sm:grid-cols-2 sm:gap-4 xl:block xl:h-[660px]">
-        {/* Market intelligence: the anchor panel */}
-        <div className="relative z-10 sm:row-span-2 xl:absolute xl:left-[2%] xl:top-[1%] xl:w-[56%]">
-          <MarketPanel />
+      {/* Phones: market with the room overlapping it. sm to lg: two offset
+          columns (market + debate, room + execution) with the second column
+          overlapping the first. xl: the wrappers dissolve (display: contents)
+          and each card is placed absolutely. */}
+      <div aria-hidden="true" inert className="relative grid gap-3 sm:grid-cols-2 sm:gap-0 xl:block xl:h-[660px]">
+        <div className="contents sm:relative sm:z-10 sm:flex sm:flex-col sm:gap-4 xl:contents">
+          {/* Market intelligence: the anchor panel */}
+          <div className="relative z-10 xl:absolute xl:left-[2%] xl:top-[1%] xl:w-[56%]">
+            <MarketPanel />
+          </div>
+          <div className="relative z-30 hidden sm:block xl:absolute xl:bottom-[0%] xl:left-[0%] xl:w-[50%] lv-float lv-float--slow">
+            <DebatePanel />
+          </div>
         </div>
-        {/* Room: overlaps the market on phone and desktop */}
-        <div className="relative z-20 -mt-8 ml-6 sm:mt-0 sm:ml-0 xl:absolute xl:right-[0%] xl:top-[13%] xl:mt-0 xl:w-[42%] lv-float">
-          <RoomPanel />
-        </div>
-        <div className="relative z-20 hidden sm:block xl:absolute xl:bottom-[3%] xl:right-[4%] xl:w-[40%]">
-          <ExecutionPanel />
-        </div>
-        <div className="relative z-30 hidden sm:col-span-2 sm:block xl:absolute xl:bottom-[0%] xl:left-[0%] xl:w-[50%] lv-float lv-float--slow">
-          <DebatePanel />
+        <div className="contents sm:relative sm:z-20 sm:-ml-10 sm:mt-16 sm:flex sm:flex-col sm:gap-4 xl:contents">
+          {/* Room: overlaps the market on every layout */}
+          <div className="relative z-20 -mt-8 ml-6 sm:mt-0 sm:ml-0 xl:absolute xl:right-[0%] xl:top-[13%] xl:w-[42%] lv-float">
+            <RoomPanel />
+          </div>
+          <div className="relative z-20 hidden sm:ml-14 sm:block xl:ml-0 xl:absolute xl:bottom-[3%] xl:right-[4%] xl:w-[40%]">
+            <ExecutionPanel />
+          </div>
         </div>
       </div>
     </figure>

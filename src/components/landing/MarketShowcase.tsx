@@ -6,7 +6,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { needsDetail, useBrief, useCatalog, useHydratedDetails } from "@/lib/data/hooks";
 import { mergeMarket } from "@/lib/panta/markets";
 import type { Market } from "@/lib/panta/domain";
-import { catalogVolume, deskPriceDisplay, isUntitledMarket, marketLabel, shouldShowCategoryChip } from "@/lib/format";
+import { catalogVolume, deskPriceDisplay, isUntitledMarket, marketLabel, shouldShowCategoryChip, categoryLabel } from "@/lib/format";
 import { isLiveMarket, marketLifecycle } from "@/lib/panta/catalog";
 import { SectionHeader } from "../ui/SectionHeader";
 import { StatusBadge, phaseTone } from "../ui/StatusBadge";
@@ -113,7 +113,7 @@ function MarketRow({ m, selected, onSelect }: { m: Market; selected: boolean; on
         <div className="mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[12px] text-ink-3">
           {selected ? <span className="text-[11px] font-semibold uppercase tracking-wider text-cyan-300">Selected</span> : null}
           <span className="xl:hidden">{badge}</span>
-          {shouldShowCategoryChip(m.category, m.title, m.description) ? <span className="capitalize">{m.category}</span> : null}
+          {shouldShowCategoryChip(m.category, m.title, m.description) ? <span>{categoryLabel(m.category)}</span> : null}
           {end ? (
             <span className="xl:hidden">
               {settled ? "Ended" : "Ends"} <span className="font-num text-ink-2">{end}</span>

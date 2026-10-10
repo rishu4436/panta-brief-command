@@ -13,6 +13,7 @@ import {
   marketLabel,
   marketSubtitle,
   shouldShowCategoryChip,
+  categoryLabel,
 } from "@/lib/format";
 import { notifyStorage, pushRecent } from "@/lib/storage";
 import { mergeMarket } from "@/lib/panta/markets";
@@ -564,9 +565,9 @@ export function MarketList() {
                   setCategory(c);
                   setWatchOnly(false);
                 }}
-                className="chip capitalize"
+                className="chip"
               >
-                {c}
+                {categoryLabel(c)}
               </button>
             ))}
           </div>
@@ -621,7 +622,7 @@ export function MarketList() {
                           <LifecycleBadge market={m} />
                           {shouldShowCategoryChip(m.category, m.title, m.description) ? (
                             <span className="rounded border border-line px-1 py-px text-[10px] text-zinc-500">
-                              {m.category}
+                              {categoryLabel(m.category)}
                             </span>
                           ) : null}
                         </div>
@@ -690,7 +691,7 @@ export function MarketList() {
                           </div>
                           <div className="market-sub">
                             {shouldShowCategoryChip(m.category, m.title, m.description) ? (
-                              <span className="cat-chip">{m.category}</span>
+                              <span className="cat-chip">{categoryLabel(m.category)}</span>
                             ) : null}
                             <span className="font-num">{marketSubtitle(m)}</span>
                             <span className="font-num lg:hidden">

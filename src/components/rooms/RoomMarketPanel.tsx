@@ -12,7 +12,7 @@ import { useMarket, useMarketTrades } from "@/lib/data/hooks";
 import { useCreateEvidence } from "@/lib/data/created";
 import { useQuoteUnavailable } from "@/lib/data/reconcile";
 import { useNow } from "@/hooks/useNow";
-import { catalogVolume, formatFriendlyIst, formatUsdcPerShare, formatVolumeUsdc, marketLabel, shortAddr, shouldShowCategoryChip } from "@/lib/format";
+import { catalogVolume, formatFriendlyIst, formatUsdcPerShare, formatVolumeUsdc, marketLabel, shortAddr, shouldShowCategoryChip, categoryLabel } from "@/lib/format";
 import { isMarketNotFound, marketState } from "@/lib/panta/lifecycle";
 import { rawPriceNote, marketProbability } from "@/lib/panta/prices";
 import { computeMarketSignals } from "@/lib/panta/signals";
@@ -101,7 +101,7 @@ export function RoomMarketPanel({ marketId }: { marketId: string }) {
           </Link>
           <div className="mt-2 flex flex-wrap items-center gap-2">
             {market.category && shouldShowCategoryChip(market.category, market.title, market.description) ? (
-              <span className="rounded-md border border-line px-2 py-0.5 text-[11px] capitalize text-ink-3">{market.category}</span>
+              <span className="rounded-md border border-line px-2 py-0.5 text-[11px] text-ink-3">{categoryLabel(market.category)}</span>
             ) : null}
             {vol !== "—" ? <span className="type-meta font-num">Volume {vol}</span> : null}
           </div>

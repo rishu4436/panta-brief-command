@@ -16,7 +16,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { useCatalog } from "@/lib/data/hooks";
-import { formatFriendlyIst, marketLabel, shortAddr, shouldShowCategoryChip } from "@/lib/format";
+import { formatFriendlyIst, marketLabel, shortAddr, shouldShowCategoryChip, categoryLabel } from "@/lib/format";
 import { marketLifecycle } from "@/lib/panta/catalog";
 import type { Market } from "@/lib/panta/domain";
 import { isPantaIndexed, marketHref, marketState } from "@/lib/panta/lifecycle";
@@ -360,7 +360,7 @@ function MarketRow({ m, selected, onSelect }: { m: Market; selected: boolean; on
               {state.label}
             </StatusBadge>
             {m.category && shouldShowCategoryChip(m.category, m.title, m.description) ? (
-              <span className="rounded border border-line px-1.5 text-[10px] capitalize text-ink-3">{m.category}</span>
+              <span className="rounded border border-line px-1.5 text-[10px] text-ink-3">{categoryLabel(m.category)}</span>
             ) : null}
             {ends ? <span className="font-num text-[11px] text-ink-3">Ends {ends}</span> : null}
           </span>

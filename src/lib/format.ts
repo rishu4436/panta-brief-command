@@ -288,6 +288,21 @@ const POLITICS_RE =
 const SPORTS_RE =
   /\b(match|cup|league|fifa|nba|nfl|cricket|tennis|goal|championship|olympics|world\s*cup|vs\.?|versus)\b/i;
 
+// Finance / crypto wording. Panta files many non-sports markets (token prices,
+// company valuations) under its default "sports" category.
+const FINANCE_RE =
+  /\b(bitcoin|btc|ethereum|eth|solana|sol|zcash|zec|crypto|token|memecoin|coin|market\s*cap(italization)?|valued|valuation|price[ds]?|stock|shares|ipo|nasdaq|s&p|usd|billion|trillion)\b|\$[a-z]{2,}|\$\d/i;
+
+/** Display label for a Panta category slug: "sports" → "Sports", "pop-culture" → "Pop Culture". */
+export function categoryLabel(category?: string | null): string {
+  return (category || "")
+    .trim()
+    .split(/[-_\s]+/)
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+    .join(" ");
+}
+
 /**
  * Show category chip as API returned, but hide when clearly misleading
  * (e.g. sports chip on a politics-titled market). Conservative — leave API
@@ -305,7 +320,7 @@ export function shouldShowCategoryChip(
   const catL = cat.toLowerCase();
   if (
     (catL === "sports" || catL === "sport") &&
-    POLITICS_RE.test(text) &&
+    (POLITICS_RE.test(text) || FINANCE_RE.test(text)) &&
     !SPORTS_RE.test(text)
   ) {
     return false;

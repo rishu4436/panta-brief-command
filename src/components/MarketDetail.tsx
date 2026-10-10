@@ -14,6 +14,7 @@ import {
   marketLabel,
   shortAddr,
   shouldShowCategoryChip,
+  categoryLabel,
 } from "@/lib/format";
 import { notifyStorage, pushRecent } from "@/lib/storage";
 import { useCreateEvidence } from "@/lib/data/created";
@@ -236,7 +237,7 @@ export function MarketDetail({ marketId }: { marketId: string }) {
           </div>
           <div className="mt-3 flex flex-wrap items-center gap-2">
             {shouldShowCategoryChip(market.category, market.title, market.description) ? (
-              <span className="rounded-md border border-line px-2 py-0.5 text-[11px] capitalize text-ink-3">{market.category}</span>
+              <span className="rounded-md border border-line px-2 py-0.5 text-[11px] text-ink-3">{categoryLabel(market.category)}</span>
             ) : null}
             <span className="type-meta flex flex-wrap items-center gap-x-2 font-num">
               <span title={market.marketId}>{shortAddr(market.marketId, 5)}</span>

@@ -224,6 +224,12 @@ describe("client config uses the relay", () => {
     expect(serverRpcUrl({ SOLANA_RPC_URL: UPSTREAM })).toBe(UPSTREAM);
     expect(serverRpcUrl({ PANTA_DISCOVERY_RPC_URL: "https://d.example", SOLANA_RPC_URL: UPSTREAM })).toBe("https://d.example");
   });
+  it("server discovery reads never fall back to the public RPC in production", () => {
+    expect(serverRpcUrl({ NODE_ENV: "production" })).toBeNull();
+    expect(serverRpcUrl({ NODE_ENV: "production", NEXT_PUBLIC_DEFAULT_RPC: "https://api.mainnet-beta.solana.com" })).toBeNull();
+    expect(serverRpcUrl({ NODE_ENV: "production", SOLANA_RPC_URL: UPSTREAM })).toBe(UPSTREAM);
+    expect(serverRpcUrl({ NODE_ENV: "development" })).toBe("https://api.mainnet-beta.solana.com");
+  });
 });
 
 describe("confirmation is HTTP polling (no websocket subscription)", () => {

@@ -51,8 +51,10 @@ export function interpretEventAccountReply(marketId: string, json: RpcAccountRep
 
 async function readOnce(marketId: string, timeoutMs: number): Promise<ChainEventRead> {
   const started = Date.now();
+  const endpoint = serverRpcUrl();
+  if (!endpoint) return { status: "failed", error: "RPC not configured", fetchedAt: started };
   try {
-    const res = await fetch(serverRpcUrl(), {
+    const res = await fetch(endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       cache: "no-store",

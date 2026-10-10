@@ -9,7 +9,10 @@
  * the browser never reads it.
  *
  * PUBLIC_MAINNET_RPC is used only by server-side discovery reads
- * (catalog-server) when no private RPC is configured — never by the relay.
+ * (catalog-server, chain-event-server) when no private RPC is configured,
+ * and only outside production — never by the relay. In production an unset
+ * RPC means those reads fail closed (catalog falls back to the Panta list;
+ * the forecast window reads "unavailable" → paused), never a public RPC.
  */
 export const PUBLIC_MAINNET_RPC = "https://api.mainnet-beta.solana.com";
 export const RPC_RELAY_PATH = "/api/rpc";
@@ -19,7 +22,12 @@ export function clientRpcEndpoint(origin: string): string {
   return `${origin.replace(/\/+$/, "")}${RPC_RELAY_PATH}`;
 }
 
-/** Server-side RPC for discovery reads: private env first, public last. */
-export function serverRpcUrl(env: Record<string, string | undefined> = process.env): string {
-  return env.PANTA_DISCOVERY_RPC_URL?.trim() || env.SOLANA_RPC_URL?.trim() || PUBLIC_MAINNET_RPC;
+/**
+ * Server-side RPC for discovery reads: private env first; the public RPC only
+ * outside production. Production with neither set: null (callers fail closed).
+ */
+export function serverRpcUrl(env: Record<string, string | undefined> = process.env): string | null {
+  const configured = env.PANTA_DISCOVERY_RPC_URL?.trim() || env.SOLANA_RPC_URL?.trim();
+  if (configured) return configured;
+  return env.NODE_ENV === "production" ? null : PUBLIC_MAINNET_RPC;
 }

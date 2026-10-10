@@ -87,6 +87,7 @@ async function listUnion(): Promise<{ rows: Market[]; requests: number; error?: 
 
 async function chainEvents(): Promise<ChainEvent[]> {
   const endpoint = serverRpcUrl();
+  if (!endpoint) throw new Error("RPC not configured");
   const res = await fetch(endpoint, {
     method: "POST",
     headers: { "Content-Type": "application/json" },

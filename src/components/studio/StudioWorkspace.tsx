@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { formatFriendlyIst } from "@/lib/format";
+import { ELIGIBILITY_TEXT } from "@/lib/forecasts/window-public";
 import { RoomApiError } from "@/lib/rooms/client";
 import { useStudioOverview, useStudioRooms, type StudioRoomsQuery } from "@/lib/studio/client";
 import { DEFINITIONS, MAX_STUDIO_ROOMS, type StudioOverview, type StudioRoomRow } from "@/lib/studio/domain";
@@ -131,7 +132,7 @@ function Overview({ o }: { o: StudioOverview }) {
 }
 
 const STATUS_TONE: Record<StudioRoomRow["forecasting"], StatusTone> = { open: "live", closed: "neutral", archived: "neutral", unknown: "pending" };
-const STATUS_TEXT: Record<StudioRoomRow["forecasting"], string> = { open: "Forecasting open", closed: "Forecasting closed", archived: "Archived", unknown: "Market status unknown" };
+const STATUS_TEXT: Record<StudioRoomRow["forecasting"], string> = { ...ELIGIBILITY_TEXT, archived: "Archived" };
 
 function RoomRowCard({ r }: { r: StudioRoomRow }) {
   const { copy, label } = useCopy();
@@ -154,7 +155,7 @@ function RoomRowCard({ r }: { r: StudioRoomRow }) {
           <StatusBadge tone="neutral" size="xs">
             {r.visibility === "public" ? "Public" : "Unlisted"}
           </StatusBadge>
-          <StatusBadge tone={STATUS_TONE[r.forecasting]} size="xs">
+          <StatusBadge tone={STATUS_TONE[r.forecasting]} size="xs" title={r.forecastingMessage ?? undefined}>
             {r.finalization === "scored" ? "Scored" : r.finalization === "blocked" ? "Blocked" : STATUS_TEXT[r.forecasting]}
           </StatusBadge>
         </div>

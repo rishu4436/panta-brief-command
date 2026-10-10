@@ -31,7 +31,7 @@ import {
   utcDay,
 } from "@/lib/studio/domain";
 import { cleanHost, dedupeKey, skipReason, sourceMetric } from "@/lib/studio/events";
-import { __setStudioSnapshotForTests } from "@/lib/studio/http";
+import { __setStudioSnapshotForTests, __setStudioWindowForTests } from "@/lib/studio/http";
 import { buildInsights, type InsightInput } from "@/lib/studio/insights";
 import { getStudioOverview, getStudioRoom, listStudioRooms, summarizeDistribution, type StudioDeps } from "@/lib/studio/service";
 import { FakeRedis } from "./helpers/fake-redis";
@@ -150,9 +150,12 @@ beforeAll(async () => {
   embedGET = (await import("@/app/embed/rooms/[slug]/route")).GET as Handler;
   roomsListGET = (await import("@/app/api/rooms/route")).GET as (req: NextRequest) => Promise<Response>;
   __setStudioSnapshotForTests(unavailableSnap);
+  // Panta unreachable in tests: the shared window check fails closed ("unavailable").
+  __setStudioWindowForTests(async (_m, nowMs) => ({ open: false, reason: "unavailable", message: "unavailable", cutoffAt: null, lifecycle: null, checkedAt: nowMs }));
 });
 afterAll(() => {
   __setStudioSnapshotForTests(undefined);
+  __setStudioWindowForTests(undefined);
   __setRoomRepositoryForTests(undefined);
 });
 

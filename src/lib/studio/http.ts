@@ -5,6 +5,8 @@ import { appOrigin } from "@/lib/embed/origin";
 import { currentSession, limitRequest, reject } from "@/lib/rooms/http";
 import { roomRepository } from "@/lib/rooms/store";
 import type { MarketSnapshot } from "@/lib/embed/market-snapshot";
+import { forecastDeps } from "@/lib/forecasts/deps";
+import type { ForecastWindow } from "@/lib/forecasts/window";
 import type { StudioDeps } from "./service";
 
 let snapshotOverride: ((marketId: string) => Promise<MarketSnapshot>) | undefined;
@@ -14,8 +16,16 @@ export function __setStudioSnapshotForTests(fn: ((marketId: string) => Promise<M
   snapshotOverride = fn;
 }
 
+let windowOverride: ((marketId: string, nowMs: number) => Promise<ForecastWindow>) | undefined;
+
+/** Tests only: replace the forecast window check Studio shares with the room panel. */
+export function __setStudioWindowForTests(fn: ((marketId: string, nowMs: number) => Promise<ForecastWindow>) | undefined) {
+  windowOverride = fn;
+}
+
 export function studioDeps(): StudioDeps {
-  return { repo: roomRepository(), now: Date.now, origin: appOrigin(), snapshot: snapshotOverride };
+  // Same read-path window the room's GET /forecasts returns (forecastDeps().readWindow).
+  return { repo: roomRepository(), now: Date.now, origin: appOrigin(), snapshot: snapshotOverride, window: windowOverride ?? forecastDeps().readWindow };
 }
 
 /**

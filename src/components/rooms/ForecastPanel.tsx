@@ -37,7 +37,8 @@ import {
   useRoomForecasts,
   type RoomForecastsResponse,
 } from "@/lib/forecasts/client";
-import type { PublicForecastWindow } from "@/lib/forecasts/window-public";
+import { yourForecastMode } from "@/lib/forecasts/panel-mode";
+import { ELIGIBILITY_TEXT, forecastEligibility, type ForecastEligibility, type PublicForecastWindow } from "@/lib/forecasts/window-public";
 import { LIFECYCLE_LABEL } from "@/lib/panta/catalog";
 import { RoomApiError, newIdempotencyKey, useInvalidateRooms, useRoomSession, verifyWalletOwnership } from "@/lib/rooms/client";
 import type { Room } from "@/lib/rooms/domain";
@@ -111,10 +112,10 @@ function WindowHeader({ question, window, loading }: { question: string | null; 
         {window?.lifecycle ? <StatusBadge tone="neutral" size="xs">{LIFECYCLE_LABEL[window.lifecycle]}</StatusBadge> : null}
         {loading && !window ? (
           <StatusBadge tone="pending" size="xs">Checking forecast window…</StatusBadge>
-        ) : window?.open ? (
-          <StatusBadge tone="live" size="xs">Forecasting open</StatusBadge>
         ) : window ? (
-          <StatusBadge tone="warning" size="xs">Forecasting closed</StatusBadge>
+          <StatusBadge tone={forecastEligibility(window) === "open" ? "live" : "warning"} size="xs">
+            {ELIGIBILITY_TEXT[forecastEligibility(window)]}
+          </StatusBadge>
         ) : null}
         {window?.cutoffAt ? (
           <span className="font-num text-[12px] text-ink-2">
@@ -123,7 +124,7 @@ function WindowHeader({ question, window, loading }: { question: string | null; 
         ) : null}
       </div>
       {window && !window.open && window.message ? <p className="mt-2 text-[12px] leading-relaxed text-amber-100/90">{window.message}</p> : null}
-      {window?.open ? (
+      {window && forecastEligibility(window) === "open" ? (
         <p className="mt-2 text-[12px] text-ink-3">The cutoff is the end of Panta&apos;s primary buy window. Forecasts already made stay visible after it.</p>
       ) : null}
     </div>
@@ -234,76 +235,99 @@ function YourForecast({
   const { publicKey, connected, signMessage, wallet } = useWallet();
   const connectedAddr = publicKey?.toBase58() ?? null;
   const verified = Boolean(connectedAddr && sessionWallet === connectedAddr);
-  const open = data.window.open;
+  const eligibility = forecastEligibility(data.window);
   const current = verified && mine.data?.wallet === sessionWallet ? mine.data.current : null;
   const history = verified && mine.data?.wallet === sessionWallet ? mine.data.history : [];
   const [editing, setEditing] = useState(false);
   const [savedNote, setSavedNote] = useState<{ revision: number; at: string } | null>(null);
 
+  const mode = yourForecastMode({
+    eligibility,
+    connected: Boolean(connected && connectedAddr),
+    sessionPending,
+    verified,
+    minePending: mine.isPending,
+    mineError: mine.isError,
+    hasCurrent: Boolean(current),
+    editing,
+  });
+
   let body: React.ReactNode;
-  if (!open && (!connected || !connectedAddr)) {
-    body = <p className="text-[12px] text-ink-3">Forecasting is closed for this market, so there&apos;s nothing to submit. Existing forecasts stay visible below.</p>;
-  } else if (!connected || !connectedAddr) {
-    body = (
-      <div className="flex flex-wrap items-center gap-3">
-        <WalletButton />
-        <span className="text-[12px] text-ink-3">Connect a wallet to forecast. It&apos;s free: no transaction, no funds.</span>
-      </div>
-    );
-  } else if (sessionPending) {
-    body = <Skeleton className="h-10 w-1/2" />;
-  } else if (!verified) {
-    body = <VerifyWallet connectedAddr={connectedAddr} sessionWallet={sessionWallet} canSign={Boolean(signMessage)} walletName={wallet?.adapter.name ?? null} signMessage={signMessage} />;
-  } else if (mine.isPending) {
-    body = <Skeleton className="h-16 w-full" />;
-  } else if (mine.isError) {
-    body = <ErrorState title="Your forecast didn't load" description={mine.error instanceof RoomApiError ? mine.error.message : undefined} onRetry={() => void mine.refetch()} />;
-  } else if (current && !editing) {
-    body = (
-      <div className="space-y-3">
-        <CurrentForecastCard f={current} focusOnMount={savedNote !== null && savedNote.revision === current.revision} />
-        {savedNote && savedNote.revision === current.revision ? (
-          <p role="status" className="text-[12px] text-emerald-200">
-            Saved by the server · revision {savedNote.revision} at {formatFriendlyIst(savedNote.at)}
-          </p>
-        ) : null}
-        {open ? (
-          <button
-            type="button"
-            className="btn btn-secondary btn-sm forecast-tap"
-            onClick={() => {
-              setSavedNote(null);
-              setEditing(true);
-            }}
-          >
-            Edit forecast
-          </button>
-        ) : (
-          <p className="text-[12px] text-ink-3">Forecasting is closed, so this forecast can no longer be edited.</p>
-        )}
-      </div>
-    );
-  } else if (!open) {
-    body = (
-      <div className="space-y-3">
-        <ForecastForm room={room} disabledReason={data.window.message ?? "Forecasting is closed."} current={null} walletAddr={connectedAddr} onDone={() => undefined} />
-      </div>
-    );
-  } else {
-    body = (
-      <ForecastForm
-        key={current ? `edit-${current.revision}` : "new"}
-        room={room}
-        current={current}
-        walletAddr={connectedAddr}
-        disabledReason={null}
-        onDone={(revision, at) => {
-          setSavedNote({ revision, at });
-          setEditing(false);
-        }}
-        onCancel={current ? () => setEditing(false) : undefined}
-      />
-    );
+  switch (mode) {
+    case "closed":
+      body = <ClosedSummary eligibility={eligibility} hasHistory={history.length > 0} />;
+      break;
+    case "closed-verify":
+      body = (
+        <div className="space-y-3">
+          <ClosedSummary eligibility={eligibility} hasHistory={false} />
+          <VerifyWallet purpose="history" connectedAddr={connectedAddr!} sessionWallet={sessionWallet} canSign={Boolean(signMessage)} walletName={wallet?.adapter.name ?? null} signMessage={signMessage} />
+        </div>
+      );
+      break;
+    case "connect":
+      body = (
+        <div className="flex flex-wrap items-center gap-3">
+          <WalletButton />
+          <span className="text-[12px] text-ink-3">Connect a wallet to forecast. It&apos;s free: no transaction, no funds.</span>
+        </div>
+      );
+      break;
+    case "session-loading":
+      body = <Skeleton className="h-10 w-1/2" />;
+      break;
+    case "verify":
+      body = <VerifyWallet purpose="forecast" connectedAddr={connectedAddr!} sessionWallet={sessionWallet} canSign={Boolean(signMessage)} walletName={wallet?.adapter.name ?? null} signMessage={signMessage} />;
+      break;
+    case "mine-loading":
+      body = <Skeleton className="h-16 w-full" />;
+      break;
+    case "mine-error":
+      body = <ErrorState title="Your forecast didn't load" description={mine.error instanceof RoomApiError ? mine.error.message : undefined} onRetry={() => void mine.refetch()} />;
+      break;
+    case "closed-current":
+    case "current":
+      body = (
+        <div className="space-y-3">
+          <CurrentForecastCard f={current!} focusOnMount={savedNote !== null && savedNote.revision === current!.revision} />
+          {savedNote && savedNote.revision === current!.revision ? (
+            <p role="status" className="text-[12px] text-emerald-200">
+              Saved by the server · revision {savedNote.revision} at {formatFriendlyIst(savedNote.at)}
+            </p>
+          ) : null}
+          {mode === "current" ? (
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm forecast-tap"
+              onClick={() => {
+                setSavedNote(null);
+                setEditing(true);
+              }}
+            >
+              Edit forecast
+            </button>
+          ) : (
+            <p className="text-[12px] text-ink-3">{ELIGIBILITY_TEXT[eligibility]}, so this forecast can no longer be edited. Its revision history stays below.</p>
+          )}
+        </div>
+      );
+      break;
+    case "form":
+      body = (
+        <ForecastForm
+          key={current ? `edit-${current.revision}` : "new"}
+          room={room}
+          current={current}
+          walletAddr={connectedAddr!}
+          disabledReason={null}
+          onDone={(revision, at) => {
+            setSavedNote({ revision, at });
+            setEditing(false);
+          }}
+          onCancel={current ? () => setEditing(false) : undefined}
+        />
+      );
+      break;
   }
 
   return (
@@ -317,13 +341,25 @@ function YourForecast({
   );
 }
 
+/** Replaces the form whenever the server window isn't open (the reason is in the header above). */
+function ClosedSummary({ eligibility, hasHistory }: { eligibility: ForecastEligibility; hasHistory: boolean }) {
+  return (
+    <div role="status" className="rounded-xl border border-line bg-inset/40 px-3 py-3 text-[12px] leading-relaxed text-ink-3">
+      <p className="text-[13px] font-semibold text-ink-2">{ELIGIBILITY_TEXT[eligibility]} · nothing to submit</p>
+      <p className="mt-1">{hasHistory ? "Your earlier revisions stay below." : "Forecasts already made stay visible below."}</p>
+    </div>
+  );
+}
+
 function VerifyWallet({
+  purpose,
   connectedAddr,
   sessionWallet,
   canSign,
   walletName,
   signMessage,
 }: {
+  purpose: "forecast" | "history";
   connectedAddr: string;
   sessionWallet: string | null;
   canSign: boolean;
@@ -344,7 +380,7 @@ function VerifyWallet({
     setBusy(true);
     setError(null);
     try {
-      await verifyWalletOwnership(connectedAddr, signMessage);
+      await verifyWalletOwnership(connectedAddr, signMessage, sessionWallet);
       await inval.session();
     } catch (e) {
       setError(isWalletRejection(e) ? "You declined the signature request. Nothing was signed." : e instanceof RoomApiError ? e.message : "The wallet couldn't sign the message. Try again.");
@@ -356,12 +392,12 @@ function VerifyWallet({
     <div className="space-y-2">
       {sessionWallet && sessionWallet !== connectedAddr ? (
         <p className="rounded-lg border border-amber-400/30 bg-amber-400/[0.06] px-3 py-2 text-[12px] text-amber-100/90">
-          This browser is verified for {shortAddr(sessionWallet, 4)}, but {shortAddr(connectedAddr, 4)} is connected. Verify the connected wallet to forecast with it.
+          This browser is verified for {shortAddr(sessionWallet, 4)}, but {shortAddr(connectedAddr, 4)} is connected. {purpose === "forecast" ? "Verify the connected wallet to forecast with it." : "Sign in with the connected wallet to see its forecast history."}
         </p>
       ) : null}
       <div className="flex flex-wrap items-center gap-3">
         <button type="button" className="btn btn-primary" onClick={verify} disabled={busy}>
-          {busy ? "Waiting for signature…" : `Verify ${shortAddr(connectedAddr, 4)} to forecast`}
+          {busy ? "Waiting for signature…" : purpose === "forecast" ? `Verify ${shortAddr(connectedAddr, 4)} to forecast` : `Sign in as ${shortAddr(connectedAddr, 4)} to see your forecast`}
         </button>
         <span className="text-[12px] text-ink-3">Signs a short sign-in message. No transaction, no funds.</span>
       </div>

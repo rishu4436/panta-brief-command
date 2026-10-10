@@ -11,6 +11,7 @@ import { EmbedGenerator } from "../rooms/EmbedGenerator";
 import { Panel } from "../Panel";
 import { ErrorState, SkeletonLoader } from "../ui/States";
 import { StatusBadge } from "../ui/StatusBadge";
+import { ELIGIBILITY_TEXT } from "@/lib/forecasts/window-public";
 import { ChartFrame, ChartState, DailyBars, ForecastDistribution, HBars } from "./StudioCharts";
 import { StudioGate } from "./StudioGate";
 import { formatPct, InsightsList, Metric, useCopy } from "./StudioParts";
@@ -353,7 +354,13 @@ function RoomDashboard({ wallet, slug }: { wallet: string; slug: string }) {
           <StatusBadge tone="neutral" size="xs">
             {r.lifecycleLabel}
           </StatusBadge>
+          {r.forecasting !== "archived" ? (
+            <StatusBadge tone={r.forecasting === "open" ? "live" : r.forecasting === "unknown" ? "pending" : "neutral"} size="xs">
+              {r.finalization === "scored" ? "Scored" : r.finalization === "blocked" ? "Blocked" : ELIGIBILITY_TEXT[r.forecasting]}
+            </StatusBadge>
+          ) : null}
         </div>
+        {r.forecastingMessage ? <p className="mt-2 text-[12px] leading-relaxed text-ink-3">{r.forecastingMessage}</p> : null}
         <h2 className="mt-2 break-words text-[22px] font-semibold text-ink">{r.title}</h2>
         <p className="mt-1 text-[12px] text-ink-3">
           {r.marketTitle ?? "Market title unavailable"} · created <span className="font-num">{formatFriendlyIst(r.createdAt)}</span>

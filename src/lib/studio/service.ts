@@ -11,6 +11,8 @@ import { getMarketSnapshot, type MarketSnapshot } from "@/lib/embed/market-snaps
 import { DEFAULT_EMBED_OPTIONS } from "@/lib/embed/options";
 import { embedUrl } from "@/lib/embed/snippet";
 import { consensusFrom, type ForecastAggregate } from "@/lib/forecasts/domain";
+import type { ForecastWindow } from "@/lib/forecasts/window";
+import { forecastEligibility } from "@/lib/forecasts/window-public";
 import { LIFECYCLE_LABEL, marketLifecycle } from "@/lib/panta/catalog";
 import { roomPath, type RoomRecord } from "@/lib/rooms/domain";
 import type { RoomRepository } from "@/lib/rooms/store";
@@ -40,6 +42,11 @@ export type StudioDeps = {
   now: () => number;
   origin: string;
   snapshot?: (marketId: string) => Promise<MarketSnapshot>;
+  /**
+   * The SAME server window check the room's forecast panel uses (read path;
+   * writes always re-check fresh). Absent → Studio never claims "open".
+   */
+  window?: (marketId: string, nowMs: number) => Promise<ForecastWindow>;
 };
 
 /** New-forecaster times read for the daily chart (bounded). */
@@ -48,6 +55,8 @@ const MAX_FIRST_TIMES = 5000;
 const CONCURRENCY = 8;
 /** Market snapshot wait per room in lists (cached; slow Panta never blocks the Studio). */
 const SNAPSHOT_WAIT_MS = 800;
+/** Forecast window wait per room; slower → "Forecasting paused" (never "open"). */
+const WINDOW_WAIT_MS = 3_000;
 
 async function mapLimit<T, R>(items: T[], limit: number, fn: (t: T) => Promise<R>): Promise<R[]> {
   const out = new Array<R>(items.length);
@@ -137,17 +146,21 @@ async function distributionFor(deps: StudioDeps, wallet: string, days: string[])
 
 // ------------------------------------------------------------------ rows
 
-function forecastingState(room: RoomRecord, lifecycle: string | null, fin: FinalizationRecord | null): StudioRoomRow["forecasting"] {
+/**
+ * Studio's forecasting badge = the room panel's eligibility (forecastEligibility
+ * over the same server window). A market snapshot alone can never say "open":
+ * it's a cache, and the secondary phase is closed for forecasting.
+ */
+export function forecastingState(room: RoomRecord, fin: FinalizationRecord | null, window: ForecastWindow | null): StudioRoomRow["forecasting"] {
   if (room.status === "archived") return "archived";
   if (fin) return "closed";
-  if (lifecycle === "open" || lifecycle === "trading") return "open";
-  if (lifecycle === null || lifecycle === "unknown") return "unknown";
-  return "closed";
+  return forecastEligibility(window ? { open: window.open, reason: window.open ? null : window.reason } : null);
 }
 
-export function toRow(room: RoomRecord, aggregate: ForecastAggregate | null, fin: FinalizationRecord | null, snap: MarketSnapshot | null, nowMs: number): StudioRoomRow {
+export function toRow(room: RoomRecord, aggregate: ForecastAggregate | null, fin: FinalizationRecord | null, snap: MarketSnapshot | null, nowMs: number, window: ForecastWindow | null = null): StudioRoomRow {
   const m = snap?.market ?? null;
-  const lifecycle = m ? marketLifecycle(m, Math.floor(nowMs / 1000)) : null;
+  // The window's lifecycle is the most advanced phase any source reported, so it wins over the snapshot's.
+  const lifecycle = window?.lifecycle ?? (m ? marketLifecycle(m, Math.floor(nowMs / 1000)) : null);
   const c = aggregate ? consensusFrom(aggregate) : null;
   return {
     roomId: room.roomId,
@@ -164,7 +177,8 @@ export function toRow(room: RoomRecord, aggregate: ForecastAggregate | null, fin
     updatedAt: new Date(room.updatedAt).toISOString(),
     participants: c?.participants ?? 0,
     communityMeanBps: c?.kind === "consensus" ? c.meanBps : null,
-    forecasting: forecastingState(room, lifecycle, fin),
+    forecasting: forecastingState(room, fin, window),
+    forecastingMessage: room.status === "archived" || fin || !window || window.open ? null : window.message,
     finalization: fin?.status ?? null,
     roomPath: roomPath(room.slug),
   };
@@ -172,6 +186,24 @@ export function toRow(room: RoomRecord, aggregate: ForecastAggregate | null, fin
 
 const snap = (deps: StudioDeps, marketId: string) =>
   (deps.snapshot ?? ((id: string) => getMarketSnapshot(id, { waitMs: SNAPSHOT_WAIT_MS })))(marketId).catch(() => null);
+
+/** Archived rooms aren't checked (badge says Archived). Failure or timeout → null → paused. */
+async function windowFor(deps: StudioDeps, room: RoomRecord, nowMs: number): Promise<ForecastWindow | null> {
+  if (!deps.window || room.status !== "active") return null;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      deps.window(room.marketId, nowMs),
+      new Promise<null>((r) => {
+        timer = setTimeout(() => r(null), WINDOW_WAIT_MS);
+      }),
+    ]);
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 // ------------------------------------------------------------------ overview
 
@@ -294,12 +326,13 @@ export async function listStudioRooms(deps: StudioDeps, wallet: string, opts: { 
   const slice = filtered.slice((page - 1) * STUDIO_PAGE_SIZE, page * STUDIO_PAGE_SIZE);
   const now = deps.now();
   const items = await mapLimit(slice, CONCURRENCY, async (room) => {
-    const [aggregate, fin, s] = await Promise.all([
+    const [aggregate, fin, s, w] = await Promise.all([
       deps.repo.getForecastAggregate(room.roomId).catch(() => null),
       deps.repo.getFinalization(room.marketId).catch(() => null),
       snap(deps, room.marketId),
+      windowFor(deps, room, now),
     ]);
-    return toRow(room, aggregate, fin, s, now);
+    return toRow(room, aggregate, fin, s, now, w);
   });
   return { items, total: filtered.length, page, pageSize: STUDIO_PAGE_SIZE, pages, truncated };
 }
@@ -313,12 +346,13 @@ export async function getStudioRoom(deps: StudioDeps, wallet: string, slug: stri
   const now = deps.now();
   const days = recentDays(now, STUDIO_WINDOW_DAYS);
   const { rooms } = await loadCreatorRooms(deps.repo, wallet);
-  const [[facts], stats, s, dist, latestDebate] = await Promise.all([
+  const [[facts], stats, s, dist, latestDebate, w] = await Promise.all([
     roomFacts(deps.repo, [room]),
     deps.repo.getCreatorStats(wallet, { rooms, sinceMs: now, maxFirst: 1 }),
     snap(deps, room.marketId),
     distributionFor(deps, wallet, days),
     deps.repo.getLatestDebate(room.roomId).catch(() => null),
+    windowFor(deps, room, now),
   ]);
   const c = consensusFrom(facts.aggregate);
   const roomUrl = `${deps.origin}${roomPath(room.slug)}`;
@@ -330,7 +364,7 @@ export async function getStudioRoom(deps: StudioDeps, wallet: string, slug: stri
   const revisions = stats.revisionsByRoom[room.roomId] ?? 0;
   return {
     schemaVersion: STUDIO_SCHEMA_VERSION,
-    room: toRow(room, facts.aggregate, facts.finalization, s, now),
+    room: toRow(room, facts.aggregate, facts.finalization, s, now, w),
     participation: {
       currentForecasts: n,
       revisions,

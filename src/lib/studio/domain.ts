@@ -144,7 +144,10 @@ export type StudioRoomRow = {
   updatedAt: string;
   participants: number;
   communityMeanBps: number | null;
+  /** Same eligibility the room's forecast panel shows (server window); "unknown" = paused. */
   forecasting: "open" | "closed" | "archived" | "unknown";
+  /** The room panel's closed/paused explanation, when there is one. */
+  forecastingMessage: string | null;
   finalization: "scored" | "blocked" | null;
   roomPath: string;
 };

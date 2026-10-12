@@ -13,6 +13,7 @@ import bs58 from "bs58";
 import { NextRequest } from "next/server";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { buildEmbedModel, embedEligibility } from "@/lib/embed/model";
+import { __resetSnapshotCacheForTests, getMarketSnapshot, type SnapshotSources } from "@/lib/embed/market-snapshot";
 import { renderEmbed } from "@/lib/embed/html";
 import { DEFAULT_EMBED_OPTIONS } from "@/lib/embed/options";
 import { __setForecastDepsForTests } from "@/lib/forecasts/deps";
@@ -501,8 +502,19 @@ describe("embed route uses the shared window (time-budgeted)", () => {
   afterEach(() => {
     __setForecastDepsForTests({});
     __setRoomRepositoryForTests(undefined);
+    __resetSnapshotCacheForTests();
   });
+  /** Pinned market data: the snapshot is primary/open, so only the window check decides the badge (no live Panta). */
+  const openPrimarySources: SnapshotSources = {
+    readChain: async () => ({ status: "failed", error: "test: no chain", fetchedAt: Date.now() }),
+    readDetail: async () => ({ status: "ok", detail: market() }),
+    catalogRow: () => null,
+  };
   const seed = async () => {
+    __resetSnapshotCacheForTests();
+    const pinned = await getMarketSnapshot(market().marketId, { src: openPrimarySources });
+    expect(pinned.status).toBe("fresh");
+    expect(pinned.market?.phase).toBe("primary");
     repo = new SqliteRoomRepository(tmp());
     __setRoomRepositoryForTests(repo);
     const r = await repo.createRoom(

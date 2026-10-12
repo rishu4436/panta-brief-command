@@ -11,6 +11,8 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["test/**/*.test.ts"],
+    // No real network in tests (Panta, Solana RPC, ...): see test/setup/no-network.ts.
+    setupFiles: ["test/setup/no-network.ts"],
     // Store credentials are blanked so tests never reach a real Redis through the app's own
     // env lookups (a box shell may export the production Upstash vars). The opt-in live run
     // passes credentials via PHASE8_UPSTASH_ENV_FILE only (test/helpers/isolated-redis.ts).

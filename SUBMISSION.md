@@ -3,7 +3,7 @@
 ## Required links
 
 - [x] **Repository:** <https://github.com/rishu4436/panta-brief-command>
-- [ ] **Live demo:** not deployed yet. Current run target is local only: <http://localhost:3000>. Replace this line with the real public URL after deployment; do not submit localhost as the demo URL.
+- [x] **Live demo:** <https://briefcommand.vercel.app> (Vercel production; `/`, `/desk`, `/execute`, and `/book` return 200 as of 2026-10-12). Do not submit localhost.
 - [x] **Superteam Earn listing:** <https://superteam.fun/earn/listing/panta-api-side-track>
 - [ ] **Official Colosseum project:** create/update the Crypto World’s Fair entry and select/identify the Panta API Sidetrack.
 
@@ -33,11 +33,11 @@
 
 ## Final dual-submit pass
 
-- [ ] Deploy and smoke-test `/`, `/desk`, one `/markets/[marketId]`, `/execute`, and `/book` on the public URL.
+- [x] Deploy and smoke-test `/`, `/desk`, `/execute`, and `/book` on the public URL (HTTP 200). Still pick a titled/priced `/markets/[marketId]` shortly before recording.
 - [ ] Confirm a titled/priced demo market shortly before recording; keep empty states as fallback truth.
 - [ ] If demonstrating a live fill, fund a dedicated low-value demo wallet and verify the attributed activity row.
 - [ ] Submit to **Colosseum Crypto World’s Fair / Panta API Sidetrack**.
 - [ ] Submit separately to **Superteam Earn / Panta API Side Track**.
 - [ ] Register every team member on Colosseum and save confirmation/receipt links for both submissions.
 
-**Deadline:** 13 Oct 2026, 06:59 UTC (**12:29 PM IST**). Aim to finish deployment, video, and both forms before the final day.
+**Deadline:** 13 Oct 2026, 06:59 UTC (**12:29 PM IST**). Live demo is up; finish the demo video plus both Colosseum and Superteam Earn forms before the cutoff.
